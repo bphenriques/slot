@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use slot_power::{motor_change, rumble_node, Battery, Charge, DevicePlatform, LedState, Platform};
 use tempfile::TempDir;
@@ -56,7 +56,51 @@ fn the_backlight_steps_span_whatever_range_the_kernel_reports() {
     assert_eq!(brightness(&d), 255);
     p.set_backlight(5);
     let mid = brightness(&d);
-    assert!((110..=160).contains(&mid), "step 5 of 9 wrote {mid} of 255");
+    assert!((40..=80).contains(&mid), "step 5 of 9 wrote {mid} of 255");
+}
+
+#[test]
+fn step_one_is_the_dimmest_lit_value() {
+    let d = sysfs("255", "87");
+    let mut p = platform(&d);
+    p.set_backlight(1);
+    assert_eq!(brightness(&d), 1);
+}
+
+#[test]
+fn the_steps_follow_the_curve_from_the_floor_to_full() {
+    let d = sysfs("255", "87");
+    let mut p = platform(&d);
+    let wrote: Vec<u32> = (0..=9)
+        .map(|step| {
+            p.set_backlight(step);
+            brightness(&d)
+        })
+        .collect();
+    assert_eq!(wrote, [0, 1, 8, 23, 47, 77, 113, 155, 202, 255]);
+}
+
+#[test]
+fn every_step_is_brighter_than_the_one_below() {
+    let d = sysfs("255", "87");
+    let mut p = platform(&d);
+    let mut last = 0;
+    for step in 1..=9 {
+        p.set_backlight(step);
+        let now = brightness(&d);
+        assert!(now > last, "step {step} wrote {now}, not above {last}");
+        last = now;
+    }
+}
+
+#[test]
+fn a_small_range_still_lights_step_one() {
+    let d = sysfs("10", "87");
+    let mut p = platform(&d);
+    p.set_backlight(1);
+    assert_eq!(brightness(&d), 1);
+    p.set_backlight(9);
+    assert_eq!(brightness(&d), 10);
 }
 
 #[test]
@@ -334,4 +378,31 @@ fn headphones_follow_the_detection_pin() {
     assert!(platform(&d).headphones());
     with_jack(&d, "lo");
     assert!(!platform(&d).headphones());
+}
+
+const MOUNTS: &str = "\
+/dev/mmcblk0p5 / ext4 rw,noatime 0 0
+/dev/mmcblk0p7 /mnt/sdcard vfat ro,noatime,fmask=0022,errors=remount-ro 0 0
+tmpfs /mnt/sdcard/System/slot tmpfs rw,relatime 0 0
+/dev/mmcblk1p1 /mnt/other exfat rw,noatime,errors=remount-ro 0 0
+";
+
+#[test]
+fn a_card_the_kernel_remounted_read_only_reads_as_read_only() {
+    assert!(slot_power::read_only_in(MOUNTS, Path::new("/mnt/sdcard")));
+}
+
+#[test]
+fn the_closest_mount_decides_not_the_root() {
+    assert!(!slot_power::read_only_in(MOUNTS, Path::new("/mnt/other")));
+    assert!(!slot_power::read_only_in(
+        MOUNTS,
+        Path::new("/mnt/sdcard/System/slot")
+    ));
+}
+
+#[test]
+fn an_option_that_merely_mentions_ro_is_not_read_only() {
+    let m = "/dev/x /mnt/card vfat rw,errors=remount-ro 0 0\n";
+    assert!(!slot_power::read_only_in(m, Path::new("/mnt/card")));
 }

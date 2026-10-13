@@ -291,3 +291,65 @@ fn the_cushion_at_an_odd_capacity_still_ends_on_a_frame() {
         "the cushion ended mid frame, so left and right came back swapped"
     );
 }
+
+#[test]
+fn silence_releases_the_device_only_after_three_quiet_seconds() {
+    let mut s = slot::audio::Silence::new(Duration::from_secs(3));
+    let period = Duration::from_millis(500);
+    let quiet = [0i16; 64];
+    for _ in 0..5 {
+        assert!(s.hear(&quiet, period));
+    }
+    assert!(!s.hear(&quiet, period), "still holding after 3s of silence");
+    assert!(
+        s.hear(&[0, 0, 3, 0], period),
+        "sound did not reclaim the device"
+    );
+    assert!(s.hear(&quiet, period), "one sound did not restart the wait");
+}
+
+#[test]
+fn a_released_device_drains_at_the_audio_clock_despite_late_wakeups() {
+    let span = Duration::from_secs_f64(512.0 / GBA_HZ as f64);
+    let mut pace = slot::audio::Pacer::new(span);
+    let start = Instant::now();
+    let mut now = start;
+    let periods = 1_000u32;
+    for _ in 0..periods {
+        now += Duration::from_micros(200);
+        now += pace.wait(now) + Duration::from_micros(500);
+    }
+    let drift = (now - start).abs_diff(span * periods);
+    assert!(
+        drift < span,
+        "{periods} periods took {drift:?} longer than the audio they drained"
+    );
+}
+
+#[test]
+fn a_released_device_resyncs_after_a_long_stall_instead_of_bursting() {
+    let span = Duration::from_millis(10);
+    let mut pace = slot::audio::Pacer::new(span);
+    let start = Instant::now();
+    assert_eq!(pace.wait(start), span);
+    assert_eq!(
+        pace.wait(start + span * 2),
+        Duration::ZERO,
+        "a short lag was not caught up"
+    );
+    assert_eq!(
+        pace.wait(start + Duration::from_secs(2)),
+        span,
+        "a stall was paid back by draining without sleeping"
+    );
+}
+
+#[test]
+fn reopening_the_device_forgets_the_released_schedule() {
+    let span = Duration::from_millis(10);
+    let mut pace = slot::audio::Pacer::new(span);
+    let start = Instant::now();
+    pace.wait(start);
+    pace.reset();
+    assert_eq!(pace.wait(start + span * 3), span);
+}

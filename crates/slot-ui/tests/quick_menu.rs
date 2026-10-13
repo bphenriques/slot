@@ -76,29 +76,85 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 }
 
 #[test]
-fn the_rows_run_in_the_order_the_user_chose() {
-    let labels = QuickRow::ALL.map(QuickRow::label);
+fn the_run_ahead_row_offers_off_and_one_frame() {
     assert_eq!(
-        labels,
+        [0, 1].map(QuickValue::frames),
+        [Some(QuickValue::Off), Some(QuickValue::Frames1)]
+    );
+    for other in [2, 3, 255] {
+        assert_eq!(
+            QuickValue::frames(other),
+            None,
+            "{other} frames is not a value the row has"
+        );
+    }
+}
+
+#[test]
+fn the_rows_run_in_the_order_the_user_chose() {
+    assert_eq!(
+        QuickRow::MAIN.map(QuickRow::label),
+        ["Screen", "Gameplay", "Home Wi-Fi", "Date & Time", "About"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN.map(QuickRow::label),
+        [
+            "GBA Shader",
+            "GB / GBC Shader",
+            "Color Correction",
+            "GB Palettes"
+        ]
+    );
+    assert_eq!(
+        QuickRow::GAME.map(QuickRow::label),
         [
             "Fast Forward",
             "Fast Forward Sound",
-            "Colour Correction",
+            "Rewind",
+            "Run-Ahead",
+            "Turbo Buttons",
             "Rumble",
-            "Home Wi-Fi",
-            "Date & Time",
-            "About"
+            "Auto Save on Eject"
         ]
     );
     let opens: Vec<QuickRow> = QuickRow::ALL.into_iter().filter(|r| r.opens()).collect();
-    assert_eq!(opens, [QuickRow::DateTime, QuickRow::About]);
+    assert_eq!(
+        opens,
+        [
+            QuickRow::Screen,
+            QuickRow::DateTime,
+            QuickRow::About,
+            QuickRow::Game
+        ]
+    );
+    for page in [
+        &QuickRow::MAIN[..],
+        &QuickRow::SCREEN[..],
+        &QuickRow::GAME[..],
+    ] {
+        for &row in page {
+            assert_eq!(row.page(), page, "{row:?}");
+        }
+    }
 }
 
 #[test]
 fn the_values_read_as_the_menu_prints_them() {
     assert_eq!(
         QuickValue::ALL.map(QuickValue::text),
-        ["2×", "3×", "4×", "6×", "On", "Off"]
+        [
+            "2×",
+            "3×",
+            "4×",
+            "6×",
+            "On",
+            "Off",
+            "LCD3x",
+            "Grid",
+            "Dot",
+            "Simpletex",
+            "1 Frame"
+        ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);
     assert_eq!(QuickValue::flag(false), QuickValue::Off);
@@ -148,4 +204,13 @@ fn the_arrows_are_faces_the_height_of_a_value() {
         );
         assert_eq!(caret.h, quick_value_face("On", true).h);
     }
+}
+
+#[test]
+fn the_two_carets_point_different_ways() {
+    assert_ne!(
+        slot_ui::quick_caret_face(false).rgba,
+        slot_ui::quick_caret_face(true).rgba,
+        "a caret glyph is missing from the symbols font"
+    );
 }

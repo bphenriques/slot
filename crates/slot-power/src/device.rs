@@ -10,6 +10,10 @@ use crate::{Battery, Charge, LedState, Platform};
 
 const TOP_STEP: u32 = 9;
 
+const BACKLIGHT_FLOOR: f64 = 1.0;
+
+const BACKLIGHT_CURVE: f64 = 1.75;
+
 const DEV_INPUT: &str = "/dev/input";
 
 const RUN_DIR: &str = "/run";
@@ -261,6 +265,30 @@ extern "C" {
     fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
 }
 
+fn upload(node: &fs::File, id: i16) -> Option<i16> {
+    let mut effect = FfEffect {
+        kind: FF_RUMBLE,
+        id,
+        direction: 0,
+        trigger: FfTrigger::default(),
+        replay: FfReplay::default(),
+        _align: 0,
+        rumble: FfRumble {
+            strong: u16::MAX,
+            weak: u16::MAX,
+        },
+        _tail: [0; 28],
+    };
+    let rc = unsafe {
+        ioctl(
+            node.as_raw_fd(),
+            EVIOCSFF,
+            &mut effect as *mut FfEffect as *mut c_void,
+        )
+    };
+    (rc >= 0).then_some(effect.id)
+}
+
 impl Motor {
     fn open(sysfs: &Path) -> Option<Motor> {
         let name = rumble_node(sysfs)?;
@@ -270,39 +298,29 @@ impl Motor {
             .open(Path::new(DEV_INPUT).join(&name))
             .map_err(|e| eprintln!("slot: rumble {name}: {e}"))
             .ok()?;
-        let mut effect = FfEffect {
-            kind: FF_RUMBLE,
-            id: -1,
-            direction: 0,
-            trigger: FfTrigger::default(),
-            replay: FfReplay::default(),
-            _align: 0,
-            rumble: FfRumble {
-                strong: u16::MAX,
-                weak: u16::MAX,
-            },
-            _tail: [0; 28],
-        };
-        let rc = unsafe {
-            ioctl(
-                node.as_raw_fd(),
-                EVIOCSFF,
-                &mut effect as *mut FfEffect as *mut c_void,
-            )
-        };
-        if rc < 0 {
+        let Some(id) = upload(&node, -1) else {
             eprintln!("slot: rumble {name}: {}", std::io::Error::last_os_error());
             return None;
-        }
+        };
         Some(Motor {
             node,
             name,
-            id: effect.id,
+            id,
             running: false,
         })
     }
 
     fn play(&mut self, on: bool) {
+        if on {
+            match upload(&self.node, self.id).or_else(|| upload(&self.node, -1)) {
+                Some(id) => self.id = id,
+                None => eprintln!(
+                    "slot: rumble {}: {}",
+                    self.name,
+                    std::io::Error::last_os_error()
+                ),
+            }
+        }
         let ev = FfEvent {
             sec: 0,
             usec: 0,
@@ -366,17 +384,30 @@ fn headphones_in(gpio: &str) -> bool {
         .is_some_and(|(_, state)| state.split_whitespace().nth(1) == Some("hi"))
 }
 
+fn backlight_value(step: u8, max: u32) -> u32 {
+    let step = u32::from(step).min(TOP_STEP);
+    if step == 0 {
+        return 0;
+    }
+    let t = f64::from(step - 1) / f64::from(TOP_STEP - 1);
+    let span = f64::from(max) - BACKLIGHT_FLOOR;
+    (BACKLIGHT_FLOOR + span * t.powf(BACKLIGHT_CURVE)).round() as u32
+}
+
 impl Platform for DevicePlatform {
     fn headphones(&self) -> bool {
         fs::read_to_string(self.sysfs.join("kernel/debug/gpio")).is_ok_and(|g| headphones_in(&g))
+    }
+
+    fn card_read_only(&self) -> bool {
+        read_only(&self.root)
     }
 
     fn set_backlight(&mut self, step: u8) {
         let Some(backlight) = &self.backlight else {
             return;
         };
-        let step = u32::from(step).min(TOP_STEP);
-        let value = self.max_brightness * step / TOP_STEP;
+        let value = backlight_value(step, self.max_brightness);
         let write = |file: PathBuf, body: String| {
             if let Err(e) = fs::write(&file, body) {
                 eprintln!("slot: {}: {e}", file.display());
@@ -501,4 +532,21 @@ impl Platform for DevicePlatform {
             motor.play(on);
         }
     }
+}
+
+pub fn read_only(path: &Path) -> bool {
+    fs::read_to_string("/proc/mounts").is_ok_and(|m| read_only_in(&m, path))
+}
+
+pub fn read_only_in(mounts: &str, path: &Path) -> bool {
+    mounts
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split_whitespace();
+            let point = Path::new(f.nth(1)?);
+            let options = f.nth(1)?;
+            path.starts_with(point).then_some((point, options))
+        })
+        .max_by_key(|(point, _)| point.as_os_str().len())
+        .is_some_and(|(_, options)| options.split(',').any(|o| o == "ro"))
 }
