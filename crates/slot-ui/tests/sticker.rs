@@ -93,3 +93,12 @@ fn the_wordmarks_top_edge_is_antialiased_not_a_hard_step() {
         "every sampled column's top edge jumps straight from the ground to the ink: {edges:?}"
     );
 }
+
+#[test]
+fn the_plate_says_where_it_was_seasoned_and_who_else_holds_it() {
+    let all = sticker_lines(&fields()).join("\n");
+    let made = all.find("MADE IN ITHACA").expect("{all}");
+    let seasoned = all.find("SEASONED IN BERLIN").expect("{all}");
+    assert!(seasoned > made, "Berlin should sit below Ithaca: {all}");
+    assert!(all.contains("PRASHANT VAIBHAV"), "{all}");
+}
