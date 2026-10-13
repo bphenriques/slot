@@ -87,7 +87,22 @@ jobs:
         run: |
           set -eu
           cat > notes.md <<NOTES
-          Slot now sets the CPU governor to \`schedutil\` on startup, allowing lighter workloads to run at lower clock speeds to help improve battery life and reduce heat generation.
+          Built on upstream slot 1.6.0 and its fixes since then. The last release of this fork was built on 1.4.0, so upstream's 1.5.0 and 1.6.0 changes are new here too. They are all in upstream's [changelog](https://github.com/BrandonKowalski/slot/blob/main/CHANGELOG.md). Highlights:
+
+          - Settings are split into Screen and Gameplay pages.
+          - Screen shaders per platform, and SELECT + B / A in game steps through them.
+          - An optional 1 frame run-ahead for GBA games on mGBA, for lower input lag.
+          - Large libraries boot faster, and resting on a cart reads its ROM ahead so games start sooner.
+          - A red alarm shows when the SD card turns read-only or a save fails to write.
+          - Backlight steps follow a curve, so the lowest setting goes dimmer.
+          - Pokémon Pinball: Ruby & Sapphire rumble, and Game Boy cartridge clocks kept in the \`.sav\`.
+
+          New in this fork:
+
+          - HOME WI-FI is on the main quick menu page, between Gameplay and Date & Time.
+          - The About sticker says it was seasoned in Berlin, and names Prashant Vaibhav beside the copyright.
+
+          Everything else this fork adds (colour calibration, Home Wi-Fi, label downloads, RetroAchievements, linking over Wi-Fi, \`schedutil\`) carries over. See the [README](https://github.com/${GITHUB_REPOSITORY}#what-this-fork-adds).
 
           Unzip and copy the contents of \`slot-${GITHUB_REF_NAME}/\` onto SD2.
 
