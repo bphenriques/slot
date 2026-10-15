@@ -64,8 +64,8 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
     let mut carts = Vec::new();
     for platform in Platform::ALL {
         let dir = root.join("Games").join(platform.dir_name());
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(d) => d,
+        let roms = match rom_files(&dir) {
+            Ok(roms) => roms,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
                 eprintln!("slot: scan: {}: {e}", dir.display());
@@ -74,12 +74,8 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
         };
         let labels_dir = root.join("Labels").join(platform.dir_name());
         let labels = listing(&labels_dir);
-        for entry in entries {
-            let Ok(entry) = entry else {
-                continue;
-            };
-            let rom = entry.path();
-            if is_hidden(&rom) || !platform.accepts(&rom) || !is_file(&entry) {
+        for rom in roms {
+            if !platform.accepts(&rom) {
                 continue;
             }
             let Some(stem) = rom.file_stem().and_then(|s| s.to_str()) else {
@@ -114,6 +110,30 @@ pub fn listing(dir: &Path) -> HashMap<String, String> {
         .filter(|name| !name.starts_with('.'))
         .map(|name| (name.to_lowercase(), name))
         .collect()
+}
+
+/// The files in a platform folder and in its subfolders one level down, hidden ones left out.
+pub fn rom_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut roms = Vec::new();
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        if is_hidden(&path) {
+            continue;
+        }
+        if is_file(&entry) {
+            roms.push(path);
+        } else if path.is_dir() {
+            let Ok(sub) = std::fs::read_dir(&path) else {
+                continue;
+            };
+            roms.extend(
+                sub.flatten()
+                    .filter(|e| is_file(e) && !is_hidden(&e.path()))
+                    .map(|e| e.path()),
+            );
+        }
+    }
+    Ok(roms)
 }
 
 fn is_file(entry: &std::fs::DirEntry) -> bool {

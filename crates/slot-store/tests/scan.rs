@@ -76,6 +76,28 @@ fn an_appledouble_sidecar_is_not_shelved_as_a_cart() {
 }
 
 #[test]
+fn a_rom_in_a_subfolder_is_shelved_beside_the_others() {
+    let d = tmp_root();
+    std::fs::create_dir_all(d.path().join("Games/GBA/modern")).unwrap();
+    write_rom(&d, "GBA/Advance Wars.gba", "ADVANCEWARS");
+    write_rom(&d, "GBA/modern/Apotris.gba", "APOTRIS");
+    let carts = scan(d.path()).unwrap();
+    let stems: Vec<_> = carts.iter().map(|c| c.stem.as_str()).collect();
+    assert_eq!(stems, ["Advance Wars", "Apotris"]);
+    assert_eq!(carts[1].rom, d.path().join("Games/GBA/modern/Apotris.gba"));
+}
+
+#[test]
+fn hidden_subfolders_and_deeper_ones_are_not_scanned() {
+    let d = tmp_root();
+    std::fs::create_dir_all(d.path().join("Games/GBA/.media")).unwrap();
+    std::fs::create_dir_all(d.path().join("Games/GBA/a/b")).unwrap();
+    write_rom(&d, "GBA/.media/Hidden.gba", "HIDDEN");
+    write_rom(&d, "GBA/a/b/Deep.gba", "DEEP");
+    assert!(scan(d.path()).unwrap().is_empty());
+}
+
+#[test]
 fn header_title_of_a_truncated_rom_is_none_not_a_panic() {
     let d = tmp_root();
     std::fs::write(d.path().join("Games/GBA/Tiny.gba"), [0u8; 8]).unwrap();

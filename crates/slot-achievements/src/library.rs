@@ -59,19 +59,12 @@ pub(crate) fn hash(dir: &Path, path: &Path) -> Result<String, String> {
 
 pub(crate) fn pending(root: &Path, dir: &Path, now: u64) -> VecDeque<PathBuf> {
     let index: Index = storage::read(&dir.join("library.json")).unwrap_or_default();
-    let mut paths: Vec<_> = std::fs::read_dir(root.join("Games/GBA"))
+    let mut paths: Vec<_> = slot_store::rom_files(&root.join("Games/GBA"))
+        .unwrap_or_default()
         .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
         .filter(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("gba"))
-                && !path
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("gba"))
         })
         .filter(|path| {
             let Some(entry) = index.get(path) else {

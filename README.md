@@ -48,6 +48,8 @@ notes are in the [changelog](CHANGELOG.md).
 - **Linking over home Wi-Fi.** When at home and connected to Wi-Fi, two handhelds can link
   using that instead of having to create ad hoc networks. Outside of home, you can continue
   using slot's normal method. This works seamlessly, no config needed.
+- **ROMs in subfolders.** Slot also finds games one folder down, like `Games/GBA/Homebrew/`, so
+  a library sorted into folders still shows on the shelf.
 
 ## How to configure
 
