@@ -11,6 +11,7 @@ mod footer;
 mod hud;
 mod icon;
 mod link_art;
+mod music;
 mod plate;
 mod polaroids;
 mod power_menu;
@@ -55,6 +56,11 @@ pub use link_art::{
     link_art, LinkArt, ADAPTER_BASE_X, ADAPTER_BASE_Y, ADAPTER_H, ADAPTER_W, ARCS, ARROW_H,
     ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, NET_H,
     NET_W, NET_X, NET_Y, PLUG_H, PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
+};
+pub use music::{
+    draw_music, marquee_offset, music_action_px, music_legend_faces, music_line_face,
+    music_row_face, music_row_px, music_scrolls, music_status_face, music_text_width, music_window,
+    LineInk, MusicFace, MusicFaces, MusicLegends, ART_BOX, MUSIC_STATUS, MUSIC_TITLE_W,
 };
 pub use plate::{
     arrows_hint_face, arrows_hint_width, cap_width, centred_hints, hint_face, hint_quad, hint_row,

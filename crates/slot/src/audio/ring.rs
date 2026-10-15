@@ -28,6 +28,7 @@ pub struct Ring {
     rate: AtomicU32,
     muted: AtomicBool,
     idle: AtomicBool,
+    yielded: AtomicBool,
     overruns: AtomicU64,
     underruns: AtomicU64,
     consuming: AtomicBool,
@@ -49,6 +50,7 @@ impl Ring {
             room: Condvar::new(),
             queued: AtomicUsize::new(0),
             idle: AtomicBool::new(false),
+            yielded: AtomicBool::new(false),
             capacity: AtomicUsize::new(capacity_frames),
             rate: AtomicU32::new(0),
             muted: AtomicBool::new(false),
@@ -196,6 +198,15 @@ impl Ring {
 
     pub fn muted(&self) -> bool {
         self.muted.load(Ordering::Relaxed)
+    }
+
+    /// Another process (Muse) has the codec: BaseOS has no mixer, so the output stays closed.
+    pub fn set_yielded(&self, yielded: bool) {
+        self.yielded.store(yielded, Ordering::Relaxed);
+    }
+
+    pub fn yielded(&self) -> bool {
+        self.yielded.load(Ordering::Relaxed)
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {

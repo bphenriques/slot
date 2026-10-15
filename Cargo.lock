@@ -2615,6 +2615,7 @@ dependencies = [
  "slot-gfx",
  "slot-input",
  "slot-labels",
+ "slot-music",
  "slot-power",
  "slot-retro",
  "slot-store",
@@ -2665,6 +2666,16 @@ dependencies = [
  "tempfile",
  "unicode-normalization",
  "ureq",
+]
+
+[[package]]
+name = "slot-music"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "libc",
+ "slot-store",
+ "tempfile",
 ]
 
 [[package]]

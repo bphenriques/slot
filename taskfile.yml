@@ -324,7 +324,7 @@ tasks:
           CMD: ./target-device/device/slot --init-root {{.OUT}}
       - cp target-device/device/slot {{.OUT}}/System/slot
       - cp target-device/device/slot-services {{.OUT}}/System/
-      - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example {{.OUT}}/Config/
+      - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example {{.OUT}}/Config/
       - mkdir {{.OUT}}/System/slot-net
       - cp vendor/slot-net/iw vendor/slot-net/*.so.* {{.OUT}}/System/slot-net/
       - mkdir -p {{.OUT}}/System/muse/lib
@@ -369,7 +369,7 @@ tasks:
       - adb push target-device/device/slot '{{.SD}}/System/slot'
       - for f in card/System/*; do adb push "$f" '{{.SD}}/System/'; done
       - adb push target-device/device/slot-services '{{.SD}}/System/slot-services'
-      - adb push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example '{{.SD}}/Config/'
+      - adb push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example '{{.SD}}/Config/'
       - adb shell mkdir -p '{{.SD}}/System/slot-net'
       - adb push vendor/slot-net/iw vendor/slot-net/*.so.* '{{.SD}}/System/slot-net/'
       - adb shell mkdir -p '{{.SD}}/System/muse/lib'

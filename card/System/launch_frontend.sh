@@ -15,6 +15,8 @@ if [ -z "$pid" ] || [ ! -d "/proc/$pid" ]; then
 	echo $! > "$RUN/slot-led.pid"
 fi
 
+sh "$SYS/muse.sh" start
+
 echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/dev/null
 
 for governor in /sys/devices/system/cpu/cpufreq/policy*/scaling_governor; do

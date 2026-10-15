@@ -10,7 +10,7 @@ pub const RUMBLE_MIN_MS: Millis = 100;
 pub const RUMBLE_MAX_MS: Millis = 150;
 
 use crate::app::{App, Phase};
-use crate::audio::{opened_sink, AudioSink, Ring, Sfx};
+use crate::audio::{opened_sink, AudioSink, LineOut, Ring, Sfx};
 use crate::core::open_core;
 use crate::emu::{CoreState, EmuHandle, Speed};
 use crate::frames::FrameRef;
@@ -25,6 +25,7 @@ pub struct Session {
     app: App,
     emu: Option<EmuHandle>,
     sink: Box<dyn AudioSink>,
+    line_out: LineOut,
     gestures: Gestures,
     pad: Pad,
     rewinding: bool,
@@ -49,6 +50,7 @@ impl Session {
             root,
             emu: None,
             sink,
+            line_out: LineOut::default(),
             gestures: Gestures::new(),
             pad: Pad::default(),
             rewinding: false,
@@ -293,6 +295,10 @@ impl Session {
         if let Some(sfx) = self.app.take_sfx() {
             self.play_sfx(sfx);
         }
+        let music = self.app.music_owns_audio();
+        self.sink.ring().set_yielded(music);
+        self.line_out
+            .follow(self.app.music_audible().then(|| self.app.output_volume()));
         self.sync_core();
         self.sync_reload();
         if !self.has_core() {

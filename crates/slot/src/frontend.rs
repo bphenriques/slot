@@ -57,6 +57,7 @@ pub struct Frontend {
     clocks: Clocks,
     about: AboutFace,
     quick_clock: QuickClock,
+    music: crate::music_faces::MusicText,
 }
 
 #[derive(Default)]
@@ -142,6 +143,7 @@ impl Frontend {
             clocks: Clocks::default(),
             about: AboutFace::default(),
             quick_clock: QuickClock::default(),
+            music: Default::default(),
         }
     }
 
@@ -359,6 +361,7 @@ impl Frontend {
         self.cart_faces.sync(self.session.app_mut(), compositor);
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
+        self.music.sync(self.session.app_mut(), compositor);
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
         sync_core_picker(
             self.session.app_mut(),

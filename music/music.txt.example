@@ -1,0 +1,17 @@
+# Music player settings. Remove ".example" from the name to use this file. The Music Settings
+# page (Music > Settings) changes the same values.
+
+# What turning the screen off (POWER or closing the lid) does to music: pause, or play on.
+# Playing on keeps the device awake until the music stops, then it powers off as usual.
+screen_off = pause
+
+# Which buttons change track on Now Playing: dpad (Left and Right; L1 and R1 seek 10 s), or
+# shoulders (L1 and R1; Left and Right seek).
+skip = dpad
+
+# How big library lists and the queue are: small (10 rows a page), normal (8) or large (7).
+# Menus keep slot's own size.
+list = normal
+
+# The repeat mode Now Playing last left (Y there cycles it): off, all or one.
+repeat = off

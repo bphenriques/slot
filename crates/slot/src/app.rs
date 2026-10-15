@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use slot_gfx::{OUT_H, OUT_W};
 use slot_input::{Action, Btn, MUTE_CHORD_MS};
+use slot_music::Music;
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
@@ -15,11 +16,13 @@ use slot_store::{
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
     draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, ClockPicker,
-    Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids, QuickMenu,
-    QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome, TexId, Toast, BOARD_W,
-    BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H,
-    SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, MusicFaces, Placed, Polaroids,
+    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome, TexId, Toast,
+    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
+    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
+
+mod music;
 
 use crate::audio::Sfx;
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
@@ -252,6 +255,7 @@ pub enum Phase {
         cart: String,
     },
     About,
+    Music,
     Doze {
         cart: Option<String>,
     },
@@ -347,6 +351,9 @@ pub struct App {
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
     state_writer: crate::state_writer::StateWriter,
+    music: Option<Music>,
+    music_faces: MusicFaces,
+    music_on_wake: bool,
 }
 
 const FACE_AHEAD: i32 = 8;
@@ -469,6 +476,9 @@ impl App {
             battery: None,
             last_led: None,
             powering_off: false,
+            music: None,
+            music_faces: MusicFaces::default(),
+            music_on_wake: false,
         }
     }
 
@@ -480,6 +490,7 @@ impl App {
         crate::boot_time::mark("scan");
         let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
+        app.music = Some(Music::spawn(root, slot_ui::ART_BOX));
         app.state = read_slot_state(root);
         app.radio.ask(RadioJob::Home(app.state.home_wifi_enabled));
         if app.state.clock_set {
@@ -661,7 +672,11 @@ impl App {
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
             QuickRow::RunAhead => QuickValue::frames(self.state.runahead),
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => None,
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Music => None,
         }
     }
 
@@ -1316,6 +1331,8 @@ impl App {
                 }
             }
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
+            Phase::Music => self.music_input(action),
+            Phase::Doze { .. } => self.music_dark_input(action),
             _ => {}
         }
     }
@@ -1351,6 +1368,7 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
+            QuickRow::Music => self.open_music(),
             QuickRow::Screen | QuickRow::Game => {
                 if let Some(row) = row.child() {
                     self.phase = Phase::QuickMenu { row };
@@ -1413,7 +1431,11 @@ impl App {
                 let n = RUN_AHEAD_MAX + 1;
                 s.runahead = (s.runahead + if right { 1 } else { n - 1 }) % n;
             }
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => return,
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Music => return,
         }
         self.persist();
     }
@@ -1633,6 +1655,7 @@ impl App {
         }
         self.timers();
         self.poll_link();
+        self.poll_music();
         let now = self.now();
         let ready = self.core_faces_ready();
         if let Some(picker) = &mut self.core_picker {
@@ -1729,7 +1752,7 @@ impl App {
 
     pub fn frame_split(&self) -> Option<f32> {
         match self.phase {
-            Phase::QuickMenu { .. } => Some(slot_ui::QUICK_SPLIT),
+            Phase::QuickMenu { .. } | Phase::Music => Some(slot_ui::QUICK_SPLIT),
             _ => None,
         }
     }
@@ -2045,6 +2068,7 @@ impl App {
                 draw_sticker(self.sticker_face, out);
                 return;
             }
+            Phase::Music => slot_ui::draw_music(&self.music_faces, out),
             Phase::Inserting { cart, resumed, .. } => {
                 if !resumed {
                     draw_backdrop(self.wallpaper, out);
@@ -2460,6 +2484,7 @@ impl App {
             "slot: launch: insert {cart} at {:.1} ms",
             crate::boot_time::ms()
         );
+        self.pause_music();
         self.play_held = None;
         self.refusal = None;
         self.refused_from = None;
@@ -2551,6 +2576,7 @@ impl App {
         if matches!(self.phase, Phase::Doze { .. }) {
             return;
         }
+        self.doze_music();
         self.state_writer.flush();
         self.flush_resume();
         let cart = match &mut self.phase {
@@ -2574,6 +2600,7 @@ impl App {
             Some(cart) => Phase::Playing { cart },
             None => Phase::Shelf,
         };
+        self.wake_music();
         if let Some(power) = &mut self.power {
             power.on_open();
         }
