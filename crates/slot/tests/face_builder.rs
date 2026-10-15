@@ -42,7 +42,7 @@ fn a_request_comes_back_as_the_open_carts_faces() {
         !got[0].is_for(&updated),
         "old faces must not replace newly attached artwork"
     );
-    assert_eq!((got[0].board.w, got[0].board.h), (372, 209));
+    assert_eq!((got[0].board.w, got[0].board.h), (CART_W, CART_H));
     assert_eq!(
         (got[0].lid.w, got[0].lid.h),
         (CART_W + 2 * TURN_PAD, CART_H + 2 * TURN_PAD)

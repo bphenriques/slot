@@ -37,7 +37,7 @@ notes are in the [changelog](CHANGELOG.md).
 - Holding POWER **shuts down** directly, without showing a menu. I did not find value in a
   restart option.
 - **Home Wi-Fi.** Slot can now connect to your home Wi-Fi. Just set up your Wi-Fi credentials
-  in `Config/wifi.toml` and then turn HOME WI-FI on from the menu. Everything happens
+  in `Config/wifi.toml` and then turn HOME WI-FI on under General. Everything happens
   automatically from then onwards. Most of the features below depend on this.
 - **Hassle-free cart label scraping.** Just throw your ROMs on the SD card, and slot downloads
   missing labels in the background. It will not replace a label you added yourself, though.
@@ -62,7 +62,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.6.0-pvaibhav.2](https://github.com/pvaibhav/slot/releases/tag/v1.6.0-pvaibhav.2).
+The current release is [v1.7.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.7.0-pvaibhav.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---
@@ -91,10 +91,6 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 | Anbernic 35XX Plus | Yes                        | 1.5.0         |
 | Anbernic RG28XX    | Yes                        | 1.6.0         |
 
-RG28XX support was contributed by [GamerAnim](https://github.com/GamerAnim). Its panel is mounted
-portrait, so slot turns the picture onto it. If it comes out upside down, add `export SLOT_ROTATE=ccw`
-to `System/launch_frontend.sh`.
-
 If you have one of the untested devices, or have tried slot on a device not listed,
 please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues) and let me know how it went.
 
@@ -104,14 +100,18 @@ please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues)
 
 From upstream:
 
-The Rust frontend was put together by Claude Opus. I reviewed everything that was
-produced. All documentation is 100% free-range, meatbag prose.
+The Rust frontend, and the SVGs on [slot-cfw.fyi](https://slot-cfw.fyi), were put together by Claude.
+I reviewed everything that was produced. All documentation is 100% free-range, meatbag prose.
 
-The project is extremely low stakes. I wanted a bespoke frontend for my RG SP and thought
-that something that evokes the feeling of using my GBA SP as a kid would be pretty neat.
+My goal with this project was to recreate the feeling of playing my GBA SP in the back seat as a kid,
+but with a few modern creature comforts.
 
-Use it, don't use it, I don't care.
+Nothing about this project is exciting or groundbreaking from a technological perspective, and as a
+result, I delegated the glue code. mGBA and gpSP have been around forever and are the true stars of
+this show. The incredible skeuomorphic art is the work of [Markus](https://github.com/MarkusMaribu), an
+artist who saw the bare-bones version and offered to dress it up.
 
-Figured I should share the end result of all the wasted water. ✌🏻
+I understand if my use of AI is a dealbreaker for you. Just know it's the least interesting part of
+what's here.
 
 This fork's additions were written with AI assistance too.

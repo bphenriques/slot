@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 
-pub const DIRS: [&str; 20] = [
+pub const DIRS: [&str; 24] = [
     "BIOS",
+    "Bezels",
+    "Bezels/GB",
+    "Bezels/GBC",
     "Config",
     "Games",
     "Games/GBA",
@@ -11,6 +14,7 @@ pub const DIRS: [&str; 20] = [
     "Labels/GBA",
     "Labels/GB",
     "Labels/GBC",
+    "Logs",
     "Saves",
     "Saves/GBA",
     "Saves/GB",
@@ -50,6 +54,10 @@ pub fn has_real_bios(root: &Path) -> bool {
     }
     let mut first = [0u8; 1];
     std::io::Read::read_exact(&mut f, &mut first).is_ok() && first[0] == BIOS_FIRST_BYTE
+}
+
+pub fn logs_dir(root: &Path) -> PathBuf {
+    root.join("Logs")
 }
 
 pub fn saves_dir(root: &Path) -> PathBuf {

@@ -2,8 +2,8 @@ mod common;
 
 use common::tmp_root;
 use slot_store::{
-    atomic_write, read_slot_state, write_slot_state, GbPalette, Platform, Shader, SlotState,
-    FF_SPEEDS, FF_SPEED_DEFAULT,
+    atomic_write, read_slot_state, write_slot_state, Appearance, BezelPick, GbPalette, Platform,
+    Recent, Shader, SlotState, WallpaperPick, WallpaperTint, FF_SPEEDS, FF_SPEED_DEFAULT,
 };
 use tempfile::tempdir;
 
@@ -173,7 +173,14 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert!(s.rumble, "boots with the motor off");
     assert_eq!(s.ff_speed, FF_SPEED_DEFAULT);
     assert!(!s.ff_sound, "boots with fast forward audible");
-    assert!(!s.colour_correction, "boots with the picture tinted");
+    assert!(
+        !s.colour_correction_gba,
+        "boots with the GBA picture tinted"
+    );
+    assert!(
+        !s.colour_correction_gb,
+        "boots with the Game Boy picture tinted"
+    );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
     assert_eq!(s.runahead, 0, "boots with run-ahead on");
@@ -208,9 +215,12 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             home_wifi_enabled: false,
             ff_speed: FF_SPEED_DEFAULT,
             ff_sound: false,
-            colour_correction: false,
+            colour_correction_gba: false,
+            colour_correction_gb: false,
+            colour_correction_gbc: false,
             shader_gba: Shader::Grid,
             shader_gb: Shader::Simpletex,
+            shader_gbc: Shader::Simpletex,
             eject_save: true,
             turbo: true,
             rewind: true,
@@ -218,6 +228,18 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             high_refresh: true,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
+            appearance: Appearance::Dark,
+            wallpaper: WallpaperPick::Default,
+            wallpaper_tint: WallpaperTint::Off,
+            show_recents: false,
+            show_titles: false,
+            bezel_gba: BezelPick::Ags102,
+            bezel_gb: BezelPick::Ags102,
+            bezel_gbc: BezelPick::Ags102,
+            recents: Vec::new(),
+            favorites: Vec::new(),
+            shelf: None,
+            shelf_cart: None,
         }
     );
 }
@@ -230,7 +252,8 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         rumble: false,
         ff_speed: 2,
         ff_sound: true,
-        colour_correction: true,
+        colour_correction_gba: true,
+        colour_correction_gb: false,
         shader_gba: Shader::Dot,
         shader_gb: Shader::Off,
         eject_save: false,
@@ -240,6 +263,17 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         high_refresh: true,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
+        wallpaper_tint: WallpaperTint::Medium,
+        colour_correction_gbc: true,
+        shader_gbc: Shader::Grid,
+        bezel_gba: BezelPick::None,
+        bezel_gb: BezelPick::Default,
+        bezel_gbc: BezelPick::File("Pocket.png".into()),
+        shelf: Some("gba".into()),
+        shelf_cart: Some(Recent {
+            platform: Platform::Gba,
+            stem: "Drill Dozer".into(),
+        }),
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -249,7 +283,8 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "rumble=0",
         "ff_speed=2",
         "ff_sound=1",
-        "colour_correction=1",
+        "colour_correction_gba=1",
+        "colour_correction_gb=0",
         "shader_gba=dot",
         "shader_gb=off",
         "eject_save=0",
@@ -259,6 +294,15 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "high_refresh=1",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
+        "appearance=dark",
+        "wallpaper_tint=medium",
+        "bezel_gba=none",
+        "bezel_gb=default",
+        "bezel_gbc=Pocket.png",
+        "colour_correction_gbc=1",
+        "shader_gbc=grid",
+        "shelf=gba",
+        "shelf_cart=gba/Drill Dozer",
     ] {
         assert!(text.lines().any(|l| l == line), "no {line} in {text:?}");
     }
@@ -369,6 +413,8 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
         "colour_correction=2\n",
         "colour_correction=\n",
         "colour_correction=Auto\n",
+        "colour_correction_gba=2\n",
+        "colour_correction_gb=on\n",
         "ff_speed=5\n",
         "ff_speed=7\n",
         "ff_speed=8\n",
@@ -377,8 +423,14 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
         std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
         let s = read_slot_state(d.path());
         assert_eq!(
-            (s.rumble, s.ff_speed, s.ff_sound, s.colour_correction),
-            (true, FF_SPEED_DEFAULT, false, false),
+            (
+                s.rumble,
+                s.ff_speed,
+                s.ff_sound,
+                s.colour_correction_gba,
+                s.colour_correction_gb
+            ),
+            (true, FF_SPEED_DEFAULT, false, false, false),
             "accepted {bad:?}"
         );
         assert_eq!(
@@ -505,4 +557,86 @@ fn a_missing_or_unknown_palette_falls_back_to_dmg_green() {
         assert!(!s.gb_palettes, "{bad:?} turned palettes on");
         assert_eq!(s.gb_palette, GbPalette::DEFAULT, "{bad:?}");
     }
+}
+
+#[test]
+fn a_card_with_one_colour_correction_setting_starts_both_systems_from_it() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for (old, want) in [
+        ("colour_correction=1\n", true),
+        ("colour_correction=0\n", false),
+    ] {
+        std::fs::write(d.path().join("Config/slot.state"), format!("{known}{old}")).unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!(
+            (s.colour_correction_gba, s.colour_correction_gb),
+            (want, want),
+            "{old:?}"
+        );
+    }
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction=1\ncolour_correction_gb=0\n"),
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!(
+        (s.colour_correction_gba, s.colour_correction_gb),
+        (true, false),
+        "the old line overrode a system's own setting"
+    );
+}
+
+#[test]
+fn a_wallpaper_tint_it_does_not_know_reads_as_off() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for (line, want) in [
+        ("wallpaper_tint=high", WallpaperTint::High),
+        ("wallpaper_tint=blinding", WallpaperTint::Off),
+    ] {
+        std::fs::write(
+            d.path().join("Config/slot.state"),
+            format!("{known}wallpaper=a.png\n{line}\n"),
+        )
+        .unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!(s.wallpaper, WallpaperPick::File("a.png".into()), "{line}");
+        assert_eq!(s.wallpaper_tint, want, "{line}");
+    }
+}
+
+#[test]
+fn a_card_from_before_the_gbc_split_starts_gbc_from_the_gb_c_settings() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction_gb=1\nshader_gb=grid\n"),
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!((s.colour_correction_gb, s.shader_gb), (true, Shader::Grid));
+    assert_eq!(
+        (s.colour_correction_gbc, s.shader_gbc),
+        (true, Shader::Grid)
+    );
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction=1\n"),
+    )
+    .unwrap();
+    assert!(read_slot_state(d.path()).colour_correction_gbc);
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction_gb=1\nshader_gb=grid\ncolour_correction_gbc=0\nshader_gbc=off\n"),
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!(
+        (s.colour_correction_gbc, s.shader_gbc),
+        (false, Shader::Off),
+        "the GB settings overrode GBC's own"
+    );
 }

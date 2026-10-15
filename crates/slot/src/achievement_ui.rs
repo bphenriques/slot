@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use slot_achievements::{Notice, NoticeKind, SyncStatus};
-use slot_gfx::{Compositor, Draw, TexId, OUT_H, OUT_W};
+use slot_gfx::{Canvas, Compositor, Draw, TexId};
 use slot_ui::{text, CartFace, SyncIndicator};
 
 use crate::app::Phase;
@@ -21,11 +21,11 @@ pub(crate) struct Notifications {
     texture: Option<TexId>,
     badge: Option<TexId>,
     shown: Option<Instant>,
-    sync: Option<TexId>,
+    sync: Option<[TexId; 2]>,
     started: Instant,
     requested_progress: Option<u8>,
     displayed_progress: Option<u8>,
-    progress: Option<TexId>,
+    progress: Option<[TexId; 2]>,
 }
 
 enum Request {
@@ -34,8 +34,8 @@ enum Request {
 }
 
 enum Built {
-    Progress(u8, CartFace),
-    Sync(CartFace),
+    Progress(u8, [CartFace; 2]),
+    Sync([CartFace; 2]),
     Banner(CartFace, CartFace, Vec<i16>),
 }
 
@@ -46,7 +46,10 @@ impl Notifications {
         let _ = std::thread::Builder::new()
             .name("slot-ra-banner".into())
             .spawn(move || {
-                if outbox.send(Built::Sync(slot_ui::sync_icon_face())).is_err() {
+                if outbox
+                    .send(Built::Sync([false, true].map(slot_ui::sync_icon_face)))
+                    .is_err()
+                {
                     return;
                 }
                 while let Ok(request) = inbox.recv() {
@@ -54,7 +57,10 @@ impl Notifications {
                         Request::Earned(notice, rate) => (notice, rate),
                         Request::Progress(percent) => {
                             if outbox
-                                .send(Built::Progress(percent, progress_face(percent)))
+                                .send(Built::Progress(
+                                    percent,
+                                    [false, true].map(|light| progress_face(percent, light)),
+                                ))
                                 .is_err()
                             {
                                 return;
@@ -107,17 +113,23 @@ impl Notifications {
                     if self.requested_progress != Some(percent) {
                         continue;
                     }
-                    match self.progress {
-                        Some(id) => compositor.update_texture(id, face.w, face.h, &face.rgba),
-                        None => {
-                            self.progress =
-                                Some(compositor.create_texture(face.w, face.h, &face.rgba))
+                    self.progress = Some(match self.progress {
+                        Some(ids) => {
+                            for (id, face) in ids.into_iter().zip(face) {
+                                compositor.update_texture(id, face.w, face.h, &face.rgba);
+                            }
+                            ids
                         }
-                    }
+                        None => {
+                            face.map(|face| compositor.create_texture(face.w, face.h, &face.rgba))
+                        }
+                    });
                     self.displayed_progress = Some(percent);
                 }
                 Built::Sync(face) => {
-                    self.sync = Some(compositor.create_texture(face.w, face.h, &face.rgba));
+                    self.sync = Some(
+                        face.map(|face| compositor.create_texture(face.w, face.h, &face.rgba)),
+                    );
                 }
                 Built::Banner(face, badge, sound) => {
                     self.waiting = false;
@@ -142,9 +154,10 @@ impl Notifications {
         }
         let status = session.achievement_sync_status();
         let visible = status == SyncStatus::Syncing || session.achievement_sync_pending();
-        let icon = self.sync.and_then(|face| {
+        let theme = usize::from(session.app().light());
+        let icon = self.sync.and_then(|faces| {
             visible.then_some(SyncIndicator {
-                face,
+                face: faces[theme],
                 turn: if status == SyncStatus::Syncing {
                     self.started.elapsed().as_secs_f32() % 2.0 * std::f32::consts::PI
                 } else {
@@ -156,7 +169,7 @@ impl Notifications {
                 },
                 attention: matches!(status, SyncStatus::Offline | SyncStatus::Attention),
                 progress: if percent.is_some() && self.displayed_progress.is_some() {
-                    self.progress
+                    self.progress.map(|faces| faces[theme])
                 } else {
                     None
                 },
@@ -184,16 +197,28 @@ impl Notifications {
             }
         }
         if let (Some(tex), Some(badge), Some(shown)) = (self.texture, self.badge, self.shown) {
-            draw_banner(tex, badge, shown.elapsed().as_secs_f32(), draws);
+            draw_banner(
+                session.app().canvas(),
+                tex,
+                badge,
+                shown.elapsed().as_secs_f32(),
+                draws,
+            );
         }
     }
 }
 
-fn progress_face(percent: u8) -> CartFace {
+fn progress_face(percent: u8, light: bool) -> CartFace {
     let mut rgba = vec![0; (36 * slot_ui::HINT_H * 4) as usize];
     if let Some(font) = text::label_font() {
         let layout = text::fit(font, &format!("{percent}%"), 36.0, 1, 12.0, 12.0);
-        text::draw_centred(&mut rgba, 36, slot_ui::HINT_H, &layout, slot_ui::HUD_INK);
+        text::draw_centred(
+            &mut rgba,
+            36,
+            slot_ui::HINT_H,
+            &layout,
+            slot_ui::footer_ink(light),
+        );
     }
     CartFace {
         rgba,
@@ -202,7 +227,7 @@ fn progress_face(percent: u8) -> CartFace {
     }
 }
 
-fn draw_banner(tex: TexId, badge: TexId, elapsed: f32, draws: &mut Vec<Draw>) {
+fn draw_banner(canvas: Canvas, tex: TexId, badge: TexId, elapsed: f32, draws: &mut Vec<Draw>) {
     if elapsed >= DURATION.as_secs_f32() {
         return;
     }
@@ -210,8 +235,8 @@ fn draw_banner(tex: TexId, badge: TexId, elapsed: f32, draws: &mut Vec<Draw>) {
     let exit = ((elapsed - 1.55) / 0.25).clamp(0.0, 1.0);
     let ease = 1.0 - (1.0 - enter).powi(3);
     let alpha = ease * (1.0 - exit * exit);
-    let x = (OUT_W - WIDTH) as f32 / 2.0;
-    let y = (OUT_H - HEIGHT - 12) as f32 + (1.0 - ease) * 12.0 + exit * exit * 6.0;
+    let x = canvas.centred(WIDTH as f32);
+    let y = canvas.h - HEIGHT as f32 - 12.0 + (1.0 - ease) * 12.0 + exit * exit * 6.0;
     draws.push(Draw::Tex {
         x,
         y,
@@ -298,25 +323,52 @@ fn face(notice: &Notice) -> CartFace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slot_gfx::OUT_H;
+    #[cfg(target_os = "macos")]
+    use slot_gfx::OUT_W;
 
     #[test]
     fn notification_enters_settles_and_is_gone_before_two_seconds() {
         let tex = TexId::from_raw(0);
         let mut draws = Vec::new();
-        draw_banner(tex, tex, 0.1, &mut draws);
+        draw_banner(Canvas::FRAMED, tex, tex, 0.1, &mut draws);
         assert!(
             matches!(draws[0], Draw::Tex { alpha, y, .. } if alpha > 0.0 && alpha < 1.0 && y > (OUT_H - HEIGHT - 12) as f32)
         );
         draws.clear();
-        draw_banner(tex, tex, 0.5, &mut draws);
+        draw_banner(Canvas::FRAMED, tex, tex, 0.5, &mut draws);
         assert!(matches!(draws[0], Draw::Tex { alpha: 1.0, .. }));
         assert!(matches!(draws[1], Draw::Tex { w, .. } if w == BADGE_PX as f32));
         draws.clear();
-        draw_banner(tex, tex, 1.7, &mut draws);
+        draw_banner(Canvas::FRAMED, tex, tex, 1.7, &mut draws);
         assert!(matches!(draws[0], Draw::Tex { alpha, .. } if alpha > 0.0 && alpha < 1.0));
         draws.clear();
-        draw_banner(tex, tex, 1.8, &mut draws);
+        draw_banner(Canvas::FRAMED, tex, tex, 1.8, &mut draws);
         assert!(draws.is_empty());
+    }
+
+    #[test]
+    fn notification_is_centred_on_a_native_four_by_three_canvas() {
+        let tex = TexId::from_raw(0);
+        let mut draws = Vec::new();
+        draw_banner(Canvas { w: 640.0, h: 480.0 }, tex, tex, 0.5, &mut draws);
+        let Draw::Tex { x, w, .. } = draws[0] else {
+            panic!("no banner");
+        };
+        assert_eq!(x + w / 2.0, 320.0);
+    }
+
+    #[test]
+    fn sync_progress_uses_the_shelf_theme_ink() {
+        for light in [false, true] {
+            let f = progress_face(62, light);
+            let pixel = f.rgba.chunks_exact(4).max_by_key(|p| p[3]).unwrap();
+            assert_eq!(&pixel[..3], &slot_ui::footer_ink(light));
+        }
+        assert_ne!(
+            slot_ui::sync_icon_face(false).rgba,
+            slot_ui::sync_icon_face(true).rgba
+        );
     }
 
     #[test]
@@ -406,7 +458,7 @@ mod tests {
             compositor.create_texture(percent.w, percent.h, &percent.rgba),
             percent.w,
         );
-        let icon = slot_ui::sync_icon_face();
+        let icon = slot_ui::sync_icon_face(false);
         let icon = compositor.create_texture(icon.w, icon.h, &icon.rgba);
         let mut draws = Vec::new();
         for (name, turn, alpha, attention) in [
@@ -420,7 +472,7 @@ mod tests {
                 alpha,
                 attention,
                 progress: if name == "sync" {
-                    let f = progress_face(62);
+                    let f = progress_face(62, false);
                     Some(compositor.create_texture(f.w, f.h, &f.rgba))
                 } else {
                     None
@@ -428,7 +480,7 @@ mod tests {
             }));
             draws.clear();
             app.draw(&mut draws);
-            compositor.begin_frame();
+            compositor.begin_frame(app.layout());
             compositor.draw_list(&draws);
             save(name, &compositor.read_frame());
         }
@@ -459,7 +511,7 @@ mod tests {
             });
         }
         notifications.draw(&Session::boot(root.path().into()), &mut draws);
-        compositor.begin_frame();
+        compositor.begin_frame(app.layout());
         compositor.draw_list(&draws);
         save("earned", &compositor.read_frame());
         if std::env::var_os("SLOT_RA_PREVIEW_ANIMATE").is_some() {
@@ -468,12 +520,13 @@ mod tests {
             for frame in 0..=60 {
                 let mut animated = draws.clone();
                 draw_banner(
+                    app.canvas(),
                     notifications.texture.unwrap(),
                     notifications.badge.unwrap(),
                     frame as f32 / 30.0,
                     &mut animated,
                 );
-                compositor.begin_frame();
+                compositor.begin_frame(app.layout());
                 compositor.draw_list(&animated);
                 save(&format!("animation-{frame:03}"), &compositor.read_frame());
             }

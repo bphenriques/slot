@@ -193,7 +193,7 @@ fn end_to_end_writes_exact_filename_and_skips_existing_without_network() {
         dir.path().join("Labels/GBA/Advance Wars (USA) (Rev 1).png")
     );
     let bytes = std::fs::read(&file).unwrap();
-    assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 266);
+    assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 264);
     assert_eq!(http.calls.len(), 2);
     prepare(&mut http, &mut cache, dir.path(), &cart, None).unwrap();
     assert_eq!(http.calls.len(), 2);
@@ -245,7 +245,7 @@ fn live_download() {
     ] {
         let path = downloader.prepare(dir.path(), &cart(name)).unwrap();
         let image = image::open(path).unwrap();
-        assert_eq!((image.width(), image.height()), (266, 138));
+        assert_eq!((image.width(), image.height()), (264, 136));
     }
 }
 
