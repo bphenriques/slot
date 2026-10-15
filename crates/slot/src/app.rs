@@ -1037,6 +1037,9 @@ impl App {
     }
 
     pub fn set_power(&mut self, mut power: Power) {
+        if power.supports_high_refresh() && !power.set_high_refresh(self.state.high_refresh) {
+            self.state.high_refresh = false;
+        }
         power.set_backlight(self.state.brightness);
         self.headphones = power.headphones();
         self.hud.set_headphones(self.headphones);
@@ -2574,8 +2577,13 @@ impl App {
             Some(cart) => Phase::Playing { cart },
             None => Phase::Shelf,
         };
-        if let Some(power) = &mut self.power {
+        let refresh_lost = self.power.as_mut().is_some_and(|power| {
             power.on_open();
+            power.supports_high_refresh() && !power.high_refresh_enabled()
+        });
+        if self.state.high_refresh && refresh_lost {
+            self.state.high_refresh = false;
+            self.persist();
         }
     }
 

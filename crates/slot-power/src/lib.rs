@@ -1,6 +1,7 @@
 mod device;
 mod motor;
 mod power;
+mod refresh;
 mod sim;
 
 pub use device::{
@@ -52,6 +53,20 @@ pub trait Platform: Send {
     fn relink_adb(&mut self) -> bool {
         false
     }
+
+    fn supports_high_refresh(&self) -> bool {
+        false
+    }
+
+    fn set_high_refresh(&mut self, _high: bool) -> bool {
+        false
+    }
+
+    fn high_refresh_enabled(&self) -> bool {
+        false
+    }
+
+    fn resume_display(&mut self) {}
 
     fn headphones(&self) -> bool {
         false

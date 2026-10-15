@@ -1,0 +1,13 @@
+{
+  "target": "rg34xxsp",
+  "panel": "rg34xxsp_v1",
+  "irq_count": 1205,
+  "seconds": 10.030000000000086,
+  "hz": 120.13958125623027,
+  "registers": [
+    "0x88002b03",
+    "0xf000000a"
+  ],
+  "frontend": "NextUI menu",
+  "temporary_until_reboot": true
+}

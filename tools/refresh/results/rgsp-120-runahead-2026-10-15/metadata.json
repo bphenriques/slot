@@ -1,0 +1,7 @@
+{
+  "binary_sha256": "663df139b4c76a42cb7389e0ec36a4317fc7624c79f91829d8b4bc64e25237fa",
+  "probe_sha256": "882953fd7b77f80231716919d1af1cf75c34b198d064b71784bba590393c2be9",
+  "gpsp_sha256": "056634d6e5071bcf52a8f7d513099a4f0ff66e4f315fa06b63b7872c350066c1",
+  "original_display_hz": 121.9,
+  "device": "Linux rgsp 4.9.170 #2 SMP PREEMPT Wed Jun 24 19:15:50 CST 2026 aarch64 Linux\n 03:20:53 up  1:47,  0 users,  load average: 1.45, 1.47, 1.55\n0-3\nschedutil\n480000\n1512000\n"
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "seconds": 10.000051000000001,
+    "game_fps": 59.29501188664072,
+    "cpu_percent": 117.99939820306913,
+    "clock_mhz": 1512.0,
+    "temp_c": 58.501495049504946,
+    "temp_start_c": 58.058,
+    "temp_end_c": 58.625,
+    "display_hz": 120.19938698312637,
+    "scene": "gba-mgba",
+    "mode": "120-runahead",
+    "repeat": 1,
+    "latency": false,
+    "audio_drop_delta": 0,
+    "audio_starve_delta": 8832,
+    "speed_percent": 99.27589452282923,
+    "core_ms": 16.2
+  }
+]

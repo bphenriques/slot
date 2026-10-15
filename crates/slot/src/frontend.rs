@@ -353,6 +353,7 @@ impl Frontend {
         }
         if let Some(frame) = self.session.frame() {
             compositor.upload_game(&frame);
+            crate::latency::picture(&frame);
             crate::latency::taken();
         }
         self.sync_labels(compositor);
@@ -422,8 +423,12 @@ impl Frontend {
         self.session.set_driven(true);
     }
 
-    pub fn step_emulator(&self, present: Duration, timeout: Duration) -> bool {
-        self.session.step_emulator(present, timeout)
+    pub fn frame_clock(&self) -> crate::pacing::FrameClock {
+        self.session.frame_clock()
+    }
+
+    pub fn step_emulator(&self, timeout: Duration) -> bool {
+        self.session.step_emulator(timeout)
     }
 
     /// At most one texture upload per frame. The worker already decoded and drew it.

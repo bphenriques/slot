@@ -28,6 +28,12 @@ notes are in the [changelog](CHANGELOG.md).
 
 ## What this fork adds
 
+- **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
+  panels. Games keep their normal speed on both cores and all three systems. Other panel
+  revisions keep their existing refresh rate. See the [panel support details](tools/refresh/HARDWARE.md).
+- **Run-Ahead stays optional** in Gameplay, independently of 120 Hz. It defaults to off
+  and applies to GBA games on mGBA. It uses more CPU and power, so 120 Hz alone is a good
+  starting point.
 - **LCD ghosting / interframe blending** is enabled by default. It's subtle.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
@@ -59,6 +65,9 @@ RetroAchievements credentials. Everything else is automatic.
 
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
+
+The current release is [v1.6.0-pvaibhav.2](https://github.com/pvaibhav/slot/releases/tag/v1.6.0-pvaibhav.2).
+Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---
 

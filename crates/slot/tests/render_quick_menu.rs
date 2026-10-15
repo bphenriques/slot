@@ -199,14 +199,15 @@ fn the_screen_page_sets_gb_palettes_in_line_with_the_rows_above() {
     }
     let px = composed(&mut f, &mut c, "screen-page");
 
-    let top = (QUICK_TOP + QUICK_PITCH * QuickRow::GbPalettes.position() as f32) as usize;
+    let page_top = (OUT_H as f32 - QUICK_PITCH * QuickRow::SCREEN.len() as f32) / 2.0;
+    let top = (page_top + QUICK_PITCH * QuickRow::GbPalettes.position() as f32) as usize;
     assert_eq!(
         at(&px, 1, top + 26),
         [0x4d, 0x4d, 0x57],
         "the bar is not on GB Palettes"
     );
     for row in QuickRow::SCREEN {
-        let top = (QUICK_TOP + QUICK_PITCH * row.position() as f32) as usize;
+        let top = (page_top + QUICK_PITCH * row.position() as f32) as usize;
         let label = inked(&px, 0..360, top);
         let first = *label.first().expect("a row with no label");
         assert!(

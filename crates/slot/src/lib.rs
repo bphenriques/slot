@@ -28,6 +28,7 @@ pub mod link_radio;
 pub mod link_screen;
 pub mod link_start;
 pub mod link_state;
+pub mod pacing;
 pub mod persist;
 pub mod prefetch;
 pub mod resample;

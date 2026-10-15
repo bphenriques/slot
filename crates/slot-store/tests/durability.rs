@@ -177,6 +177,10 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
     assert_eq!(s.runahead, 0, "boots with run-ahead on");
+    assert!(
+        s.high_refresh,
+        "defaults to high refresh on a supported panel"
+    );
 }
 
 #[test]
@@ -211,6 +215,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             turbo: true,
             rewind: true,
             runahead: 0,
+            high_refresh: true,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
         }
@@ -232,6 +237,7 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         turbo: false,
         rewind: false,
         runahead: 1,
+        high_refresh: true,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         ..SlotState::default()
@@ -250,6 +256,7 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "turbo=0",
         "rewind=0",
         "runahead=1",
+        "high_refresh=1",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
     ] {
@@ -274,6 +281,48 @@ fn a_run_ahead_the_row_does_not_offer_reads_as_off() {
         read_slot_state(d.path()).clock_set,
         "the rest of the card was thrown away with it"
     );
+}
+
+#[test]
+fn a_legacy_run_ahead_setting_is_retained_with_the_new_refresh_default() {
+    let d = tmp_root();
+    let state = SlotState {
+        brightness: 7,
+        clock_set: true,
+        rewind: false,
+        runahead: 1,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &state).unwrap();
+    let path = d.path().join("Config/slot.state");
+    let old = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("high_refresh=1\n", "");
+    std::fs::write(&path, old).unwrap();
+    let migrated = read_slot_state(d.path());
+    assert_eq!(migrated.runahead, 1);
+    assert!(migrated.high_refresh);
+    assert_eq!(migrated.brightness, 7);
+    assert!(migrated.clock_set);
+    assert!(!migrated.rewind);
+    write_slot_state(d.path(), &migrated).unwrap();
+    assert_eq!(read_slot_state(d.path()).runahead, 1);
+}
+
+#[test]
+fn an_explicit_internal_run_ahead_setting_is_retained_with_the_new_refresh_setting() {
+    for high_refresh in [false, true] {
+        let d = tmp_root();
+        let state = SlotState {
+            runahead: 1,
+            high_refresh,
+            ..SlotState::default()
+        };
+        write_slot_state(d.path(), &state).unwrap();
+        let read = read_slot_state(d.path());
+        assert_eq!(read.runahead, 1);
+        assert_eq!(read.high_refresh, high_refresh);
+    }
 }
 
 #[test]

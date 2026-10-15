@@ -1,11 +1,16 @@
 mod common;
 
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
 use common::{
     app_booting_at, app_booting_with_clock, app_playing_in, tmp_root_with_carts, Clock,
     CLOCK_IS_SET,
 };
 use slot::app::{App, Phase};
 use slot_input::{Action, Btn};
+use slot_power::{Battery, Charge, LedState, Platform, Power};
 use slot_store::{read_slot_state, write_slot_state, Shader, SlotState};
 use slot_ui::{
     edge, Draw, Icon, QuickMenuFaces, QuickRow, QuickValue, TexId, MENU_PAD, OUT_W, QUICK_EDGE,
@@ -153,9 +158,99 @@ fn fast_forward_steps_through_its_speeds_wraps_at_both_ends_and_saves_each_one()
     }
 }
 
+struct RefreshPanel {
+    root: PathBuf,
+    requests: Arc<Mutex<Vec<bool>>>,
+    supported: bool,
+    high: bool,
+    fail_high: bool,
+}
+
+impl Platform for RefreshPanel {
+    fn supports_high_refresh(&self) -> bool {
+        self.supported
+    }
+
+    fn set_high_refresh(&mut self, high: bool) -> bool {
+        self.requests.lock().unwrap().push(high);
+        self.high = high && !self.fail_high;
+        !high || !self.fail_high
+    }
+
+    fn high_refresh_enabled(&self) -> bool {
+        self.high
+    }
+
+    fn set_backlight(&mut self, _: u8) {}
+
+    fn battery(&self) -> Option<Battery> {
+        None
+    }
+
+    fn charge(&self) -> Charge {
+        Charge::Unknown
+    }
+
+    fn set_led(&mut self, _: LedState) {}
+
+    fn poweroff(&mut self) -> ! {
+        panic!("test platform")
+    }
+
+    fn restart(&mut self) -> ! {
+        panic!("test platform")
+    }
+
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
+    fn now(&self) -> i64 {
+        CLOCK_IS_SET
+    }
+
+    fn set_clock(&mut self, _: i64) {}
+
+    fn set_rumble(&mut self, _: u16) {}
+}
+
+fn refresh_panel(
+    a: &mut App,
+    root: &Path,
+    supported: bool,
+    fail_high: bool,
+) -> Arc<Mutex<Vec<bool>>> {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let panel = RefreshPanel {
+        root: root.to_path_buf(),
+        requests: requests.clone(),
+        supported,
+        high: false,
+        fail_high,
+    };
+    a.set_power(Power::new(Box::new(panel), Duration::from_secs(60)));
+    requests
+}
+
 #[test]
-fn run_ahead_steps_through_its_frames_wraps_at_both_ends_and_saves_each_one() {
+fn a_supported_panel_uses_high_refresh_by_default_before_entering_a_game() {
     let (d, mut a, _) = on_carousel();
+    let requests = refresh_panel(&mut a, d.path(), true, false);
+    assert_eq!(*requests.lock().unwrap(), [true]);
+    assert!(read_slot_state(d.path()).high_refresh);
+    assert_eq!(read_slot_state(d.path()).runahead, 0);
+    open_at(&mut a, QuickRow::GbaShader);
+    for _ in QuickRow::SCREEN {
+        press(&mut a, Btn::Down);
+    }
+    assert_eq!(a.quick_menu(), Some(QuickRow::GbaShader));
+    assert_eq!(*requests.lock().unwrap(), [true]);
+}
+
+#[test]
+fn run_ahead_wraps_and_saves_independently_of_the_default_high_refresh() {
+    let (d, mut a, _) = on_carousel();
+    let requests = refresh_panel(&mut a, d.path(), true, false);
     open_at(&mut a, QuickRow::RunAhead);
     assert_eq!(a.quick_value(QuickRow::RunAhead), Some(QuickValue::Off));
     for (btn, want) in [
@@ -166,9 +261,65 @@ fn run_ahead_steps_through_its_frames_wraps_at_both_ends_and_saves_each_one() {
     ] {
         press(&mut a, btn);
         assert_eq!(a.runahead(), want, "{btn:?}");
-        assert_eq!(read_slot_state(d.path()).runahead, want, "not on the card");
+        let state = read_slot_state(d.path());
+        assert_eq!(state.runahead, want);
+        assert!(state.high_refresh);
         assert_eq!(a.quick_value(QuickRow::RunAhead), QuickValue::frames(want));
+        assert_eq!(*requests.lock().unwrap(), [true]);
     }
+}
+
+#[test]
+fn an_unsupported_panel_receives_no_refresh_request() {
+    let (d, mut a, _) = on_carousel();
+    let requests = refresh_panel(&mut a, d.path(), false, false);
+    let before = std::fs::read(d.path().join("Config/slot.state")).unwrap();
+    open_at(&mut a, QuickRow::GbaShader);
+    for _ in QuickRow::SCREEN {
+        press(&mut a, Btn::Down);
+    }
+    assert!(requests.lock().unwrap().is_empty());
+    assert_eq!(
+        std::fs::read(d.path().join("Config/slot.state")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn a_failed_default_refresh_request_is_not_persisted_as_enabled() {
+    let (d, mut a, _) = on_carousel();
+    let requests = refresh_panel(&mut a, d.path(), true, true);
+    assert_eq!(*requests.lock().unwrap(), [true]);
+    open_at(&mut a, QuickRow::Rewind);
+    press(&mut a, Btn::Right);
+    assert!(!read_slot_state(d.path()).high_refresh);
+}
+
+#[test]
+fn an_explicit_60_hz_diagnostic_setting_is_honoured_at_boot() {
+    let (d, mut a, _) = on_carousel_with(SlotState {
+        high_refresh: false,
+        ..SlotState::default()
+    });
+    let requests = refresh_panel(&mut a, d.path(), true, false);
+    assert_eq!(*requests.lock().unwrap(), [false]);
+    assert!(!read_slot_state(d.path()).high_refresh);
+}
+
+#[test]
+fn playing_never_changes_the_panel_mode_through_the_quick_menu() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let mut a = app_playing_in(d.path(), "Emerald");
+    let requests = refresh_panel(&mut a, d.path(), true, false);
+    requests.lock().unwrap().clear();
+    a.apply(Action::QuickMenu);
+    for btn in [Btn::Down, Btn::Right, Btn::Left, Btn::A] {
+        press(&mut a, btn);
+    }
+    assert!(matches!(a.phase(), Phase::Playing { .. }));
+    assert_eq!(a.quick_menu(), None);
+    assert!(requests.lock().unwrap().is_empty());
+    assert!(read_slot_state(d.path()).high_refresh);
 }
 
 #[test]

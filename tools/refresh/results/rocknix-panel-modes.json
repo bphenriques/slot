@@ -1,0 +1,185 @@
+{
+  "revision": "c17558d2abadebec634100264523aaddc98b3b96",
+  "panels": [
+    {
+      "file": "anbernic,rg28xx-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 480,
+          "height": 640,
+          "htotal": 625,
+          "vtotal": 720,
+          "clock_khz": 27000,
+          "hz": 60.0
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg34xx-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 720,
+          "height": 480,
+          "htotal": 813,
+          "vtotal": 533,
+          "clock_khz": 26000,
+          "hz": 60.0006
+        },
+        {
+          "width": 720,
+          "height": 480,
+          "htotal": 813,
+          "vtotal": 533,
+          "clock_khz": 52000,
+          "hz": 120.0012
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg34xx-sp-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 720,
+          "height": 480,
+          "htotal": 813,
+          "vtotal": 533,
+          "clock_khz": 26000,
+          "hz": 60.0006
+        },
+        {
+          "width": 720,
+          "height": 480,
+          "htotal": 813,
+          "vtotal": 533,
+          "clock_khz": 52000,
+          "hz": 120.0012
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg34xx-sp-v2-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 720,
+          "height": 480,
+          "htotal": 813,
+          "vtotal": 533,
+          "clock_khz": 26000,
+          "hz": 60.0006
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg35xx-plus-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 800,
+          "vtotal": 500,
+          "clock_khz": 24000,
+          "hz": 60.0
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 800,
+          "vtotal": 500,
+          "clock_khz": 48000,
+          "hz": 120.0
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg35xx-plus-rev6-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 800,
+          "vtotal": 500,
+          "clock_khz": 24000,
+          "hz": 60.0
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg35xx-sp-v2-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 720,
+          "vtotal": 560,
+          "clock_khz": 24000,
+          "hz": 59.5238
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg40xx-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 750,
+          "vtotal": 600,
+          "clock_khz": 27000,
+          "hz": 60.0
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 750,
+          "vtotal": 600,
+          "clock_khz": 54000,
+          "hz": 120.0
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rg40xx-v2-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 640,
+          "height": 480,
+          "htotal": 750,
+          "vtotal": 600,
+          "clock_khz": 27000,
+          "hz": 60.0
+        }
+      ]
+    },
+    {
+      "file": "anbernic,rgcubexx-panel.panel",
+      "preferred": 0,
+      "modes": [
+        {
+          "width": 720,
+          "height": 720,
+          "htotal": 800,
+          "vtotal": 750,
+          "clock_khz": 36000,
+          "hz": 60.0
+        },
+        {
+          "width": 720,
+          "height": 720,
+          "htotal": 788,
+          "vtotal": 772,
+          "clock_khz": 73000,
+          "hz": 119.9995
+        }
+      ]
+    }
+  ]
+}

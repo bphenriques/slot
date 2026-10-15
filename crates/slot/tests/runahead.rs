@@ -15,7 +15,6 @@ use slot_retro::{
 };
 use slot_store::{write_selected_core, write_slot_state, Core, Platform, SlotState, RUN_AHEAD_MAX};
 
-const PANEL: Duration = Duration::from_micros(16_760);
 const PRESENTS: u64 = 30;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -149,7 +148,7 @@ fn driven(core: Box<dyn RetroCore>, rom: PathBuf, ahead: u8) -> EmuHandle {
 }
 
 fn present(emu: &EmuHandle) -> Vec<u8> {
-    emu.tick(PANEL);
+    emu.tick();
     assert!(
         emu.wait_frame(Duration::from_secs(2)),
         "a tick's frame never arrived"
@@ -283,7 +282,11 @@ fn fast_forward_with_run_ahead_on_never_rolls_back() {
         calls.iter().any(|c| matches!(c, Call::Run { .. })),
         "fast forward ran nothing"
     );
-    assert_eq!(loads(&calls), [0u64; 0], "fast forward rolled the game back");
+    assert_eq!(
+        loads(&calls),
+        [0u64; 0],
+        "fast forward rolled the game back"
+    );
 }
 
 #[test]
@@ -476,7 +479,7 @@ fn sound_in_ring(
     );
     let before = emu.published_count();
     for _ in 0..RING_PRESENTS {
-        emu.tick(PANEL);
+        emu.tick();
         assert!(
             emu.wait_frame(Duration::from_secs(2)),
             "a tick's frame never arrived"
