@@ -716,7 +716,7 @@ pub fn quick_row_top(row: QuickRow, hidden: &[QuickRow]) -> f32 {
     top + QUICK_PITCH * row.position(hidden) as f32
 }
 
-fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
+pub(crate) fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
     out.push(Draw::Tex {
         x: x.round(),
         y: y.round(),

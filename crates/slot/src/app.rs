@@ -16,9 +16,9 @@ use slot_ui::{
     board_from, board_x, board_zoom, draw_empty_slot, draw_footer, draw_ground, draw_slot_name,
     draw_sticker, ease, footer_ink, grown, lid_at, lid_from, lift_of, on_board, repeat_gap,
     shelf_cart_at, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis,
-    MusicFaces, Placed, Polaroids, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome,
-    TexId, Toast, BOARD_W, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, FOOTER_Y, HINT_EDGE, HINT_H,
-    HOP_LIFT, REPEAT_DELAY_MS, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W,
+    MusicFaces, Placed, Polaroids, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf,
+    SlotChrome, TexId, Toast, BOARD_W, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, FOOTER_Y, HINT_EDGE,
+    HINT_H, HOP_LIFT, REPEAT_DELAY_MS, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W,
     TURN_PAD,
 };
 
@@ -1687,6 +1687,7 @@ impl App {
     pub fn status_ink(&self) -> [u8; 3] {
         match self.phase {
             Phase::Playing { .. } | Phase::Polaroids { .. } => footer_ink(false),
+            Phase::Music => self.music_faces.theme.status,
             _ => footer_ink(self.light()),
         }
     }
@@ -2996,7 +2997,21 @@ impl App {
                 draw_sticker(self.canvas(), self.sticker_face, out);
                 return;
             }
-            Phase::Music => slot_ui::draw_music(&self.music_faces, out),
+            Phase::Music => {
+                slot_ui::draw_music(&self.music_faces, out);
+                if self.music_faces.clock {
+                    let (battery, percent) = (self.battery, self.battery_percent);
+                    let (bolt, clock) = (self.bolt, self.shelf_clock);
+                    slot_ui::draw_music_clock(
+                        &self.music_faces,
+                        battery,
+                        percent,
+                        bolt,
+                        clock,
+                        out,
+                    );
+                }
+            }
             Phase::Inserting { cart, resumed, .. } => {
                 if !resumed {
                     self.draw_background(out);

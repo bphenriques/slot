@@ -330,11 +330,11 @@ impl Session {
         }
         let music = self.app.music_owns_audio();
         self.sink.ring().set_yielded(music);
-        self.line_out
-            .follow(self.app.music_audible().then(|| self.app.output_volume()));
+        self.line_out.follow(self.app.music_volume());
         self.sync_core();
         self.sync_reload();
-        if !self.has_core() {
+        // A double-tapped R2 latches fast forward; music has nothing to latch.
+        if !self.has_core() || self.app.music_takes_keys() {
             for action in self.gestures.drop_ff_latch() {
                 self.act(action);
             }

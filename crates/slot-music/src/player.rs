@@ -1,9 +1,14 @@
-use crate::browse::Queue;
+use crate::browse::QueueView;
 use crate::library::Library;
 use crate::muse::{Command, Event, MuseState};
+use crate::queue::Queue;
 
 /// Tracks Muse failed on in a row before the queue stops rather than skipping on.
 const ERRORS_BEFORE_STOP: u32 = 3;
+
+/// Seconds into a track, or a chapter, past which going back starts it over rather than going
+/// to the one before.
+const RESTART_S: f64 = 1.0;
 
 /// What a track ending does: go on and stop at the end, start over, or play it again.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
@@ -15,64 +20,100 @@ pub enum Repeat {
 }
 
 impl Repeat {
-    const ORDER: [Repeat; 3] = [Repeat::Off, Repeat::All, Repeat::One];
+    pub(crate) const ORDER: [Repeat; 3] = [Repeat::Off, Repeat::All, Repeat::One];
 
-    pub fn label(self) -> &'static str {
+    /// Its name in `music.txt`; Now Playing shows it as a symbol.
+    pub(crate) fn key(self) -> &'static str {
         match self {
-            Repeat::Off => "Off",
-            Repeat::All => "All",
-            Repeat::One => "One",
+            Repeat::Off => "off",
+            Repeat::All => "all",
+            Repeat::One => "one",
         }
     }
 
-    pub fn parse(text: &str) -> Option<Repeat> {
+    pub(crate) fn parse(text: &str) -> Option<Repeat> {
         Repeat::ORDER
             .into_iter()
-            .find(|r| r.label().eq_ignore_ascii_case(text))
+            .find(|r| r.key().eq_ignore_ascii_case(text))
     }
 
-    /// The next mode, or the one before, wrapping round.
-    pub fn step(self, by: i32) -> Repeat {
-        let n = Repeat::ORDER.len() as i32;
-        let at = Repeat::ORDER.iter().position(|&r| r == self).unwrap_or(0) as i32;
-        Repeat::ORDER[(at + by).rem_euclid(n) as usize]
+    /// The next mode, round from One to Off.
+    pub fn next(self) -> Repeat {
+        crate::settings::cycle(&Repeat::ORDER, self, 0)
     }
 }
 
-/// The queue and Muse's state. Methods return what to ask of Muse, if anything.
-#[derive(Default)]
+/// Plays the queue through Muse: what plays, where it is, and how it repeats. Methods return
+/// what to ask of Muse, if anything.
 pub struct Player {
-    queue: Vec<usize>,
-    at: usize,
+    queue: Queue,
     state: MuseState,
     reported: MuseState,
     pos: f64,
+    /// When `pos` was last heard or set, to carry it on between reports.
+    pos_at: Option<std::time::Instant>,
     len: f64,
     errors: u32,
     repeat: Repeat,
     /// Where a restored queue left off, until it is played.
     resume_at: Option<f64>,
-    /// The shuffle's seed while the queue is shuffled, for a new order each Repeat All lap.
-    shuffle: Option<u64>,
-    /// The order before shuffling, to restore.
-    original: Option<Vec<usize>>,
-    /// The albums or artists a group shuffle dealt, re-dealt whole each lap. Edits drop them.
-    groups: Option<Vec<Vec<usize>>>,
+    /// A saved queue waits for the library to be read, to be restored.
+    waiting: bool,
     /// Whether the queue changed since it was last saved.
     changed: bool,
+    /// How fast a book plays, 1 as recorded; music always plays as recorded.
+    speed: f32,
+    /// The open file's chapters, where each starts and its title; none for most songs.
+    chapters: Vec<(f64, String)>,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Player {
+            queue: Queue::default(),
+            state: MuseState::default(),
+            reported: MuseState::default(),
+            pos: 0.0,
+            pos_at: None,
+            len: 0.0,
+            errors: 0,
+            repeat: Repeat::default(),
+            resume_at: None,
+            waiting: false,
+            changed: false,
+            speed: 1.0,
+            chapters: Vec::new(),
+        }
+    }
 }
 
 impl Player {
     pub fn current(&self) -> Option<usize> {
-        self.queue.get(self.at).copied()
+        self.queue.current()
     }
 
-    pub fn queue(&self) -> Queue<'_> {
-        Queue {
-            tracks: &self.queue,
-            at: self.at,
+    /// The queue as the screens read it.
+    pub fn queue(&self) -> QueueView<'_> {
+        QueueView {
+            tracks: self.queue.tracks(),
+            at: self.queue.at(),
             playing: self.state == MuseState::Playing,
+            waiting: self.waiting,
+            chapters: &self.chapters,
+            chapter: self.chapter().map(|c| c.0),
+            speed: self.speed,
         }
+    }
+
+    /// A saved queue is on the card, to be restored once the library is read.
+    pub fn wait_for_saved(&mut self) {
+        self.waiting = true;
+    }
+
+    /// The queue to edit; it is saved afterwards.
+    pub fn edit(&mut self) -> &mut Queue {
+        self.changed = true;
+        &mut self.queue
     }
 
     pub fn state(&self) -> MuseState {
@@ -81,28 +122,28 @@ impl Player {
 
     /// A saved queue at `pos` seconds into `at`: paused, or still `playing` after a rescan.
     pub fn restore(&mut self, queue: Vec<usize>, at: usize, pos: f64, playing: bool) {
-        self.queue = queue;
-        (self.original, self.groups, self.shuffle) = (None, None, None);
-        self.at = at.min(self.queue.len().saturating_sub(1));
+        self.queue = Queue::new(queue, at, None);
+        self.waiting = false;
         (self.pos, self.len) = (pos, 0.0);
-        let resumes = !self.queue.is_empty() && !playing;
-        self.resume_at = resumes.then_some(pos);
-        self.state = match playing && !self.queue.is_empty() {
+        let any = self.queue.current().is_some();
+        self.resume_at = (any && !playing).then_some(pos);
+        self.state = match playing && any {
             true => MuseState::Playing,
             false => MuseState::Stopped,
         };
     }
 
-    /// Drops the queue without stopping Muse, before a rescan renumbers the tracks.
+    /// Drops the queue without stopping Muse, before a rescan renumbers the tracks; it waits to
+    /// be restored.
     pub fn forget(&mut self) {
-        self.queue.clear();
-        self.at = 0;
-        (self.original, self.groups, self.shuffle, self.resume_at) = (None, None, None, None);
+        self.waiting = self.queue.current().is_some();
+        self.queue = Queue::default();
+        self.resume_at = None;
     }
 
     /// The queue, the place in it and the seconds into that track, for saving.
     pub fn snapshot(&self) -> (&[usize], usize, f64) {
-        (&self.queue, self.at, self.pos)
+        (self.queue.tracks(), self.queue.at(), self.pos)
     }
 
     /// Whether a restored queue waits to be resumed.
@@ -116,34 +157,7 @@ impl Player {
     }
 
     pub fn shuffled(&self) -> bool {
-        self.original.is_some()
-    }
-
-    /// Shuffles the queue with the playing track first, or restores the original order.
-    pub fn toggle_shuffle(&mut self, seed: u64) {
-        let current = self.current();
-        self.groups = None;
-        match self.original.take() {
-            Some(original) => {
-                self.queue = original;
-                self.at = current
-                    .and_then(|t| self.queue.iter().position(|&q| q == t))
-                    .unwrap_or(0);
-                self.shuffle = None;
-            }
-            None => {
-                let Some(current) = current else {
-                    return;
-                };
-                self.original = Some(self.queue.clone());
-                let mut rest = std::mem::take(&mut self.queue);
-                rest.remove(self.at);
-                self.shuffle = Some(shuffled(&mut rest, seed));
-                self.queue = std::iter::once(current).chain(rest).collect();
-                self.at = 0;
-            }
-        }
-        self.changed = true;
+        self.queue.shuffled()
     }
 
     pub fn repeat(&self) -> Repeat {
@@ -159,9 +173,18 @@ impl Player {
         (self.pos, self.len)
     }
 
+    /// Seconds into the track, carried on from the last report while it plays.
+    pub fn smooth_pos(&self) -> f64 {
+        let since = self
+            .pos_at
+            .filter(|_| self.state == MuseState::Playing && self.reported == MuseState::Playing);
+        let ahead = since.map_or(0.0, |at| at.elapsed().as_secs_f64());
+        (self.pos + ahead).min(self.len)
+    }
+
     /// The position in the queue, from 1, and its length.
     pub fn place(&self) -> (usize, usize) {
-        (self.at + 1, self.queue.len())
+        (self.queue.at() + 1, self.queue.tracks().len())
     }
 
     /// Whether Muse has the codec, or is about to. BaseOS has no mixer, so slot keeps off it.
@@ -175,139 +198,94 @@ impl Player {
         self.owns_audio() || self.reported == MuseState::Playing
     }
 
-    pub fn play(
-        &mut self,
-        lib: &Library,
-        mut tracks: Vec<usize>,
-        start: usize,
-        shuffle: Option<u64>,
-    ) -> Option<Command> {
-        self.original = shuffle.map(|_| tracks.clone());
-        self.groups = None;
-        self.shuffle = shuffle.map(|seed| shuffled(&mut tracks, seed));
-        self.queue = tracks;
-        self.at = start.min(self.queue.len().saturating_sub(1));
+    pub fn speed(&self) -> f32 {
+        self.speed
+    }
+
+    /// Plays at `speed`, the track open too.
+    pub fn set_speed(&mut self, speed: f32) -> Option<Command> {
+        self.speed = speed;
+        (self.state != MuseState::Stopped).then_some(Command::Speed(speed))
+    }
+
+    /// The chapter playing, from 0, with its title, start and end; none when the file has no
+    /// chapters.
+    pub fn chapter(&self) -> Option<(usize, &str, f64, f64)> {
+        let pos = self.smooth_pos();
+        let i = self.chapters.iter().rposition(|(at, _)| *at <= pos)?;
+        let end = self.chapters.get(i + 1).map_or(self.len, |c| c.0);
+        Some((i, &self.chapters[i].1, self.chapters[i].0, end))
+    }
+
+    /// The open file's chapters, where each starts and its title.
+    pub fn chapter_list(&self) -> &[(f64, String)] {
+        &self.chapters
+    }
+
+    /// Chapters known from before, until Muse tells them for the file just opened.
+    pub fn set_chapters(&mut self, chapters: Vec<(f64, String)>) {
+        self.chapters = chapters;
+    }
+
+    /// How many chapters the open file has.
+    pub fn chapters(&self) -> usize {
+        self.chapters.len()
+    }
+
+    /// Plays a new queue from its start.
+    pub fn play(&mut self, lib: &Library, queue: Queue) -> Option<Command> {
+        self.queue = queue;
         self.errors = 0;
         self.resume_at = None;
         self.start(lib)
     }
 
-    /// Plays groups (albums or artists, `sizes` long) in a shuffled order, each in its own.
-    pub fn play_groups(
-        &mut self,
-        lib: &Library,
-        tracks: Vec<usize>,
-        sizes: &[usize],
-        seed: u64,
-    ) -> Option<Command> {
-        let mut rest = tracks.as_slice();
-        let groups: Vec<Vec<usize>> = sizes
-            .iter()
-            .map(|&n| {
-                let (group, after) = rest.split_at(n.min(rest.len()));
-                rest = after;
-                group.to_vec()
-            })
-            .collect();
-        self.original = Some(tracks);
-        self.shuffle = Some(seed);
-        self.queue = self.deal(&groups);
-        self.groups = Some(groups);
-        self.at = 0;
-        self.errors = 0;
-        self.resume_at = None;
-        self.start(lib)
-    }
-
-    /// The groups in a new order, flattened.
-    fn deal(&mut self, groups: &[Vec<usize>]) -> Vec<usize> {
-        let mut order: Vec<usize> = (0..groups.len()).collect();
-        self.shuffle = self.shuffle.map(|seed| shuffled(&mut order, seed));
-        order
-            .iter()
-            .flat_map(|&g| groups[g].iter().copied())
-            .collect()
-    }
-
-    /// Removes a track from the queue, except the one playing.
-    pub fn remove(&mut self, i: usize) {
-        if i == self.at || i >= self.queue.len() {
-            return;
-        }
-        let track = self.queue.remove(i);
-        if i < self.at {
-            self.at -= 1;
-        }
-        if let Some(original) = &mut self.original {
-            if let Some(p) = original.iter().position(|&t| t == track) {
-                original.remove(p);
-            }
-        }
-        self.edited();
-    }
-
-    /// Empties what comes after the playing track.
-    pub fn clear_up_next(&mut self) {
-        self.queue.truncate(self.at + 1);
-        (self.original, self.shuffle) = (None, None);
-        self.edited();
-    }
-
-    /// Moves a track up (-1) or down (1); returns its new place.
-    pub fn move_track(&mut self, i: usize, by: i32) -> usize {
-        let to = i as i64 + by as i64;
-        if i >= self.queue.len() || to < 0 || to >= self.queue.len() as i64 {
-            return i;
-        }
-        let to = to as usize;
-        self.queue.swap(i, to);
-        self.at = match self.at {
-            a if a == i => to,
-            a if a == to => i,
-            a => a,
-        };
-        self.edited();
-        to
-    }
-
-    /// A hand edit: the queue is no longer whole groups.
-    fn edited(&mut self) {
-        self.groups = None;
+    /// Takes the queue and where it is, leaving none: the music's, set aside while a book plays.
+    pub fn take(&mut self) -> Option<(Queue, f64)> {
+        self.queue.current()?;
         self.changed = true;
+        Some((std::mem::take(&mut self.queue), self.pos))
+    }
+
+    /// Puts back a queue set aside, paused where it was; Muse stops what it played instead.
+    pub fn put(&mut self, queue: Queue, pos: f64) -> Option<Command> {
+        self.queue = queue;
+        (self.pos, self.len) = (pos, 0.0);
+        self.resume_at = Some(pos);
+        self.changed = true;
+        self.chapters.clear();
+        let stop = self.state != MuseState::Stopped;
+        self.state = MuseState::Stopped;
+        stop.then_some(Command::Stop)
+    }
+
+    /// Goes to the start of the open file's chapter `i`.
+    pub fn go_chapter(&mut self, i: usize) -> Option<Command> {
+        let at = self.chapters.get(i)?.0;
+        self.seek_to(at)
+    }
+
+    /// Goes back `secs`, playing or paused.
+    pub fn rewind(&mut self, secs: f64) -> Option<Command> {
+        (secs > 0.0).then(|| self.seek_to(self.pos - secs))?
+    }
+
+    /// Plays a new queue from `at` seconds into its first track: a book where it was left.
+    pub fn play_at(&mut self, lib: &Library, queue: Queue, at: f64) -> Option<Command> {
+        self.queue = queue;
+        self.errors = 0;
+        self.resume_at = Some(at);
+        self.start(lib)
     }
 
     /// Plays from another place in the queue.
     pub fn jump(&mut self, lib: &Library, to: usize) -> Option<Command> {
-        if to >= self.queue.len() {
+        if !self.queue.go(to) {
             return None;
         }
-        self.at = to;
         self.errors = 0;
         self.resume_at = None;
         self.start(lib)
-    }
-
-    /// Puts tracks right after the playing one; into an empty queue, they wait to be played.
-    pub fn play_next(&mut self, tracks: &[usize]) {
-        let after = (self.at + 1).min(self.queue.len());
-        self.queue.splice(after..after, tracks.iter().copied());
-        if let (Some(original), Some(current)) = (&mut self.original, self.queue.get(self.at)) {
-            let after = original
-                .iter()
-                .position(|t| t == current)
-                .map_or(original.len(), |p| p + 1);
-            original.splice(after..after, tracks.iter().copied());
-        }
-        self.edited();
-    }
-
-    /// Adds to the end of the queue.
-    pub fn enqueue(&mut self, tracks: &[usize]) {
-        self.queue.extend_from_slice(tracks);
-        if let Some(original) = &mut self.original {
-            original.extend_from_slice(tracks);
-        }
-        self.edited();
     }
 
     pub fn toggle(&mut self, lib: &Library) -> Option<Command> {
@@ -331,12 +309,8 @@ impl Player {
     }
 
     pub fn stop(&mut self) -> Option<Command> {
-        self.queue.clear();
-        self.at = 0;
+        self.queue = Queue::default();
         self.resume_at = None;
-        self.shuffle = None;
-        self.original = None;
-        self.groups = None;
         self.changed = true;
         (self.state != MuseState::Stopped).then(|| {
             self.state = MuseState::Stopped;
@@ -344,34 +318,56 @@ impl Player {
         })
     }
 
-    /// Repeat All wraps round the queue; otherwise a skip past an end does nothing.
+    /// The track after this one: the next in the queue, or the first again under Repeat All.
+    pub fn up_next(&self) -> Option<usize> {
+        let to = self.queue.step(1, self.repeat == Repeat::All)?;
+        (to != self.queue.at()).then(|| self.queue.tracks()[to])
+    }
+
+    /// Moves by a chapter within the file while it has them, then by a track. Repeat All wraps
+    /// round the queue; otherwise a skip past an end does nothing. Back, a moment into a track
+    /// or chapter, starts it over instead, as players do.
     pub fn skip(&mut self, lib: &Library, by: i32) -> Option<Command> {
-        let (to, n) = (self.at as i64 + by as i64, self.queue.len() as i64);
-        if let (Repeat::All, true, Some(seed)) = (self.repeat, to >= n, self.shuffle) {
-            match self.groups.take() {
-                Some(groups) => {
-                    self.queue = self.deal(&groups);
-                    self.groups = Some(groups);
-                }
-                None => self.shuffle = Some(shuffled(&mut self.queue, seed)),
-            }
+        if let Some(at) = self
+            .chapter_skip(by)
+            .filter(|_| self.state != MuseState::Stopped)
+        {
+            return self.seek_to(at);
         }
-        let to = match self.repeat {
-            Repeat::All if n > 0 => to.rem_euclid(n),
-            _ if to < 0 || to >= n => return None,
-            _ => to,
-        };
-        self.at = to as usize;
+        let to = self.queue.step(by, self.repeat == Repeat::All)?;
+        self.queue.go(to);
         self.resume_at = None;
         self.start(lib)
     }
 
+    /// Where a skip lands within the file: its chapter's start, the one before or the next; a
+    /// file without chapters is one, from 0.
+    fn chapter_skip(&self, by: i32) -> Option<f64> {
+        let starts: Vec<f64> = match self.chapters.is_empty() {
+            true => vec![0.0],
+            false => self.chapters.iter().map(|c| c.0).collect(),
+        };
+        let pos = self.smooth_pos();
+        let i = starts.iter().rposition(|&at| at <= pos).unwrap_or(0);
+        match by < 0 {
+            true if pos - starts[i] >= RESTART_S => Some(starts[i]),
+            true => i.checked_sub(1).map(|j| starts[j]),
+            false => starts.get(i + 1).copied(),
+        }
+    }
+
     pub fn seek(&mut self, by: i32) -> Option<Command> {
+        self.seek_to(self.pos + by as f64)
+    }
+
+    /// Moves to `at` seconds into the track, short of its end.
+    pub fn seek_to(&mut self, at: f64) -> Option<Command> {
         if self.state == MuseState::Stopped {
             return None;
         }
-        let at = (self.pos + by as f64).clamp(0.0, (self.len - 1.0).max(0.0));
+        let at = at.clamp(0.0, (self.len - 1.0).max(0.0));
         self.pos = at;
+        self.pos_at = None;
         Some(Command::Seek(at))
     }
 
@@ -380,6 +376,7 @@ impl Player {
             Event::State(state) => (self.state, self.reported) = (state, state),
             Event::Pos { at, len } => {
                 (self.pos, self.len) = (at, len);
+                self.pos_at = Some(std::time::Instant::now());
                 self.errors = 0;
             }
             // An end for another track is an earlier skip arriving late.
@@ -403,16 +400,18 @@ impl Player {
                     };
                 }
             }
-            Event::End(_) | Event::Connected(_) | Event::Cover { .. } => {}
+            Event::Meta => self.chapters.clear(),
+            Event::Chapter { at, title } => self.chapters.push((at, title)),
+            Event::End(_) | Event::Connected(_) => {}
         }
         None
     }
 
     /// The next track, also after a failure: Repeat One does not retry a broken track.
     fn next(&mut self, lib: &Library) -> Option<Command> {
-        match self.at + 1 < self.queue.len() || self.repeat == Repeat::All {
-            true => self.skip(lib, 1),
-            false => {
+        match self.queue.step(1, self.repeat == Repeat::All) {
+            Some(_) => self.skip(lib, 1),
+            None => {
                 self.state = MuseState::Stopped;
                 self.changed = true;
                 None
@@ -426,21 +425,15 @@ impl Player {
         self.changed = true;
         let at = self.resume_at.take().unwrap_or(0.0);
         (self.pos, self.len) = (at, 0.0);
+        self.chapters.clear();
         Some(Command::Play {
             path: track.path.clone(),
             at,
+            // Music plays as recorded; a book at its speed.
+            speed: match track.book {
+                Some(_) => self.speed,
+                None => 1.0,
+            },
         })
     }
-}
-
-/// Fisher-Yates over xorshift64, enough for a playlist. Returns the next seed.
-fn shuffled(tracks: &mut [usize], seed: u64) -> u64 {
-    let mut x = seed | 1;
-    for i in (1..tracks.len()).rev() {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        tracks.swap(i, (x % (i as u64 + 1)) as usize);
-    }
-    x
 }

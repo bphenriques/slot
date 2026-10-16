@@ -1,16 +1,15 @@
-# v1.7.0-pvaibhav.1
+# v1.7.0-bphenriques.1
 
-Based on [upstream slot 1.7.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.7.0), with this fork's additions preserved.
+Based on [pvaibhav's slot v1.7.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.7.0-pvaibhav.1), itself built on [upstream slot 1.7.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.7.0), with a music player added.
 
-- New cartridge and shelf artwork by [Markus](https://github.com/MarkusMaribu), with light and dark themes and bundled wallpapers.
-- An in-game menu. Tap MENU to pause and open it, or double-tap to go straight to save states.
-- Favorites and optional Recents shelves. Press Y on a cart to add it to Favorites.
-- slot remembers your selected shelf and cart across shutdowns.
-- Separate Screen settings and bezels for GBA, GBC, and GB, plus a full-width shelf on 4:3 panels.
-- Upstream fixes for Game Boy palettes, brightness, controls, and logging. See the [full changelog](https://github.com/BrandonKowalski/slot/blob/v1.7.0/CHANGELOG.md).
+- A music player under Music in the quick menu, played through plorpOS's Muse. Browse Artists, Albums, Songs, Playlists (`.m3u`), Favorites and Recently Added; Now Playing shows the album picture, and the queue (Up Next) can be reordered.
+- Put music in `Music/` on the card. Tags are read once and cached, so the library opens at once afterwards.
+- Buttons do one thing tapped and another held, as the hints say ("Play, Hold Next"); a ring in the corner fills while a button is held, and letting go before it closes cancels. [CONTROLS.md](https://github.com/bphenriques/slot/blob/pvaibhav-improvements/music/CONTROLS.md) lists every button.
+- Audiobooks, from `Audiobooks/` on the card, apart from the music: each keeps its place, speed (0.75× to 2×) and bookmarks; chapters come from `.m4b` files or a folder's files; Left / Right jump 30 seconds; the sleep timer can stop at the end of a chapter; and the music's queue waits while a book plays.
+- A Music Settings page, saved in `Config/music.txt`: list size, Dynamic Color, Theme (follows slot's Appearance, or dark or light), and whether music plays on with the screen off. The clock and Up Next are set in the file.
 
-Automatic 120 Hz, panel colour calibration, LCD ghosting, home Wi-Fi, background label downloads, RetroAchievements, and linking over home Wi-Fi remain included. Home Wi-Fi is now under General. Run-Ahead remains an independent Gameplay option and defaults to off.
+This is a preview for feedback. Music plays through Muse, plorpOS's audio daemon (MIT), with FFmpeg 6.1 (LGPL-2.1), both bundled in `System/muse/`.
 
-Unzip, then copy the contents of `slot-v1.7.0-pvaibhav.1/` onto SD2. Your saves and settings are preserved.
+Unzip, then copy the contents of `slot-v1.7.0-bphenriques.1/` onto SD2. Your saves and settings are preserved.
 
-Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Licences, patches, and gpSP source are in `System/licenses/`.
+Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Licences, patches, and gpSP source are in `System/licenses/`; Muse's and FFmpeg's, with where to get FFmpeg's source, in `System/licenses/muse/`.

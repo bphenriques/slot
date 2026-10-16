@@ -360,6 +360,8 @@ tasks:
       - cp vendor/mgba_libretro.so {{.OUT}}/System/
       - cp vendor/gpsp_libretro.so {{.OUT}}/System/
       - cp -r licenses {{.OUT}}/System/licenses
+      - cp -R vendor/muse/licenses {{.OUT}}/System/licenses/muse
+      - cp vendor/muse/versions.txt {{.OUT}}/System/licenses/muse/
       - cp -r vendor/slot-net/licenses/. {{.OUT}}/System/licenses/
       - cp vendor/slot-net/versions.txt {{.OUT}}/System/licenses/slot-net.meta
       - cp vendor/muse/licenses/* {{.OUT}}/System/licenses/

@@ -22,36 +22,38 @@ pub enum MuseState {
 /// What slot asks of Muse, which only plays files; the queue is slot's.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Command {
-    /// Open and play `path`, from `at` seconds in.
+    /// Open and play `path`, from `at` seconds in, at `speed` (1 is as recorded).
     Play {
         path: PathBuf,
         at: f64,
+        speed: f32,
     },
     Pause,
     Resume,
     Stop,
     Seek(f64),
-    /// Write `path`'s embedded picture to `base` plus ".jpg" or ".png".
-    Cover {
-        path: PathBuf,
-        base: PathBuf,
-    },
+    /// How fast to play, 0.5 to 2, the voice kept at its pitch.
+    Speed(f32),
 }
 
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Command::Play { path, at } if *at > 0.0 => {
-                write!(f, "PLAY\tpath={}\tat={at:.1}", path.display())
+            Command::Play { path, at, speed } => {
+                write!(f, "PLAY\tpath={}", path.display())?;
+                if *at > 0.0 {
+                    write!(f, "\tat={at:.1}")?;
+                }
+                match *speed == 1.0 {
+                    true => Ok(()),
+                    false => write!(f, "\tspeed={speed:.2}"),
+                }
             }
-            Command::Play { path, .. } => write!(f, "PLAY\tpath={}", path.display()),
             Command::Pause => f.write_str("PAUSE"),
             Command::Resume => f.write_str("RESUME"),
             Command::Stop => f.write_str("STOP"),
             Command::Seek(at) => write!(f, "SEEK\tat={at:.1}"),
-            Command::Cover { path, base } => {
-                write!(f, "COVER\tpath={}\tbase={}", path.display(), base.display())
-            }
+            Command::Speed(x) => write!(f, "SPEED\tx={x:.2}"),
         }
     }
 }
@@ -66,10 +68,11 @@ pub enum Event {
     },
     End(PathBuf),
     Error(String),
-    /// The picture written for `base`, or None when the file carries none.
-    Cover {
-        base: PathBuf,
-        file: Option<PathBuf>,
+    /// A file was opened: its chapters follow, each where it starts and its title.
+    Meta,
+    Chapter {
+        at: f64,
+        title: String,
     },
 }
 
@@ -100,9 +103,10 @@ pub fn parse(line: &str) -> Option<Event> {
         }),
         "END" => Some(Event::End(get("path")?.into())),
         "ERROR" => Some(Event::Error(get("why").unwrap_or_default())),
-        "COVER" => Some(Event::Cover {
-            base: get("base")?.into(),
-            file: get("file").filter(|f| !f.is_empty()).map(PathBuf::from),
+        "META" => Some(Event::Meta),
+        "CHAPTER" => Some(Event::Chapter {
+            at: get("at")?.parse().ok()?,
+            title: get("title").unwrap_or_default(),
         }),
         _ => None,
     }

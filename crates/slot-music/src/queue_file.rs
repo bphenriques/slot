@@ -22,6 +22,18 @@ pub fn encode(root: &Path, lib: &Library, queue: &[usize], at: usize, pos: f64) 
     out
 }
 
+/// Whether a queue is saved on the card, without the library to read it by.
+/// Read as far as the first song only: it is asked on the way in.
+pub fn saved(root: &Path) -> bool {
+    use std::io::BufRead;
+    std::fs::File::open(root.join(QUEUE_FILE)).is_ok_and(|file| {
+        std::io::BufReader::new(file)
+            .lines()
+            .map_while(Result::ok)
+            .any(|l| !l.trim().is_empty() && !l.starts_with('#'))
+    })
+}
+
 /// The queue from the file's text. Tracks no longer in the library are dropped.
 pub fn decode(text: &str, root: &Path, lib: &Library) -> (Vec<usize>, usize, f64) {
     let index: HashMap<&Path, usize> = lib
@@ -52,17 +64,17 @@ pub fn decode(text: &str, root: &Path, lib: &Library) -> (Vec<usize>, usize, f64
     }
 }
 
-/// Writes the queue off the frame loop, skipping versions a newer one replaces.
-pub struct QueueWriter {
+/// Writes a file off the frame loop, skipping versions a newer one replaces: the queue, and
+/// the audiobooks' places.
+pub struct Writer {
     tx: Sender<String>,
 }
 
-impl QueueWriter {
-    pub fn spawn(root: &Path) -> QueueWriter {
+impl Writer {
+    pub fn spawn(path: PathBuf) -> Writer {
         let (tx, rx) = mpsc::channel::<String>();
-        let path: PathBuf = root.join(QUEUE_FILE);
         let spawned = std::thread::Builder::new()
-            .name("slot-music-queue".into())
+            .name("slot-music-save".into())
             .spawn(move || {
                 while let Ok(mut text) = rx.recv() {
                     if let Some(newer) = rx.try_iter().last() {
@@ -79,7 +91,7 @@ impl QueueWriter {
         if let Err(e) = spawned {
             eprintln!("slot: music: {e}");
         }
-        QueueWriter { tx }
+        Writer { tx }
     }
 
     pub fn save(&self, text: String) {
