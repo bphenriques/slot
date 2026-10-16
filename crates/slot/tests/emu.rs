@@ -10,6 +10,8 @@ use slot_retro::{
     AvInfo, ButtonMask, CoreError, LinkChannel, MockCore, RetroCore, NETPACKET_RELIABLE,
 };
 
+const PRESENT: Duration = Duration::from_nanos(16_666_667);
+
 fn spawn() -> EmuHandle {
     spawn_with(None)
 }
@@ -215,6 +217,8 @@ fn fast_forward_runs_the_chosen_number_of_core_frames_per_present() {
 
 struct Probe {
     inner: MockCore,
+    fps: Option<f64>,
+    frame_gate: Option<mpsc::Receiver<()>>,
     cost: Duration,
     skip_stall: Option<Duration>,
     skip: bool,
@@ -226,6 +230,8 @@ impl Probe {
         let log = Arc::new(Mutex::new(Vec::new()));
         let probe = Box::new(Probe {
             inner: MockCore::new(),
+            fps: None,
+            frame_gate: None,
             cost,
             skip_stall: None,
             skip: false,
@@ -241,6 +247,10 @@ impl RetroCore for Probe {
     }
     fn run_frame(&mut self, input: ButtonMask) {
         self.log.lock().expect("the skip log").push(self.skip);
+        if let Some(gate) = self.frame_gate.take() {
+            gate.recv_timeout(Duration::from_secs(2))
+                .expect("frame gate was not released");
+        }
         if !self.cost.is_zero() {
             std::thread::sleep(self.cost);
         }
@@ -277,7 +287,11 @@ impl RetroCore for Probe {
         self.inner.load_save_ram(data)
     }
     fn av_info(&self) -> AvInfo {
-        self.inner.av_info()
+        let mut av = self.inner.av_info();
+        if let Some(fps) = self.fps {
+            av.fps = fps;
+        }
+        av
     }
 }
 
@@ -353,26 +367,36 @@ fn a_fast_present_draws_only_its_last_frame() {
 
 #[test]
 fn a_present_runs_what_it_can_afford_rather_than_the_whole_ceiling() {
-    let (emu, _log) = spawn_probe(Duration::from_millis(5));
+    let cost = Duration::from_millis(8);
+    let (emu, log) = spawn_probe(cost);
     emu.set_fast_steps(FAST_STEPS_MAX);
-    let (frames, presents) = held_counts(&emu);
+    held_counts(&emu);
+    log.lock().expect("the skip log").clear();
     emu.set_speed(Speed::Fast);
     std::thread::sleep(Duration::from_millis(400));
-    let (frames_after, presents_after) = held_counts(&emu);
+    let (_, presents) = held_counts(&emu);
+    assert!(presents > 0, "nothing was presented");
 
-    let (ran, shown) = (frames_after - frames, presents_after - presents);
-    assert!(shown > 0, "nothing was presented");
-    let per = ran as f64 / shown as f64;
-    assert!(
-        per >= 1.0,
-        "{per:.1} frames a present is less than one, so a present ran nothing"
-    );
-    assert!(
-        per <= 4.0,
-        "{per:.1} frames a present at 5 ms each is {:.0} ms of a 16.67 ms present: the budget \
-         never stopped it and the ceiling of {FAST_STEPS_MAX} did",
-        per * 5.0
-    );
+    let got = log.lock().expect("the skip log").clone();
+    let mut runs = Vec::new();
+    let mut ran = 0;
+    for skipped in got {
+        ran += 1;
+        if !skipped {
+            runs.push(ran);
+            ran = 0;
+        }
+    }
+    assert!(!runs.is_empty(), "no present drew a frame");
+    let afford = (2 * PRESENT.as_micros() / cost.as_micros()) as usize;
+    for (i, ran) in runs.iter().enumerate() {
+        assert!(
+            *ran <= afford,
+            "present {i} ran {ran} frames at {} ms each, more than the {afford} two refreshes \
+             afford: the budget never stopped it and the ceiling did ({runs:?})",
+            cost.as_millis()
+        );
+    }
 }
 
 /// A scheduling stall while skipping must not trap every later batch at one frame:
@@ -1035,8 +1059,6 @@ fn a_state_asked_for_in_the_last_present_is_still_answered() {
     );
 }
 
-const PANEL: Duration = Duration::from_micros(16_760);
-
 #[test]
 fn a_driven_worker_runs_one_frame_per_tick() {
     let emu = spawn();
@@ -1045,11 +1067,11 @@ fn a_driven_worker_runs_one_frame_per_tick() {
         wait_for(|| emu.locked()),
         "the worker never locked to the display"
     );
-    emu.tick(PANEL);
+    emu.tick();
     emu.wait_frame(Duration::from_millis(100));
     let before = emu.published_count();
     for _ in 0..20 {
-        emu.tick(PANEL);
+        emu.tick();
         assert!(
             emu.wait_frame(Duration::from_millis(100)),
             "a tick's frame never arrived"
@@ -1069,7 +1091,7 @@ fn a_locked_worker_answers_a_state_request_without_waiting_for_the_tick() {
     );
     let snapshot = emu.snapshot();
     for _ in 0..10 {
-        emu.tick(PANEL);
+        emu.tick();
         assert!(emu.wait_frame(Duration::from_millis(100)));
         std::thread::sleep(Duration::from_millis(2));
         let before = emu.published_count();
@@ -1125,11 +1147,177 @@ fn waiting_on_an_unlocked_worker_does_not_block() {
     emu.set_driven(true);
     emu.set_speed(Speed::Paused);
     assert!(wait_for(|| !emu.locked()), "a paused worker stayed locked");
-    emu.tick(PANEL);
+    emu.tick();
     let began = Instant::now();
     assert!(!emu.wait_frame(Duration::from_millis(100)));
     assert!(
         began.elapsed() < Duration::from_millis(20),
         "the wait blocked"
     );
+}
+
+fn spawn_rate_probe(fps: f64) -> EmuHandle {
+    let (mut core, _) = Probe::new(Duration::ZERO);
+    core.fps = Some(fps);
+    let emu = EmuHandle::spawn(
+        core,
+        PathBuf::from("mock"),
+        Arc::new(slot::audio::Ring::new(1 << 20)),
+        None,
+        None,
+    );
+    assert!(wait_for(|| emu.state() == CoreState::Ready));
+    emu
+}
+
+#[test]
+fn frame_period_comes_from_validated_core_av_timing() {
+    for fps in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        let emu = spawn_rate_probe(fps);
+        assert_eq!(emu.frame_period(), slot::pacing::UI_PERIOD);
+    }
+    assert_eq!(
+        spawn_rate_probe(50.0).frame_period(),
+        Duration::from_millis(20)
+    );
+}
+
+#[test]
+fn standalone_native_cadence_is_not_accelerated_by_snapshot_requests() {
+    let emu = spawn_rate_probe(50.0);
+    emu.set_speed(Speed::Normal);
+    let began = Instant::now();
+    while began.elapsed() < Duration::from_millis(240) {
+        emu.request_state()
+            .recv_timeout(Duration::from_millis(100))
+            .expect("snapshot service stalled");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    emu.set_speed(Speed::Paused);
+    assert!(wait_for(|| emu.observed_speed() == Speed::Paused));
+    let ran = frame_count(&emu);
+    assert!(
+        (10..=14).contains(&ran),
+        "50 Hz core ran {ran} frames in {:?}",
+        began.elapsed()
+    );
+}
+
+#[test]
+fn an_inflight_fallback_frame_satisfies_the_recovery_tick_once() {
+    let (mut core, log) = Probe::new(Duration::ZERO);
+    let (release, gate) = mpsc::channel();
+    core.frame_gate = Some(gate);
+    let emu = EmuHandle::spawn(
+        core,
+        PathBuf::from("mock"),
+        Arc::new(slot::audio::Ring::new(1 << 20)),
+        None,
+        None,
+    );
+    emu.set_driven(true);
+    emu.set_speed(Speed::Normal);
+    assert!(
+        wait_for(|| !log.lock().unwrap().is_empty()),
+        "fallback did not start"
+    );
+    assert_eq!(emu.frame_clock().fallback_frames, 0);
+    emu.tick();
+    release.send(()).unwrap();
+    assert!(emu.wait_frame(Duration::from_millis(100)));
+    emu.set_speed(Speed::Paused);
+    assert!(wait_for(|| emu.observed_speed() == Speed::Paused));
+    assert_eq!(emu.frame_clock().fallback_frames, 1);
+    assert_eq!(
+        frame_count(&emu),
+        1,
+        "recovery replayed the fallback interval"
+    );
+}
+
+#[test]
+fn dropping_a_worker_waiting_for_its_tick_wakes_it() {
+    let emu = spawn();
+    emu.set_driven(true);
+    assert!(wait_for(|| emu.locked()));
+    let began = Instant::now();
+    drop(emu);
+    assert!(
+        began.elapsed() < Duration::from_millis(20),
+        "drop waited for the renderer-stall timeout"
+    );
+}
+
+#[test]
+fn the_device_pacer_reclaims_the_worker_after_a_display_stall() {
+    let emu = spawn_rate_probe(60.0);
+    emu.set_driven(true);
+    emu.set_speed(Speed::Normal);
+    assert!(wait_for(|| emu.locked()));
+    let mut pacer = slot::pacing::FramePacer::new(Instant::now());
+
+    std::thread::sleep(Duration::from_millis(200));
+    let fallback_before = emu.frame_clock().fallback_frames;
+    assert!(
+        fallback_before >= 8,
+        "renderer stall did not exercise fallback"
+    );
+
+    let mut recovered_at = None;
+    let mut requests = 0;
+    for _ in 0..20 {
+        let deadline = pacer.deadline(emu.frame_clock(), Instant::now());
+        if let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            std::thread::sleep(left);
+        }
+        let due = pacer.due(emu.frame_clock(), Instant::now());
+        for _ in 0..due {
+            emu.tick();
+            assert!(emu.wait_frame(Duration::from_millis(100)));
+            requests += 1;
+            let clock = emu.frame_clock();
+            recovered_at.get_or_insert(clock.fallback_frames);
+            if !pacer.stepped(clock, Instant::now()) {
+                break;
+            }
+        }
+        // A small render/swap cost keeps this the same deadline/due/step loop
+        // used by device_app rather than an unpaced burst of manual requests.
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        requests >= 18,
+        "frontend never regained its tick handshake: {requests} requests"
+    );
+    assert_eq!(
+        Some(emu.frame_clock().fallback_frames),
+        recovered_at,
+        "fallback kept racing the recovered frontend"
+    );
+
+    let before = frame_count(&emu);
+    for _ in 0..5 {
+        emu.tick();
+        assert!(emu.wait_frame(Duration::from_millis(100)));
+    }
+    assert_eq!(
+        frame_count(&emu),
+        before + 5,
+        "manual stepping was not exact after recovery"
+    );
+}
+
+#[test]
+fn a_refresh_redraws_a_paused_core_without_moving_it() {
+    let emu = spawn();
+    emu.set_speed(Speed::Paused);
+    std::thread::sleep(Duration::from_millis(100));
+    let held = frame_count(&emu);
+    let shown = emu.published_count();
+    emu.refresh();
+    assert!(
+        wait_for(|| emu.published_count() > shown),
+        "the refresh never published a frame"
+    );
+    assert_eq!(frame_count(&emu), held, "the refresh moved the game on");
 }

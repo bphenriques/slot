@@ -1,7 +1,8 @@
-use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
+use slot_gfx::{Canvas, Draw, TexId, OUT_H};
 use slot_power::Battery;
 
 use crate::battery::{draw_gauge, GAUGE_H};
+use crate::hud::{HUD_INK, PLATE_H};
 use crate::plate::HINT_H;
 use crate::slot_chrome::MOUTH_H;
 use crate::CartFace;
@@ -10,15 +11,18 @@ pub const SYNC_PX: u32 = 18;
 const SYNC_GAP: f32 = 14.0;
 
 /// Two small circular arrows, rasterised once by the achievement UI worker.
-pub fn sync_icon_face() -> CartFace {
-    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-      <g fill="none" stroke="#f5f2ef" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+pub fn sync_icon_face(light: bool) -> CartFace {
+    let [r, g, b] = crate::footer_ink(light);
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+      <g fill="none" stroke="#{r:02x}{g:02x}{b:02x}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 10a7.2 7.2 0 0 1 12.2-3.2L20 10M20 5v5h-5"/>
         <path d="M19 14a7.2 7.2 0 0 1-12.2 3.2L4 14M4 19v-5h5"/>
       </g>
-    </svg>"##;
+    </svg>"##
+    );
     CartFace {
-        rgba: crate::art::render_svg(svg, SYNC_PX, SYNC_PX)
+        rgba: crate::art::render_svg(&svg, SYNC_PX, SYNC_PX)
             .unwrap_or_else(|| vec![0; (SYNC_PX * SYNC_PX * 4) as usize]),
         w: SYNC_PX,
         h: SYNC_PX,
@@ -35,8 +39,8 @@ pub struct SyncIndicator {
 }
 
 /// Shares the clock's baseline and preserves a gap even at the widest clock label.
-pub fn draw_footer_sync(clock: Printed, icon: SyncIndicator, out: &mut Vec<Draw>) {
-    let right = OUT_W as f32 - FOOTER_MARGIN - clock.w as f32 - SYNC_GAP;
+pub fn draw_footer_sync(canvas: Canvas, clock: Printed, icon: SyncIndicator, out: &mut Vec<Draw>) {
+    let right = canvas.w - FOOTER_MARGIN - clock.w as f32 - SYNC_GAP;
     let x = right - SYNC_PX as f32 - if icon.progress.is_some() { 42.0 } else { 0.0 };
     if let Some(tex) = icon.progress {
         out.push(Draw::Tex {
@@ -74,8 +78,9 @@ pub fn draw_footer_sync(clock: Printed, icon: SyncIndicator, out: &mut Vec<Draw>
     }
 }
 
-const FOOTER_Y: f32 = OUT_H as f32 - MOUTH_H + (MOUTH_H - HINT_H as f32) / 2.0;
+pub const FOOTER_Y: f32 = OUT_H as f32 - MOUTH_H + (MOUTH_H - HINT_H as f32) / 2.0;
 const FOOTER_MARGIN: f32 = 24.0;
+const CORNER_MARGIN: f32 = 16.0;
 
 #[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
 pub struct Printed {
@@ -93,15 +98,31 @@ impl Printed {
 }
 
 pub fn draw_footer(
+    canvas: Canvas,
+    battery: Option<Battery>,
+    percent: Printed,
+    bolt: Option<TexId>,
+    clock: Printed,
+    ink: [u8; 3],
+    out: &mut Vec<Draw>,
+) {
+    let y = FOOTER_Y + (HINT_H as f32 - GAUGE_H) / 2.0;
+    draw_gauge(FOOTER_MARGIN, y, battery, percent, bolt, ink, out);
+    printed(canvas.w - FOOTER_MARGIN - clock.w as f32, clock, out);
+}
+
+pub fn draw_corners(
+    canvas: Canvas,
     battery: Option<Battery>,
     percent: Printed,
     bolt: Option<TexId>,
     clock: Printed,
     out: &mut Vec<Draw>,
 ) {
-    let y = FOOTER_Y + (HINT_H as f32 - GAUGE_H) / 2.0;
-    draw_gauge(FOOTER_MARGIN, y, battery, percent, bolt, out);
-    printed(OUT_W as f32 - FOOTER_MARGIN - clock.w as f32, clock, out);
+    let y = (PLATE_H - GAUGE_H) / 2.0;
+    draw_gauge(CORNER_MARGIN, y, battery, percent, bolt, HUD_INK, out);
+    let x = canvas.w - CORNER_MARGIN - clock.w as f32;
+    draw_printed(x, (PLATE_H - HINT_H as f32) / 2.0, clock, out);
 }
 
 pub(crate) fn draw_printed(x: f32, y: f32, p: Printed, out: &mut Vec<Draw>) {

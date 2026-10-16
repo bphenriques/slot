@@ -149,12 +149,14 @@ mod tests {
             slot_labels::label_size(Platform::Gba),
             (slot_ui::LABEL_W, slot_ui::LABEL_H)
         );
-        for platform in [Platform::Gb, Platform::Gbc] {
-            assert_eq!(
-                slot_labels::label_size(platform),
-                (slot_ui::GB_LABEL_W, slot_ui::GB_LABEL_H)
-            );
-        }
+        assert_eq!(
+            slot_labels::label_size(Platform::Gb),
+            (slot_ui::GB_LABEL_W, slot_ui::GB_LABEL_H)
+        );
+        assert_eq!(
+            slot_labels::label_size(Platform::Gbc),
+            (slot_ui::GBC_LABEL_W, slot_ui::GBC_LABEL_H)
+        );
     }
 
     #[test]

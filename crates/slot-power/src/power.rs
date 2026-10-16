@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::{Battery, Charge, LedState, LidPolicy, Platform};
@@ -42,6 +43,14 @@ impl Power {
         self.platform.card_read_only()
     }
 
+    pub fn card_log(&self) -> Option<PathBuf> {
+        self.platform.card_log()
+    }
+
+    pub fn card_kernel_lines(&self) -> Vec<String> {
+        self.platform.card_kernel_lines()
+    }
+
     pub fn set_led(&mut self, state: LedState) {
         self.platform.set_led(state)
     }
@@ -52,6 +61,18 @@ impl Power {
 
     pub fn relink_adb(&mut self) -> bool {
         self.platform.relink_adb()
+    }
+
+    pub fn supports_high_refresh(&self) -> bool {
+        self.platform.supports_high_refresh()
+    }
+
+    pub fn set_high_refresh(&mut self, high: bool) -> bool {
+        self.platform.set_high_refresh(high)
+    }
+
+    pub fn high_refresh_enabled(&self) -> bool {
+        self.platform.high_refresh_enabled()
     }
 
     pub fn poweroff(&mut self) -> ! {
@@ -82,6 +103,7 @@ impl LidPolicy for Power {
 
     fn on_open(&mut self) {
         self.closed = false;
+        self.platform.resume_display();
         self.platform.set_backlight(self.level);
     }
 

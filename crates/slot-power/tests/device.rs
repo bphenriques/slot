@@ -45,7 +45,7 @@ fn brightness(d: &TempDir) -> u32 {
 }
 
 fn platform(d: &TempDir) -> DevicePlatform {
-    DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"))
+    DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"), None)
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn the_probe_reports_what_it_found() {
 #[test]
 fn a_probe_that_found_nothing_says_so_rather_than_saying_nothing() {
     let d = tempfile::tempdir().unwrap();
-    let report = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard")).report();
+    let report = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"), None).report();
     assert!(report.contains("no backlight"), "{report}");
     assert!(report.contains("no battery"), "{report}");
     assert!(report.contains("no rtc"), "{report}");
@@ -211,7 +211,7 @@ fn dispdbg(d: &TempDir, file: &str) -> String {
 #[test]
 fn a_tree_with_no_backlight_class_drives_the_panel_through_dispdbg() {
     let d = dispdbg_tree();
-    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"));
+    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"), None);
     p.set_backlight(9);
     assert_eq!(dispdbg(&d, "name"), "lcd0");
     assert_eq!(dispdbg(&d, "command"), "setbl");
@@ -339,7 +339,7 @@ fn relinking_adb_rebinds_the_gadget_to_the_controller() {
     fs::create_dir_all(&gadget).unwrap();
     fs::write(gadget.join("UDC"), "\n").unwrap();
 
-    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"));
+    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"), None);
     assert!(
         p.relink_adb(),
         "the gadget and a controller were both there"
@@ -354,7 +354,7 @@ fn relinking_adb_rebinds_the_gadget_to_the_controller() {
 fn relinking_adb_without_a_gadget_does_nothing() {
     let d = tempfile::tempdir().unwrap();
     fs::create_dir_all(d.path().join("class/udc/5100000.udc-controller")).unwrap();
-    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"));
+    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"), None);
     assert!(!p.relink_adb());
 }
 
@@ -405,4 +405,33 @@ fn the_closest_mount_decides_not_the_root() {
 fn an_option_that_merely_mentions_ro_is_not_read_only() {
     let m = "/dev/x /mnt/card vfat rw,errors=remount-ro 0 0\n";
     assert!(!slot_power::read_only_in(m, Path::new("/mnt/card")));
+}
+
+#[test]
+fn the_kernel_log_keeps_only_card_trouble() {
+    let dmesg = "\
+[    1.561571] mmc0: host does not support reading read-only switch, assuming write-enable
+[    2.240176] [EXFAT] trying to mount...
+[    2.305657] [EXFAT] mounted successfully
+[    2.900000] Error reading temperature for gpu thermal zone: -11
+[   40.675342] FAT-fs (mmcblk0p7): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+[  612.000001] FAT-fs (mmcblk0p7): error, invalid access to FAT (entry 0x0001a2b3)
+[  612.000002] FAT-fs (mmcblk0p7): Filesystem has been set read-only
+[  700.000000] mmcblk1: r/w command failed, status = 0x80000900
+[  700.000001] blk_update_request: I/O error, dev mmcblk1, sector 1234
+";
+    let kept = slot_power::card_kernel_lines(dmesg);
+    assert_eq!(kept.len(), 7, "{kept:#?}");
+    assert!(kept.iter().all(|l| !l.contains("read-only switch")));
+    assert!(kept.iter().all(|l| !l.contains("thermal")));
+}
+
+#[test]
+fn the_kernel_log_keeps_the_latest_card_lines() {
+    let dmesg: String = (0..100)
+        .map(|n| format!("[{n}] FAT-fs (mmcblk0p7): line {n}\n"))
+        .collect();
+    let kept = slot_power::card_kernel_lines(&dmesg);
+    assert_eq!(kept.len(), 40);
+    assert_eq!(kept.last().unwrap(), "[99] FAT-fs (mmcblk0p7): line 99");
 }

@@ -355,7 +355,7 @@ pub fn draw_music(faces: &MusicFaces, out: &mut Vec<Draw>) {
             draw_values(faces, pitch, out);
         }
     }
-    for (tex, w, x) in centred_hints(&faces.legend, LEGEND_GAP) {
+    for (tex, w, x) in centred_hints(slot_gfx::Canvas::FRAMED, &faces.legend, LEGEND_GAP) {
         push(out, tex, x, LEGEND_Y, w, HINT_H);
     }
 }

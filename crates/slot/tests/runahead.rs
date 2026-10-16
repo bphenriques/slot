@@ -15,7 +15,6 @@ use slot_retro::{
 };
 use slot_store::{write_selected_core, write_slot_state, Core, Platform, SlotState, RUN_AHEAD_MAX};
 
-const PANEL: Duration = Duration::from_micros(16_760);
 const PRESENTS: u64 = 30;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -149,7 +148,7 @@ fn driven(core: Box<dyn RetroCore>, rom: PathBuf, ahead: u8) -> EmuHandle {
 }
 
 fn present(emu: &EmuHandle) -> Vec<u8> {
-    emu.tick(PANEL);
+    emu.tick();
     assert!(
         emu.wait_frame(Duration::from_secs(2)),
         "a tick's frame never arrived"
@@ -283,7 +282,11 @@ fn fast_forward_with_run_ahead_on_never_rolls_back() {
         calls.iter().any(|c| matches!(c, Call::Run { .. })),
         "fast forward ran nothing"
     );
-    assert_eq!(loads(&calls), [0u64; 0], "fast forward rolled the game back");
+    assert_eq!(
+        loads(&calls),
+        [0u64; 0],
+        "fast forward rolled the game back"
+    );
 }
 
 #[test]
@@ -476,7 +479,7 @@ fn sound_in_ring(
     );
     let before = emu.published_count();
     for _ in 0..RING_PRESENTS {
-        emu.tick(PANEL);
+        emu.tick();
         assert!(
             emu.wait_frame(Duration::from_secs(2)),
             "a tick's frame never arrived"
@@ -542,15 +545,15 @@ fn on_mgba_with_local_roms_the_ring_gets_as_much_sound_as_off_at_every_setting()
         return;
     };
     let root = tempfile::tempdir().expect("a temporary root");
-    let open = || -> Box<dyn RetroCore> {
+    let open = |platform: Platform| -> Box<dyn RetroCore> {
         let mut core = LibretroCore::open_with(&dylib, root.path(), root.path())
             .expect("the vendored core would not open, is another one still running?");
-        apply_core_options(&mut core, Core::Mgba, "auto", false, false, None);
+        apply_core_options(&mut core, Core::Mgba, platform, "auto", false, false, None);
         Box::new(core)
     };
     for (platform, rom) in roms {
         let state_at = |frames: u8| {
-            let mut core = open();
+            let mut core = open(platform);
             core.load(&rom).expect("the rom would not load");
             for _ in 0..frames {
                 core.run_frame(ButtonMask(0));
@@ -561,8 +564,8 @@ fn on_mgba_with_local_roms_the_ring_gets_as_much_sound_as_off_at_every_setting()
         for setting in 1..=RUN_AHEAD_MAX {
             let ahead = runahead_for(Core::Mgba, platform, setting);
             let start = state_at(ahead);
-            let off_from_there = sound_in_ring(open(), rom.clone(), Some(start), 0);
-            let played = sound_in_ring(open(), rom.clone(), None, ahead);
+            let off_from_there = sound_in_ring(open(platform), rom.clone(), Some(start), 0);
+            let played = sound_in_ring(open(platform), rom.clone(), None, ahead);
             assert_eq!(
                 played,
                 off_from_there,
