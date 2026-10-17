@@ -9,7 +9,7 @@ use super::{list, now_playing, Body, Legend, NowPlayingBody, Screen, Status};
 use crate::books;
 use crate::browse::{Browser, Context, Key, Outcome, View};
 use crate::keys::Mode;
-use crate::muse::MuseState;
+use crate::muse::PlayState;
 use crate::player::Repeat;
 use crate::rows::Row;
 use crate::{text, Music};
@@ -94,7 +94,7 @@ pub(crate) fn screen(music: &Music, book: usize, track: usize) -> Screen {
         .filter(|m| m.part == part && (start..end).contains(&m.pos))
         .map(|m| ((m.pos - start) / (end - start)) as f32)
         .collect();
-    let playing = player.state() == MuseState::Playing;
+    let playing = player.state() == PlayState::Playing;
     let body = NowPlayingBody {
         title,
         by: lib.artists[lib.albums[b.album].artist].name.clone(),

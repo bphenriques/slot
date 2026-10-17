@@ -32,6 +32,14 @@ the top right corner; let go before the ring closes and nothing happens. This pa
 | Left / Right | A page back / on. | Keep turning. |
 | L1 / R1 | The previous / next letter, shown large for a moment. | Keep jumping. |
 
+## Playlists
+
+Playlists are `.m3u` files in `Music/Playlists`, read with the library; Favorites is one,
+written as Y adds and takes out songs. The others are only played here, not edited: changing
+a list a song at a time with a pad is slow, and a song taken out by mistake is easily lost
+for good. Edit them on a computer. If saving is wanted, it would be the queue saved as a new
+playlist under a name made for it, to play and not to edit.
+
 ## Now Playing
 
 | Button | Tapped | Held |
@@ -39,6 +47,7 @@ the top right corner; let go before the ring closes and nothing happens. This pa
 | A | Pause or play. | |
 | X | Shuffle the queue, or put it back in order. | |
 | Y | Add the song to Favorites, or take it out. | |
+| Up | Repeat: Off, All, One, round again (a symbol shows which). | |
 | Left / Right | Previous / next song. | Seek back / on. |
 | L1 / R1 | Previous / next song. Previous starts the song over after its first second. | |
 | L2 / R2 | Seek back / on 10 seconds. | Keep seeking. |
@@ -49,7 +58,7 @@ the top right corner; let go before the ring closes and nothing happens. This pa
 | Button | Tapped | Held |
 |---|---|---|
 | A | Play from this song, or start the playing one over. | Play the song next. |
-| X | Take the song out. | Go on taking out the songs after it, quicker and quicker, up to the one playing or the last. |
+| X | Take the song out. | Go on taking out the songs after it, quicker and quicker and then several at a time, up to the one playing or the last. |
 | Y | Pick the song up to move it: Up and Down carry it, Y puts it down, R1 puts it next, B puts it back. | Add the song to Favorites, or take it out. |
 | L1 / R1 | A page back / on. | |
 
@@ -99,6 +108,6 @@ Paused or stopped, slot powers off after its screen-off time.
 
 ## Settings
 
-Theme follows slot's Appearance (Slot), or keeps the music screens Dark or Light. The clock and Up Next are set in `Config/music.txt`.
+Theme follows slot's Appearance (Slot), or keeps the music screens Dark or Light. With slot's own player (`player = slot`) more show, which Muse cannot do: for books, Skip Silence (pauses cut short) and Volume Boost (+3 or +6 dB); for music, Gapless (each song straight on from the last) and Crossfade (3 or 6 s); and Volume Leveling (Off, Song or Album, from the files' ReplayGain tags) and Mono Audio (both sides alike, for one ear or one speaker). The clock, Up Next and the player are set in `Config/music.txt`.
 
 Hold A on Rebuild Library to read every song again. Update Library reads only what changed.

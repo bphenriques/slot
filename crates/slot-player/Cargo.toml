@@ -1,0 +1,18 @@
+[package]
+name = "slot-player"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+libloading.workspace = true
+lofty = "0.25"
+rodio = { version = "0.23", default-features = false, features = ["mp3", "mp4", "flac", "vorbis", "wav"] }
+rubato = "5"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[build-dependencies]
+cc = "1"

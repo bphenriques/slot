@@ -1,12 +1,13 @@
 //! Now Playing: the track, its album picture, the state symbols and the bar. A pauses, X
-//! shuffles and Y puts the song in Favorites; SELECT opens the queue and START the menu, which
-//! sets the repeat. The back buttons carry the transport: L1 and R1 change track, as
+//! shuffles, Y puts the song in Favorites and Up steps the repeat round, as START's menu does;
+//! SELECT opens the queue. The back buttons carry the transport: L1 and R1 change track, as
 //! Left and Right do, and L2 and R2 seek. An audiobook has its own, in `book`.
 
 use super::{Body, Legend, NowPlayingBody, Screen, Status};
 use crate::browse::{Browser, Context, Key, Outcome, View};
 use crate::keys::Mode;
-use crate::muse::MuseState;
+use crate::muse::PlayState;
+use crate::settings::Setting;
 use crate::{text, Music};
 
 /// Seconds a seek moves.
@@ -35,6 +36,8 @@ pub(crate) fn press(cx: &Context, key: Key) -> Outcome {
     match key {
         Key::A => Outcome::Toggle,
         Key::X => Outcome::ShuffleQueue,
+        // Up steps the repeat round, as its START menu row does.
+        Key::Up => Outcome::Change(Setting::Repeat, 0),
         Key::Y => match cx.queue.tracks.get(cx.queue.at) {
             Some(&t) => Outcome::Favorite(t),
             None => Outcome::None,
@@ -75,7 +78,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
     let (n, of) = player.place();
     // The bar moves on between Muse's reports.
     let bar = player.smooth_pos();
-    let playing = player.state() == MuseState::Playing;
+    let playing = player.state() == PlayState::Playing;
     let body = NowPlayingBody {
         title: lib.tracks[track].title.clone(),
         by: lib.tracks[track].artist.clone(),

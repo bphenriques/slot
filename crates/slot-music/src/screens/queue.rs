@@ -9,6 +9,10 @@ use crate::keys::Mode;
 use crate::rows::Row;
 use crate::{text, Music};
 
+/// After how many repeats X held takes out one track more at a time: about a second, at the
+/// quickest repeat.
+const RUN: usize = 20;
+
 /// A and Y wait to see whether they are held; A not on the track playing, which it starts over
 /// at once. X repeats, as the moving keys do.
 pub(crate) fn mode(cx: &Context, i: usize, key: Key) -> Mode {
@@ -23,7 +27,10 @@ pub(crate) fn mode(cx: &Context, i: usize, key: Key) -> Mode {
 /// The keys a queued track takes tapped; the rest move through the list.
 pub(crate) fn press(b: &mut Browser, i: usize, key: Key) -> Option<Outcome> {
     match key {
-        Key::X => Some(Outcome::Remove(i)),
+        Key::X => {
+            b.run = 0;
+            Some(Outcome::Remove { at: i, n: 1 })
+        }
         Key::Y => {
             b.carry = Some(i);
             Some(Outcome::None)
@@ -32,7 +39,8 @@ pub(crate) fn press(b: &mut Browser, i: usize, key: Key) -> Option<Outcome> {
     }
 }
 
-/// Held: A puts the track next, Y favorites it.
+/// Held: A puts the track next, Y favorites it, and X goes on taking tracks out, one more at
+/// once each `RUN` repeats.
 pub(crate) fn held(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Outcome {
     match key {
         Key::A => {
@@ -40,6 +48,13 @@ pub(crate) fn held(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Outcome
             let to = next_place(cx.queue, i);
             b.set_at(to);
             Outcome::Move(i, to)
+        }
+        Key::X => {
+            b.run += 1;
+            Outcome::Remove {
+                at: i,
+                n: 1 + b.run / RUN,
+            }
         }
         Key::Y => Outcome::Favorite(cx.queue.tracks[i]),
         _ => Outcome::None,

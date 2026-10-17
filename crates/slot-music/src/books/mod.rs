@@ -8,7 +8,7 @@ mod shelf;
 pub use shelf::{Bookmark, Place, Shelf, SHELF_FILE};
 
 use crate::library::Library;
-use crate::muse::{Command, Event, MuseState};
+use crate::muse::{Command, Event, PlayState};
 use crate::queue::Queue;
 use crate::settings::cycle;
 use crate::text::Notice;
@@ -131,7 +131,7 @@ impl Music {
     /// Before a paused book plays on: back a little, by how long it was paused.
     pub(crate) fn resume_book(&mut self) -> Option<Command> {
         let (book, _) = self.book()?;
-        if self.player.state() != MuseState::Paused {
+        if self.player.state() != PlayState::Paused {
             return None;
         }
         let when = self.shelf.place(&self.library, book).when;
@@ -142,8 +142,8 @@ impl Music {
     /// Notes where the book playing is, and when it last played; written down now and then
     /// while it plays, and at once otherwise.
     pub(crate) fn note_book(&mut self) {
-        let playing = self.player.state() == MuseState::Playing;
-        let open = self.player.state() != MuseState::Stopped;
+        let playing = self.player.state() == PlayState::Playing;
+        let open = self.player.state() != PlayState::Stopped;
         if let Some((book, part)) = self.book().filter(|_| open) {
             let was = self.shelf.place(&self.library, book);
             let place = Place {

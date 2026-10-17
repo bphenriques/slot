@@ -2,6 +2,8 @@ use std::path::Path;
 
 use slot_store::ini;
 
+use slot_player::Leveling;
+
 use crate::player::Repeat;
 
 /// The music player's settings, apart from slot's to keep upstream merges cheap.
@@ -27,6 +29,22 @@ pub struct Settings {
     pub theme: Theme,
     /// Seconds Left and Right jump in an audiobook.
     pub jump: u32,
+    /// Play through slot's own player (`player = slot`) rather than plorpOS's Muse (`muse`,
+    /// the default); only in `music.txt`, read when slot starts.
+    pub own_player: bool,
+    /// Both sides alike (`mono = on`), for one ear or one speaker; slot's player only.
+    pub mono: bool,
+    /// Each song straight on from the last, with no gap (`gapless = on`, the default); slot's
+    /// player only.
+    pub gapless: bool,
+    /// Songs, or albums, brought to one loudness from their ReplayGain (`leveling = off`, `track`
+    /// or `album`); slot's player only.
+    pub leveling: Leveling,
+    /// Seconds a song's end fades into the next (`crossfade = 0`, 3 or 6); never a book's.
+    pub crossfade: u32,
+    /// For books: pauses cut short (`skip_silence = on`), and dB louder (`boost = 0`, 3 or 6).
+    pub skip_silence: bool,
+    pub boost: u32,
 }
 
 /// A setting the music screens change. The sleep timer is on Now Playing's menu and never
@@ -35,6 +53,13 @@ pub struct Settings {
 pub enum Setting {
     ScreenOff,
     Jump,
+    /// Shown with slot's player only, as Gapless and Volume Leveling are: Muse cannot.
+    Mono,
+    Gapless,
+    Crossfade,
+    Leveling,
+    SkipSilence,
+    Boost,
     ListSize,
     /// On Now Playing's menu, as the sleep timer is, but kept.
     Repeat,
@@ -45,9 +70,15 @@ pub enum Setting {
 
 impl Setting {
     /// In page order: listening first, then looks.
-    pub const ALL: [Setting; 5] = [
+    pub const ALL: [Setting; 11] = [
         Setting::ScreenOff,
         Setting::Jump,
+        Setting::SkipSilence,
+        Setting::Boost,
+        Setting::Gapless,
+        Setting::Crossfade,
+        Setting::Leveling,
+        Setting::Mono,
         Setting::ListSize,
         Setting::Color,
         Setting::Theme,
@@ -138,6 +169,13 @@ impl Default for Settings {
             color: true,
             theme: Theme::Slot,
             jump: 30,
+            own_player: false,
+            mono: false,
+            gapless: true,
+            leveling: Leveling::Off,
+            crossfade: 0,
+            skip_silence: false,
+            boost: 0,
         }
     }
 }
@@ -149,6 +187,12 @@ impl Settings {
             Setting::ScreenOff => self.play_screen_off ^= true,
             Setting::ListSize => self.list_size = cycle(&ListSize::ORDER, self.list_size, by),
             Setting::Color => self.color ^= true,
+            Setting::Mono => self.mono ^= true,
+            Setting::Gapless => self.gapless ^= true,
+            Setting::Crossfade => self.crossfade = cycle(&FADES, self.crossfade, by),
+            Setting::SkipSilence => self.skip_silence ^= true,
+            Setting::Boost => self.boost = cycle(&BOOSTS, self.boost, by),
+            Setting::Leveling => self.leveling = cycle(&LEVELINGS, self.leveling, by),
             Setting::Theme => self.theme = cycle(&Theme::ORDER, self.theme, by),
             Setting::Jump => self.jump = cycle(&JUMPS, self.jump, by),
             Setting::Repeat => self.repeat = cycle(&Repeat::ORDER, self.repeat, by),
@@ -160,6 +204,11 @@ impl Settings {
         let file = ini::read(root, SETTINGS_FILE);
         let get = |key: &str| file.get(key).map(String::as_str);
         let is = |key: &str, value: &str| get(key).is_some_and(|v| v.eq_ignore_ascii_case(value));
+        // One of `choices`, or the first.
+        let number = |key: &str, choices: &[u32]| {
+            let n = get(key).and_then(|v| v.parse().ok());
+            n.filter(|n| choices.contains(n)).unwrap_or(choices[0])
+        };
         let list = |v: &str| {
             ListSize::ORDER
                 .into_iter()
@@ -182,12 +231,26 @@ impl Settings {
                 .and_then(|v| v.parse().ok())
                 .filter(|j| JUMPS.contains(j))
                 .unwrap_or(30),
+            own_player: is("player", "slot"),
+            mono: is("mono", "on"),
+            gapless: !is("gapless", "off"),
+            leveling: get("leveling")
+                .and_then(|v| {
+                    LEVELINGS
+                        .into_iter()
+                        .find(|l| leveling_key(*l).eq_ignore_ascii_case(v))
+                })
+                .unwrap_or_default(),
+            crossfade: number("crossfade", &FADES),
+            skip_silence: is("skip_silence", "on"),
+            boost: number("boost", &BOOSTS),
         }
     }
 
     pub fn write(&self, root: &Path) {
         let pick = |on: bool, yes: &'static str, no: &'static str| if on { yes } else { no };
         let jump = self.jump.to_string();
+        let (crossfade, boost) = (self.crossfade.to_string(), self.boost.to_string());
         let entries = [
             ("repeat", self.repeat.key()),
             ("screen_off", pick(self.play_screen_off, "play", "pause")),
@@ -197,6 +260,13 @@ impl Settings {
             ("color", pick(self.color, "on", "off")),
             ("theme", self.theme.key()),
             ("jump", jump.as_str()),
+            ("player", pick(self.own_player, "slot", "muse")),
+            ("mono", pick(self.mono, "on", "off")),
+            ("gapless", pick(self.gapless, "on", "off")),
+            ("leveling", leveling_key(self.leveling)),
+            ("crossfade", crossfade.as_str()),
+            ("skip_silence", pick(self.skip_silence, "on", "off")),
+            ("boost", boost.as_str()),
         ];
         for (key, value) in entries {
             if let Err(e) = ini::write(root, SETTINGS_FILE, key, value) {
@@ -205,3 +275,19 @@ impl Settings {
         }
     }
 }
+
+/// Volume Leveling's choices, in the order A goes round them.
+pub const LEVELINGS: [Leveling; 3] = [Leveling::Off, Leveling::Track, Leveling::Album];
+
+/// A leveling's name in `music.txt`.
+fn leveling_key(leveling: Leveling) -> &'static str {
+    match leveling {
+        Leveling::Off => "off",
+        Leveling::Track => "track",
+        Leveling::Album => "album",
+    }
+}
+
+/// Crossfade's seconds and Volume Boost's dB, in the order A goes round them.
+pub const FADES: [u32; 3] = [0, 3, 6];
+pub const BOOSTS: [u32; 3] = [0, 3, 6];

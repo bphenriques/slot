@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use slot_music::{
-    parse, text::Notice, track_title, Browser, Command, Context, Event, Key, Library, Mode,
-    MuseState, Outcome, Player, Queue, QueueView, Settings, Shuffle, View,
+    parse, text::Notice, track_title, wire, Browser, Command, Context, Event, Key, Library, Mode,
+    Outcome, PlayState, Player, Queue, QueueView, Settings, Shuffle, View,
 };
 use tempfile::TempDir;
 
@@ -236,7 +236,7 @@ fn the_player_moves_on_at_the_end_of_its_own_track_only() {
     let next = p.on(&lib, Event::End(lib.tracks[0].path.clone()));
     assert_eq!(played(next), lib.tracks[1].path);
     assert_eq!(p.on(&lib, Event::End(lib.tracks[1].path.clone())), None);
-    assert_eq!(p.state(), MuseState::Stopped);
+    assert_eq!(p.state(), PlayState::Stopped);
     assert!(!p.owns_audio());
 }
 
@@ -253,7 +253,7 @@ fn a_track_muse_cannot_play_is_skipped_but_a_run_of_them_stops_the_queue() {
     assert_eq!(played(p.on(&lib, error())), lib.tracks[2].path);
     assert_eq!(played(p.on(&lib, error())), lib.tracks[3].path);
     assert_eq!(p.on(&lib, error()), None);
-    assert_eq!(p.state(), MuseState::Stopped);
+    assert_eq!(p.state(), PlayState::Stopped);
 }
 
 #[test]
@@ -287,16 +287,13 @@ fn shuffle_keeps_every_track_once() {
 #[test]
 fn commands_are_written_as_muse_lines() {
     let path = PathBuf::from("/m/A/x.mp3");
-    assert_eq!(
-        Command::Play {
-            path,
-            at: 0.0,
-            speed: 1.0
-        }
-        .to_string(),
-        "PLAY\tpath=/m/A/x.mp3"
-    );
-    assert_eq!(Command::Seek(12.0).to_string(), "SEEK\tat=12.0");
+    let play = Command::Play {
+        path,
+        at: 0.0,
+        speed: 1.0,
+    };
+    assert_eq!(wire(&play).unwrap(), "PLAY\tpath=/m/A/x.mp3");
+    assert_eq!(wire(&Command::Seek(12.0)).unwrap(), "SEEK\tat=12.0");
 }
 
 #[test]
@@ -305,7 +302,7 @@ fn muse_lines_parse_into_events() {
     assert!(matches!(parse("READY\tproto=3"), Some(Event::Error(_))));
     assert_eq!(
         parse("STATE\tstate=paused\tpath=/m/x.mp3\n"),
-        Some(Event::State(MuseState::Paused))
+        Some(Event::State(PlayState::Paused))
     );
     assert_eq!(
         parse("POS\tat=12.5\tlen=200.0"),
@@ -341,7 +338,7 @@ fn a_book_s_chapters_skip_within_it_and_its_speed_goes_to_muse_but_not_music_s()
     p.set_speed(1.5);
     let parts = lib.albums[lib.books[0].album].tracks.clone();
     let play = p.play(&lib, Queue::new(parts, 0, None)).unwrap();
-    assert!(play.to_string().ends_with("speed=1.50"), "{play}");
+    assert!(wire(&play).unwrap().ends_with("speed=1.50"), "{play:?}");
     p.on(&lib, Event::Meta);
     for (at, title) in [(0.0, "One"), (60.0, "Two"), (120.0, "Three")] {
         let title = title.into();
@@ -389,7 +386,7 @@ fn a_book_s_chapters_skip_within_it_and_its_speed_goes_to_muse_but_not_music_s()
     assert_eq!(p.chapter(), None, "a new file's chapters are its own");
     // Music plays as recorded whatever speed the book left.
     let music = p.play(&lib, Queue::new(vec![song], 0, None)).unwrap();
-    assert!(!music.to_string().contains("speed"), "{music}");
+    assert!(!wire(&music).unwrap().contains("speed"), "{music:?}");
 }
 
 #[test]
@@ -397,11 +394,11 @@ fn the_music_stays_audible_until_muse_confirms_it_stopped() {
     let (_d, lib) = library(&["X/A/01 one.mp3"]);
     let mut p = Player::default();
     p.play(&lib, Queue::new(vec![0], 0, None));
-    p.on(&lib, Event::State(MuseState::Playing));
+    p.on(&lib, Event::State(PlayState::Playing));
     p.stop();
     assert!(!p.owns_audio(), "a game may start opening the codec");
     assert!(p.audible(), "but Muse has not let go yet");
-    p.on(&lib, Event::State(MuseState::Stopped));
+    p.on(&lib, Event::State(PlayState::Stopped));
     assert!(!p.audible());
 }
 
@@ -537,6 +534,26 @@ fn music_settings_flip_with_left_and_right() {
             None
         ]
     );
+    // The sound settings only with slot's player, which can.
+    let own = Settings {
+        own_player: true,
+        ..Settings::default()
+    };
+    let page = b.page(&cx(&lib, QueueView::default(), own));
+    let sound: Vec<_> = (2..7)
+        .map(|i| (page.rows[i].text.clone(), page.values[i].clone()))
+        .collect();
+    let on = |name: &str, value: &str| (name.to_string(), Some(value.to_string()));
+    assert_eq!(
+        sound,
+        [
+            on("Skip Silence", "Off"),
+            on("Volume Boost", "Off"),
+            on("Gapless", "On"),
+            on("Crossfade", "Off"),
+            on("Volume Leveling", "Off")
+        ]
+    );
     assert_eq!(
         press(&mut b, &lib, &[Key::Right]),
         Outcome::Change(slot_music::Setting::ScreenOff, 1)
@@ -611,14 +628,32 @@ fn the_queue_opens_on_the_playing_track_and_x_held_goes_on_taking_tracks_out() {
     assert_eq!(page.selected, 1, "the playing track");
     let s = Settings::default();
     assert_eq!(b.mode(&cx(&lib, queue, s), Key::X), Mode::Repeat);
-    assert_eq!(b.press(&cx(&lib, queue, s), Key::X), Outcome::Remove(1));
+    assert_eq!(
+        b.press(&cx(&lib, queue, s), Key::X),
+        Outcome::Remove { at: 1, n: 1 }
+    );
     assert_eq!(
         b.held(&cx(&lib, queue, s), Key::X),
         Outcome::None,
         "it stops at the last"
     );
     b.press(&cx(&lib, queue, s), Key::Up);
-    assert_eq!(b.held(&cx(&lib, queue, s), Key::X), Outcome::Remove(0));
+    assert_eq!(
+        b.held(&cx(&lib, queue, s), Key::X),
+        Outcome::Remove { at: 0, n: 1 }
+    );
+    // Held on, it takes out more at once.
+    let n = (0..60).fold(0, |_, _| match b.held(&cx(&lib, queue, s), Key::X) {
+        Outcome::Remove { n, .. } => n,
+        _ => 0,
+    });
+    assert_eq!(n, 4, "one more each 20 repeats");
+    b.press(&cx(&lib, queue, s), Key::X);
+    assert_eq!(
+        b.held(&cx(&lib, queue, s), Key::X),
+        Outcome::Remove { at: 0, n: 1 },
+        "a fresh press starts slow again"
+    );
     b.press(&cx(&lib, queue, s), Key::Start);
     assert_eq!(b.view(), View::Queue, "no menu: the keys have it all");
 }
@@ -684,7 +719,16 @@ fn now_playing_skips_with_l1_r1_and_seeks_with_l2_r2() {
     assert_eq!(b.view(), View::NowPlaying);
     assert_eq!(press(&mut b, &lib, &[Key::X]), Outcome::ShuffleQueue);
     let cx = Context::new(&lib);
-    assert_eq!(b.mode(&cx, Key::X), Mode::Once, "repeat is on START's menu");
+    assert_eq!(
+        b.mode(&cx, Key::X),
+        Mode::Once,
+        "repeat is on Up and START's menu"
+    );
+    assert_eq!(
+        press(&mut b, &lib, &[Key::Up]),
+        Outcome::Change(slot_music::Setting::Repeat, 0),
+        "round, as the menu row goes"
+    );
     assert_eq!(press(&mut b, &lib, &[Key::L1]), Outcome::Skip(-1));
     assert_eq!(press(&mut b, &lib, &[Key::R1]), Outcome::Skip(1));
     assert_eq!(press(&mut b, &lib, &[Key::L2]), Outcome::Seek(-10));
@@ -1031,7 +1075,10 @@ fn a_carried_track_can_be_put_next_and_a_played_one_shows_faint() {
     b.press(&cx(&lib, queue, s), Key::Down);
     b.press(&cx(&lib, queue, s), Key::Y);
     assert_eq!(b.press(&cx(&lib, queue, s), Key::R1), Outcome::Move(2, 2));
-    assert_eq!(b.press(&cx(&lib, queue, s), Key::X), Outcome::Remove(2));
+    assert_eq!(
+        b.press(&cx(&lib, queue, s), Key::X),
+        Outcome::Remove { at: 2, n: 1 }
+    );
     // A held puts it next at once; tapped, it plays.
     assert_eq!(b.mode(&cx(&lib, queue, s), Key::A), Mode::Hold);
     assert_eq!(b.held(&cx(&lib, queue, s), Key::A), Outcome::Move(2, 2));
@@ -1927,4 +1974,50 @@ fn x_held_on_now_playing_in_the_music_menu_stops_it_all() {
     p.play(&lib, Queue::new(vec![0], 0, None));
     p.stop();
     assert!(p.queue().tracks.is_empty() && !p.resumable());
+}
+
+#[test]
+fn gapless_tells_the_player_what_follows_and_the_queue_follows_it() {
+    let (_d, lib) = library(&["X/A/01 one.mp3", "X/A/02 two.mp3", "X/A/03 three.mp3"]);
+    let path = |t: usize| lib.tracks[t].path.clone();
+    let mut p = Player::default();
+    p.play(&lib, Queue::new(vec![0, 1, 2], 0, None));
+    assert_eq!(p.upcoming(&lib, false), None, "Muse cannot");
+    assert_eq!(p.upcoming(&lib, true), Some(Command::Next(Some(path(1)))));
+    assert_eq!(p.upcoming(&lib, true), None, "told once");
+    // It went on into two: the queue follows, with nothing to play.
+    assert_eq!(p.on(&lib, Event::Into(path(1))), None);
+    assert_eq!(p.current(), Some(1));
+    assert_eq!(p.upcoming(&lib, true), Some(Command::Next(Some(path(2)))));
+    // Into what slot no longer meant: it plays what it does.
+    p.edit().remove(2);
+    assert_eq!(
+        p.upcoming(&lib, true),
+        Some(Command::Next(None)),
+        "nothing after the last"
+    );
+    assert_eq!(
+        p.on(&lib, Event::Into(path(2))),
+        Some(Command::Stop),
+        "nothing it means to play: the player stops"
+    );
+    // Repeat One goes on into the same song.
+    let mut p = Player::default();
+    p.set_repeat(slot_music::Repeat::One);
+    p.play(&lib, Queue::new(vec![0, 1], 0, None));
+    assert_eq!(p.upcoming(&lib, true), Some(Command::Next(Some(path(0)))));
+}
+
+#[test]
+fn gapless_never_takes_a_book_past_its_end() {
+    let (_d, lib) = books();
+    let parts = lib.albums[lib.books[0].album].tracks.clone();
+    let mut p = Player::default();
+    p.set_repeat(slot_music::Repeat::All);
+    p.play(&lib, Queue::new(parts.clone(), parts.len() - 1, None));
+    assert_eq!(
+        p.upcoming(&lib, true),
+        None,
+        "the last part ends, to finish the book"
+    );
 }

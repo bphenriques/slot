@@ -1,5 +1,6 @@
 #!/bin/sh
-# Muse, plorpOS's music daemon, which slot plays through. launch_frontend.sh starts it.
+# Muse, plorpOS's music daemon, which slot plays through unless Config/music.txt says
+# `player = slot`. launch_frontend.sh starts it.
 #   sh muse.sh start
 #   sh muse.sh ctl 'PLAY\tpath=/mnt/sdcard/Music/x.flac' [...]
 #   sh muse.sh stop
@@ -10,6 +11,7 @@ PID="${AGS_RUN:-/run}/slot-muse.pid"
 
 case "$1" in
 start)
+	grep -qiE '^[[:space:]]*player[[:space:]]*=[[:space:]]*slot[[:space:]]*$' "$SD/Config/music.txt" 2>/dev/null && exit 0
 	pid="$(cat "$PID" 2>/dev/null)"
 	[ -n "$pid" ] && [ -d "/proc/$pid" ] && exit 0
 	[ -f "$SD/muse.log" ] && mv -f "$SD/muse.log" "$SD/muse.log.1"

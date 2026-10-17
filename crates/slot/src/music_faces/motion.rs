@@ -42,6 +42,8 @@ pub(super) struct Motion {
     /// slide from where they were.
     moved: Vec<f32>,
     moved_at: Millis,
+    /// How long they slide for: shorter when changes come quicker than a slide.
+    slide: Millis,
     /// The highlight rides with its row as it slides: the row was carried.
     rides: bool,
     art: Millis,
@@ -108,9 +110,11 @@ impl Motion {
     /// Where each row was before `rows` replaced the last ones: a row taken out leaves the
     /// rows under it to slide up, a moved one and those it passed slide to their places. Rows
     /// from far off, as on a new page, just arrive. A row still sliding goes on from where it
-    /// is drawn, so a quick run of moves never jumps.
+    /// is drawn, so a quick run of moves never jumps; and a run quicker than a slide slides as
+    /// quickly, so rows keep up with a held key rather than trail further and further behind.
     fn follow(&mut self, rows: &[RowText], now: Millis) {
         let sliding = self.offsets(now);
+        self.slide = now.saturating_sub(self.moved_at).clamp(1, MUSIC_SLIDE_MS);
         let mut used = vec![false; self.rows.len()];
         self.moved = (0..rows.len())
             .map(|i| {
@@ -129,7 +133,7 @@ impl Motion {
 
     /// How far each row is from its place, in rows, as it slides there.
     pub fn offsets(&self, now: Millis) -> Vec<f32> {
-        let u = self.eased(self.moved_at, now, MUSIC_SLIDE_MS);
+        let u = self.eased(self.moved_at, now, self.slide);
         match u < 1.0 {
             true => self.moved.iter().map(|d| d * (1.0 - u)).collect(),
             false => Vec::new(),
@@ -193,10 +197,28 @@ mod tests {
         let mut m = Motion::default();
         m.bar(&rows(&["a", "b", "c", "d"]), 0, 10);
         // a carried down, then again before it lands.
-        m.bar(&rows(&["b", "a", "c", "d"]), 1, 20);
-        let half = 20 + MUSIC_SLIDE_MS / 2;
+        let start = 10 + MUSIC_SLIDE_MS;
+        m.bar(&rows(&["b", "a", "c", "d"]), 1, start);
+        let half = start + MUSIC_SLIDE_MS / 2;
         let drawn = 1.0 + m.offsets(half)[1];
         m.bar(&rows(&["b", "c", "a", "d"]), 2, half);
         assert_eq!(2.0 + m.offsets(half)[2], drawn, "no jump");
+    }
+
+    #[test]
+    fn rows_keep_up_with_a_key_held_to_take_them_out() {
+        let mut m = Motion::default();
+        let names: Vec<String> = (0..20).map(|i| i.to_string()).collect();
+        let mut shown: Vec<&str> = names.iter().map(String::as_str).collect();
+        m.bar(&rows(&shown), 0, 10);
+        // One taken out every 50 ms: the first slide is cut short, then each ends before the
+        // next, so the rows never trail more than the row just taken out.
+        for step in 1..10 {
+            shown.remove(0);
+            let now = 10 + MUSIC_SLIDE_MS + step * 50;
+            m.bar(&rows(&shown), 0, now);
+            let most = if step <= 2 { 2.0 } else { 1.0 };
+            assert!(m.offsets(now)[0] <= most, "trailing at step {step}");
+        }
     }
 }

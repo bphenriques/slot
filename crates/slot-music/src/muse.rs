@@ -1,9 +1,13 @@
-use std::fmt;
+//! plorpOS's Muse, one of the players slot can play through: its socket and the lines it
+//! speaks, as `slot_player`'s commands and events.
+
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::time::Duration;
+
+pub use slot_player::{Command, Event, Handle, PlayState};
 
 /// Where plorpOS's Muse listens; it takes one client, the newest.
 pub const SOCKET: &str = "/tmp/muse.sock";
@@ -11,69 +15,32 @@ const PROTO: &str = "2";
 const RETRY: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(50);
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
-pub enum MuseState {
-    #[default]
-    Stopped,
-    Playing,
-    Paused,
-}
-
-/// What slot asks of Muse, which only plays files; the queue is slot's.
-#[derive(Clone, PartialEq, Debug)]
-pub enum Command {
-    /// Open and play `path`, from `at` seconds in, at `speed` (1 is as recorded).
-    Play {
-        path: PathBuf,
-        at: f64,
-        speed: f32,
-    },
-    Pause,
-    Resume,
-    Stop,
-    Seek(f64),
-    /// How fast to play, 0.5 to 2, the voice kept at its pitch.
-    Speed(f32),
-}
-
-impl fmt::Display for Command {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Command::Play { path, at, speed } => {
-                write!(f, "PLAY\tpath={}", path.display())?;
-                if *at > 0.0 {
-                    write!(f, "\tat={at:.1}")?;
-                }
-                match *speed == 1.0 {
-                    true => Ok(()),
-                    false => write!(f, "\tspeed={speed:.2}"),
-                }
+/// `command` as Muse reads it: a verb, then tab-separated key=value fields; none for what Muse
+/// cannot do.
+pub fn wire(command: &Command) -> Option<String> {
+    Some(match command {
+        Command::Play { path, at, speed } => {
+            let mut line = format!("PLAY\tpath={}", path.display());
+            if *at > 0.0 {
+                line += &format!("\tat={at:.1}");
             }
-            Command::Pause => f.write_str("PAUSE"),
-            Command::Resume => f.write_str("RESUME"),
-            Command::Stop => f.write_str("STOP"),
-            Command::Seek(at) => write!(f, "SEEK\tat={at:.1}"),
-            Command::Speed(x) => write!(f, "SPEED\tx={x:.2}"),
+            if *speed != 1.0 {
+                line += &format!("\tspeed={speed:.2}");
+            }
+            line
         }
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum Event {
-    Connected(bool),
-    State(MuseState),
-    Pos {
-        at: f64,
-        len: f64,
-    },
-    End(PathBuf),
-    Error(String),
-    /// A file was opened: its chapters follow, each where it starts and its title.
-    Meta,
-    Chapter {
-        at: f64,
-        title: String,
-    },
+        Command::Pause => "PAUSE".into(),
+        Command::Resume => "RESUME".into(),
+        Command::Stop => "STOP".into(),
+        Command::Seek(at) => format!("SEEK\tat={at:.1}"),
+        Command::Speed(x) => format!("SPEED\tx={x:.2}"),
+        Command::Mono(_)
+        | Command::Level(_)
+        | Command::Next(_)
+        | Command::Crossfade(_)
+        | Command::SkipSilence(_)
+        | Command::Boost(_) => return None,
+    })
 }
 
 /// A line of Muse's protocol: a verb, then tab-separated key=value fields.
@@ -93,9 +60,9 @@ pub fn parse(line: &str) -> Option<Event> {
             other => Some(Event::Error(format!("unknown protocol {other:?}"))),
         },
         "STATE" => Some(Event::State(match get("state")?.as_str() {
-            "playing" => MuseState::Playing,
-            "paused" => MuseState::Paused,
-            _ => MuseState::Stopped,
+            "playing" => PlayState::Playing,
+            "paused" => PlayState::Paused,
+            _ => PlayState::Stopped,
         })),
         "POS" => Some(Event::Pos {
             at: get("at")?.parse().ok()?,
@@ -112,36 +79,15 @@ pub fn parse(line: &str) -> Option<Event> {
     }
 }
 
-/// A connection to Muse that survives Muse restarting. Commands sent while it is down are
-/// dropped, so nothing stale plays later.
-pub struct Muse {
-    commands: Sender<Command>,
-    events: Receiver<Event>,
+/// Muse at `socket`, through a connection that survives Muse restarting. Commands sent while it
+/// is down are dropped, so nothing stale plays later.
+pub fn muse(socket: PathBuf) -> Handle {
+    Handle::spawn("slot-muse", move |commands, events| {
+        run(&socket, &commands, &events)
+    })
 }
 
-impl Muse {
-    pub fn spawn(socket: PathBuf) -> Muse {
-        let (commands, command_rx) = mpsc::channel();
-        let (event_tx, events) = mpsc::channel();
-        let spawned = std::thread::Builder::new()
-            .name("slot-muse".into())
-            .spawn(move || run(&socket, &command_rx, &event_tx));
-        if let Err(e) = spawned {
-            eprintln!("slot: music: {e}");
-        }
-        Muse { commands, events }
-    }
-
-    pub fn send(&self, command: Command) {
-        let _ = self.commands.send(command);
-    }
-
-    pub fn events(&self) -> impl Iterator<Item = Event> + '_ {
-        self.events.try_iter()
-    }
-}
-
-fn run(socket: &PathBuf, commands: &Receiver<Command>, events: &Sender<Event>) {
+fn run(socket: &Path, commands: &Receiver<Command>, events: &Sender<Event>) {
     let mut said = false;
     loop {
         let stream = match UnixStream::connect(socket) {
@@ -152,7 +98,7 @@ fn run(socket: &PathBuf, commands: &Receiver<Command>, events: &Sender<Event>) {
                     said = true;
                 }
                 if commands.try_iter().count() > 0 {
-                    let _ = events.send(Event::State(MuseState::Stopped));
+                    let _ = events.send(Event::State(PlayState::Stopped));
                 }
                 std::thread::sleep(RETRY);
                 continue;
@@ -181,7 +127,10 @@ fn serve(stream: UnixStream, commands: &Receiver<Command>, events: &Sender<Event
         loop {
             match commands.try_recv() {
                 Ok(c) => {
-                    if writeln!(writer, "{c}").is_err() {
+                    let Some(line) = wire(&c) else {
+                        continue;
+                    };
+                    if writeln!(writer, "{line}").is_err() {
                         return true;
                     }
                 }

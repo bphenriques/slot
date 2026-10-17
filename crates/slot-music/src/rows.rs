@@ -153,7 +153,17 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
             rows.extend((0..n).map(Row::Bookmark));
         }
         View::Settings => {
-            rows.extend(Setting::ALL.map(Row::Setting));
+            // Sound settings only where they can be: on slot's player.
+            let sound = [
+                Setting::SkipSilence,
+                Setting::Boost,
+                Setting::Gapless,
+                Setting::Crossfade,
+                Setting::Leveling,
+                Setting::Mono,
+            ];
+            let shown = |s: &Setting| !sound.contains(s) || cx.settings.own_player;
+            rows.extend(Setting::ALL.into_iter().filter(shown).map(Row::Setting));
             rows.extend([Row::Rescan, Row::Rebuild]);
         }
         View::Queue => rows.extend((0..queue.tracks.len()).map(Row::Queued)),

@@ -141,8 +141,11 @@ pub enum Outcome {
     Tell(Notice),
     /// Add this song to Favorites, or take it out.
     Favorite(usize),
-    /// Take this place out of the queue.
-    Remove(usize),
+    /// Take `n` tracks out of the queue from place `at`, short of the one playing.
+    Remove {
+        at: usize,
+        n: usize,
+    },
     /// Move the track at the first place in the queue to the second.
     Move(usize, usize),
 }
@@ -231,6 +234,8 @@ pub struct Browser {
     stack: Vec<Level>,
     /// A queued track carried to a new place, and the place it was lifted from.
     pub(crate) carry: Option<usize>,
+    /// How many times X has acted held in the queue: the longer, the more it takes out at once.
+    pub(crate) run: usize,
 }
 
 impl Default for Browser {
@@ -241,6 +246,7 @@ impl Default for Browser {
                 at: 0,
             }],
             carry: None,
+            run: 0,
         }
     }
 }
@@ -290,6 +296,7 @@ impl Browser {
         }
         match (self.mode(cx, key), self.view(), self.row(cx)) {
             (Mode::Repeat, ..) if self.at_end(cx, key) => Outcome::None,
+            (_, _, Some(Row::Queued(i))) if key == Key::X => screens::queue::held(self, cx, i, key),
             (Mode::Repeat, ..) => self.press(cx, key),
             (_, View::NowPlaying, _) if cx.book.is_some() => screens::book::held(self, cx, key),
             (_, View::NowPlaying, _) => screens::now_playing::held(key),

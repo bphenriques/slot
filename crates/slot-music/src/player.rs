@@ -1,6 +1,8 @@
+use std::path::PathBuf;
+
 use crate::browse::QueueView;
 use crate::library::Library;
-use crate::muse::{Command, Event, MuseState};
+use crate::muse::{Command, Event, PlayState};
 use crate::queue::Queue;
 
 /// Tracks Muse failed on in a row before the queue stops rather than skipping on.
@@ -47,8 +49,8 @@ impl Repeat {
 /// what to ask of Muse, if anything.
 pub struct Player {
     queue: Queue,
-    state: MuseState,
-    reported: MuseState,
+    state: PlayState,
+    reported: PlayState,
     pos: f64,
     /// When `pos` was last heard or set, to carry it on between reports.
     pos_at: Option<std::time::Instant>,
@@ -65,14 +67,16 @@ pub struct Player {
     speed: f32,
     /// The open file's chapters, where each starts and its title; none for most songs.
     chapters: Vec<(f64, String)>,
+    /// The file the player was told to go on into with no gap, to tell it again on a change.
+    preload: Option<PathBuf>,
 }
 
 impl Default for Player {
     fn default() -> Self {
         Player {
             queue: Queue::default(),
-            state: MuseState::default(),
-            reported: MuseState::default(),
+            state: PlayState::default(),
+            reported: PlayState::default(),
             pos: 0.0,
             pos_at: None,
             len: 0.0,
@@ -83,6 +87,7 @@ impl Default for Player {
             changed: false,
             speed: 1.0,
             chapters: Vec::new(),
+            preload: None,
         }
     }
 }
@@ -97,7 +102,7 @@ impl Player {
         QueueView {
             tracks: self.queue.tracks(),
             at: self.queue.at(),
-            playing: self.state == MuseState::Playing,
+            playing: self.state == PlayState::Playing,
             waiting: self.waiting,
             chapters: &self.chapters,
             chapter: self.chapter().map(|c| c.0),
@@ -116,7 +121,7 @@ impl Player {
         &mut self.queue
     }
 
-    pub fn state(&self) -> MuseState {
+    pub fn state(&self) -> PlayState {
         self.state
     }
 
@@ -128,8 +133,8 @@ impl Player {
         let any = self.queue.current().is_some();
         self.resume_at = (any && !playing).then_some(pos);
         self.state = match playing && any {
-            true => MuseState::Playing,
-            false => MuseState::Stopped,
+            true => PlayState::Playing,
+            false => PlayState::Stopped,
         };
     }
 
@@ -177,7 +182,7 @@ impl Player {
     pub fn smooth_pos(&self) -> f64 {
         let since = self
             .pos_at
-            .filter(|_| self.state == MuseState::Playing && self.reported == MuseState::Playing);
+            .filter(|_| self.state == PlayState::Playing && self.reported == PlayState::Playing);
         let ahead = since.map_or(0.0, |at| at.elapsed().as_secs_f64());
         (self.pos + ahead).min(self.len)
     }
@@ -189,13 +194,13 @@ impl Player {
 
     /// Whether Muse has the codec, or is about to. BaseOS has no mixer, so slot keeps off it.
     pub fn owns_audio(&self) -> bool {
-        self.state == MuseState::Playing
+        self.state == PlayState::Playing
     }
 
     /// Whether Muse may still be sounding, until it confirms a stop or pause. The codec keeps
     /// the music's level until then.
     pub fn audible(&self) -> bool {
-        self.owns_audio() || self.reported == MuseState::Playing
+        self.owns_audio() || self.reported == PlayState::Playing
     }
 
     pub fn speed(&self) -> f32 {
@@ -205,7 +210,7 @@ impl Player {
     /// Plays at `speed`, the track open too.
     pub fn set_speed(&mut self, speed: f32) -> Option<Command> {
         self.speed = speed;
-        (self.state != MuseState::Stopped).then_some(Command::Speed(speed))
+        (self.state != PlayState::Stopped).then_some(Command::Speed(speed))
     }
 
     /// The chapter playing, from 0, with its title, start and end; none when the file has no
@@ -254,8 +259,8 @@ impl Player {
         self.resume_at = Some(pos);
         self.changed = true;
         self.chapters.clear();
-        let stop = self.state != MuseState::Stopped;
-        self.state = MuseState::Stopped;
+        let stop = self.state != PlayState::Stopped;
+        self.state = PlayState::Stopped;
         stop.then_some(Command::Stop)
     }
 
@@ -290,19 +295,19 @@ impl Player {
 
     pub fn toggle(&mut self, lib: &Library) -> Option<Command> {
         match self.state {
-            MuseState::Playing => self.pause(),
-            MuseState::Paused => {
-                self.state = MuseState::Playing;
+            PlayState::Playing => self.pause(),
+            PlayState::Paused => {
+                self.state = PlayState::Playing;
                 self.changed = true;
                 Some(Command::Resume)
             }
-            MuseState::Stopped => self.start(lib),
+            PlayState::Stopped => self.start(lib),
         }
     }
 
     pub fn pause(&mut self) -> Option<Command> {
-        (self.state == MuseState::Playing).then(|| {
-            self.state = MuseState::Paused;
+        (self.state == PlayState::Playing).then(|| {
+            self.state = PlayState::Paused;
             self.changed = true;
             Command::Pause
         })
@@ -311,11 +316,39 @@ impl Player {
     pub fn stop(&mut self) -> Option<Command> {
         self.queue = Queue::default();
         self.resume_at = None;
+        self.preload = None;
         self.changed = true;
-        (self.state != MuseState::Stopped).then(|| {
-            self.state = MuseState::Stopped;
+        (self.state != PlayState::Stopped).then(|| {
+            self.state = PlayState::Stopped;
             Command::Stop
         })
+    }
+
+    /// What the player is to go on into with no gap, when `gapless`: the track that follows
+    /// this one, as the queue and the repeat go; told again only when it changes.
+    pub fn upcoming(&mut self, lib: &Library, gapless: bool) -> Option<Command> {
+        let next = self
+            .following(lib)
+            .filter(|_| gapless && self.state != PlayState::Stopped)
+            .map(|t| lib.tracks[t].path.clone());
+        (next != self.preload).then(|| {
+            self.preload = next.clone();
+            Command::Next(next)
+        })
+    }
+
+    /// Where the queue goes when the track playing runs out: the next, round again under Repeat
+    /// All, or the same under Repeat One. A book goes on to its next part only, and ends.
+    fn following_at(&self, lib: &Library) -> Option<usize> {
+        let book = lib.tracks.get(self.current()?)?.book.is_some();
+        match (self.repeat, book) {
+            (Repeat::One, false) => Some(self.queue.at()),
+            (repeat, book) => self.queue.step(1, repeat == Repeat::All && !book),
+        }
+    }
+
+    fn following(&self, lib: &Library) -> Option<usize> {
+        self.following_at(lib).map(|at| self.queue.tracks()[at])
     }
 
     /// The track after this one: the next in the queue, or the first again under Repeat All.
@@ -330,7 +363,7 @@ impl Player {
     pub fn skip(&mut self, lib: &Library, by: i32) -> Option<Command> {
         if let Some(at) = self
             .chapter_skip(by)
-            .filter(|_| self.state != MuseState::Stopped)
+            .filter(|_| self.state != PlayState::Stopped)
         {
             return self.seek_to(at);
         }
@@ -362,7 +395,7 @@ impl Player {
 
     /// Moves to `at` seconds into the track, short of its end.
     pub fn seek_to(&mut self, at: f64) -> Option<Command> {
-        if self.state == MuseState::Stopped {
+        if self.state == PlayState::Stopped {
             return None;
         }
         let at = at.clamp(0.0, (self.len - 1.0).max(0.0));
@@ -388,17 +421,33 @@ impl Player {
             }
             Event::Error(why) => {
                 eprintln!("slot: music: {why}");
-                if self.state == MuseState::Playing {
+                if self.state == PlayState::Playing {
                     self.errors += 1;
                     return match self.errors < ERRORS_BEFORE_STOP {
                         true => self.next(lib),
                         false => {
-                            self.state = MuseState::Stopped;
+                            self.state = PlayState::Stopped;
                             self.changed = true;
                             None
                         }
                     };
                 }
+            }
+            // Gone on with no gap into what it was told: the queue follows; into anything else,
+            // a change it had not heard of yet, slot plays what it means to.
+            Event::Into(path) => {
+                let told = self.preload.take();
+                return match (told == Some(path), self.following_at(lib)) {
+                    (true, Some(at)) => {
+                        self.queue.go(at);
+                        (self.pos, self.len, self.pos_at) = (0.0, 0.0, None);
+                        self.chapters.clear();
+                        self.changed = true;
+                        None
+                    }
+                    // Nothing to play in its place: the player stops too.
+                    _ => self.next(lib).or(Some(Command::Stop)),
+                };
             }
             Event::Meta => self.chapters.clear(),
             Event::Chapter { at, title } => self.chapters.push((at, title)),
@@ -412,7 +461,7 @@ impl Player {
         match self.queue.step(1, self.repeat == Repeat::All) {
             Some(_) => self.skip(lib, 1),
             None => {
-                self.state = MuseState::Stopped;
+                self.state = PlayState::Stopped;
                 self.changed = true;
                 None
             }
@@ -421,8 +470,10 @@ impl Player {
 
     fn start(&mut self, lib: &Library) -> Option<Command> {
         let track = lib.tracks.get(self.current()?)?;
-        self.state = MuseState::Playing;
+        self.state = PlayState::Playing;
         self.changed = true;
+        // A file played anew has nothing after it until told again.
+        self.preload = None;
         let at = self.resume_at.take().unwrap_or(0.0);
         (self.pos, self.len) = (at, 0.0);
         self.chapters.clear();

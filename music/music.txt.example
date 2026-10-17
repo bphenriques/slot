@@ -27,3 +27,27 @@ color = on
 
 # The music screens' colours: slot (follow slot's Appearance), dark or light.
 theme = slot
+
+# What plays the music: muse (plorpOS's Muse) or slot (slot's own player). Only set here; read
+# when slot starts.
+player = muse
+
+# Both sides alike, for one ear or one speaker: on or off. Slot's player only, where Music
+# Settings shows it as Mono Audio.
+mono = off
+
+# Each song straight on from the last, with no gap, as live albums need: on or off. Slot's player
+# only, where Music Settings shows it.
+gapless = on
+
+# Songs, or albums, brought to one loudness from their ReplayGain tags: off, track or album.
+# Slot's player only, where Music Settings shows it as Volume Leveling.
+leveling = off
+
+# Seconds a song's end fades into the next: 0, 3 or 6. Never a book's. Slot's player only.
+crossfade = 0
+
+# For audiobooks, with slot's player: pauses cut short (on or off), and dB louder (0, 3 or 6;
+# the loudest is rounded off rather than clipped).
+skip_silence = off
+boost = 0

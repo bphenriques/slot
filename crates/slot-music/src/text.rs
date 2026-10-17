@@ -2,6 +2,8 @@
 //! language. Names from the library, counts and times are data and pass through as they are.
 
 use crate::browse::View;
+use slot_player::Leveling;
+
 use crate::fade::Sleep;
 use crate::player::Repeat;
 use crate::rows::{Info, Row};
@@ -73,6 +75,12 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         Row::Setting(s) => match s {
             Setting::ScreenOff => "Screen Off",
             Setting::Jump => "Jump Length",
+            Setting::Mono => "Mono Audio",
+            Setting::Gapless => "Gapless",
+            Setting::Crossfade => "Crossfade",
+            Setting::SkipSilence => "Skip Silence",
+            Setting::Boost => "Volume Boost",
+            Setting::Leveling => "Volume Leveling",
             Setting::Repeat => "Repeat",
             Setting::ListSize => "List Size",
             Setting::SleepTimer => "Sleep Timer",
@@ -131,6 +139,23 @@ pub fn setting(setting: Setting, settings: &Settings, sleep: Option<Sleep>) -> S
             Some(Sleep::Chapter) => "End of Chapter".into(),
         },
         Setting::Color => on_off(settings.color),
+        Setting::Mono => on_off(settings.mono),
+        Setting::Gapless => on_off(settings.gapless),
+        Setting::SkipSilence => on_off(settings.skip_silence),
+        Setting::Crossfade => match settings.crossfade {
+            0 => "Off".into(),
+            s => format!("{s} s"),
+        },
+        Setting::Boost => match settings.boost {
+            0 => "Off".into(),
+            db => format!("+{db} dB"),
+        },
+        Setting::Leveling => match settings.leveling {
+            Leveling::Off => "Off",
+            Leveling::Track => "Song",
+            Leveling::Album => "Album",
+        }
+        .into(),
         Setting::Jump => format!("{} s", settings.jump),
         Setting::Repeat => match settings.repeat {
             Repeat::Off => "Off",

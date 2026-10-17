@@ -29,7 +29,7 @@ pub use keys::{Mode, Press};
 pub use library::{
     track_number, track_title, Album, Artist, Book, Library, Record, Track, BOOKS_DIR, MUSIC_DIR,
 };
-pub use muse::{parse, Command, Event, Muse, MuseState, SOCKET};
+pub use muse::{muse, parse, wire, Command, Event, Handle, PlayState, SOCKET};
 pub use player::{Player, Repeat};
 pub use playlists::{write as write_playlist, Playlist};
 pub use queue::Queue;
@@ -69,7 +69,10 @@ pub struct Music {
     browser: Browser,
     player: Player,
     settings: Settings,
-    muse: Muse,
+    /// What plays the files: slot's own player, or plorpOS's Muse.
+    muse: Handle,
+    /// The sound last told the player for what plays: crossfade, skip silence, boost.
+    sound: Option<(u32, bool, u32)>,
     queue_file: Writer,
     connected: bool,
     shown: Option<usize>,
@@ -110,6 +113,12 @@ impl Music {
             player.wait_for_saved();
         }
         let reading = Arc::new(scan::Progress::default());
+        let muse = match settings.own_player {
+            true => Handle::slot(),
+            false => muse(PathBuf::from(SOCKET)),
+        };
+        muse.send(Command::Mono(settings.mono));
+        muse.send(Command::Level(settings.leveling));
         Music {
             root: root.to_path_buf(),
             library: Library::default(),
@@ -122,7 +131,8 @@ impl Music {
             player,
             settings,
             queue_file: Writer::spawn(root.join(QUEUE_FILE)),
-            muse: Muse::spawn(PathBuf::from(SOCKET)),
+            muse,
+            sound: None,
             connected: false,
             shown: None,
             art: None,
@@ -149,7 +159,7 @@ impl Music {
         self.note_book();
         self.save_queue();
         self.replaying = match self.player.state() {
-            MuseState::Playing => self
+            PlayState::Playing => self
                 .player
                 .current()
                 .map(|t| self.library.tracks[t].path.clone()),
@@ -205,7 +215,7 @@ impl Music {
                     self.connected = up;
                     if !up {
                         self.player
-                            .on(&self.library, Event::State(MuseState::Stopped));
+                            .on(&self.library, Event::State(PlayState::Stopped));
                     }
                 }
                 event => {
@@ -228,6 +238,12 @@ impl Music {
             }
         }
         self.tick();
+        // What to go on into with no gap, or fading, as the queue now stands: slot's player only.
+        let s = &self.settings;
+        let gapless = (s.gapless || s.crossfade > 0) && s.own_player;
+        let next = self.player.upcoming(&self.library, gapless);
+        self.send(next);
+        self.tell_sound();
         self.keep_queue();
         self.note_book();
         self.show_art();
@@ -392,8 +408,10 @@ impl Music {
                 self.library.toggle_favorite(t);
                 None
             }
-            Outcome::Remove(i) => {
-                self.player.edit().remove(i);
+            Outcome::Remove { at, n } => {
+                for _ in 0..n {
+                    self.player.edit().remove(at);
+                }
                 None
             }
             Outcome::Move(from, to) => {
@@ -416,7 +434,11 @@ impl Music {
                 self.settings.change(setting, by);
                 self.player.set_repeat(self.settings.repeat);
                 self.settings.write(&self.root);
-                None
+                match setting {
+                    Setting::Mono => Some(Command::Mono(self.settings.mono)),
+                    Setting::Leveling => Some(Command::Level(self.settings.leveling)),
+                    _ => None,
+                }
             }
             Outcome::Seek(by) => self.player.seek(by),
             Outcome::Skip(by) => self.player.skip(lib, by),
@@ -523,9 +545,29 @@ impl Music {
 
     fn send(&mut self, command: Option<Command>) {
         if let Some(command) = command {
-            eprintln!("slot: music: {}", command.to_string().replace('\t', " "));
+            eprintln!("slot: music: {command:?}");
             self.muse.send(command);
         }
+    }
+
+    /// Tells the player the sound for what plays, when it changes: a book is never crossfaded,
+    /// and only a book skips silence and is boosted.
+    fn tell_sound(&mut self) {
+        let s = &self.settings;
+        let book = self.book().is_some();
+        let sound = match book {
+            true => (0, s.skip_silence, s.boost),
+            false => (s.crossfade, false, 0),
+        };
+        if self.sound == Some(sound) {
+            return;
+        }
+        self.sound = Some(sound);
+        let (fade, silence, boost) = sound;
+        self.muse.send(Command::Crossfade(f64::from(fade)));
+        self.muse.send(Command::SkipSilence(silence));
+        self.muse
+            .send(Command::Boost(10f32.powf(boost as f32 / 20.0)));
     }
 
     /// Saves the queue when the player reports a change.
@@ -541,7 +583,7 @@ impl Music {
         if self.ready {
             self.queue_text = Some(self.queue_text());
             self.replaying = match self.player.state() {
-                MuseState::Playing => self
+                PlayState::Playing => self
                     .player
                     .current()
                     .map(|t| self.library.tracks[t].path.clone()),
@@ -583,7 +625,7 @@ impl Music {
         });
         let (queue, at, pos) = queue_file::decode(&text, &self.root, &self.library);
         let current = queue.get(at).map(|&t| &self.library.tracks[t].path);
-        let playing = self.player.state() == MuseState::Playing;
+        let playing = self.player.state() == PlayState::Playing;
         let plays_on = playing && replaying.is_some() && current == replaying.as_ref();
         self.player.restore(queue, at, pos, plays_on);
         self.restore_book();
