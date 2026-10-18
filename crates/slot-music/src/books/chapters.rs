@@ -1,6 +1,6 @@
 //! A book's chapters read from its file, as players show them before it plays: an MP4's
-//! (an .m4b's) QuickTime chapter track, or else Nero's chapter list. Muse tells them again once
-//! it plays, for every kind of file.
+//! (an .m4b's) QuickTime chapter track, or else Nero's chapter list; or an MP3's ID3 `CHAP`
+//! frames, as podcasts and audiobook tools write them.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -9,12 +9,114 @@ use std::path::Path;
 /// The file's metadata box is read whole; one larger than this is not a book's.
 const MOOV_MAX: u64 = 16 << 20;
 
-/// Each chapter's start, in seconds, and its title; none when the file names none.
-pub fn read(path: &Path) -> Vec<(f64, String)> {
-    let mut file = File::open(path).ok();
-    let moov = file.as_mut().and_then(moov).unwrap_or_default();
-    let track = file.and_then(|mut f| track(&mut f, &moov));
-    track.or_else(|| chpl(&moov)).unwrap_or_default()
+/// A chapter of a file: where it starts, in seconds, and its title, which may be empty.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Chapter {
+    pub start: f64,
+    pub title: String,
+}
+
+/// The file's chapters, in order; none when it names none.
+pub fn read(path: &Path) -> Vec<Chapter> {
+    let id3 = File::open(path).ok().and_then(|mut f| id3(&mut f));
+    let marks = id3.unwrap_or_else(|| {
+        let mut file = File::open(path).ok();
+        let moov = file.as_mut().and_then(moov).unwrap_or_default();
+        let track = file.and_then(|mut f| track(&mut f, &moov));
+        track.or_else(|| chpl(&moov)).unwrap_or_default()
+    });
+    let chapter = |(start, title)| Chapter { start, title };
+    marks.into_iter().map(chapter).collect()
+}
+
+/// The chapters an ID3v2 tag at the start of the file names, by their `CHAP` frames: each
+/// one's start, in milliseconds, and its title, from the `TIT2` frame inside it. None when the
+/// file has no tag, or no chapters in it.
+fn id3(file: &mut File) -> Option<Vec<(f64, String)>> {
+    let mut head = [0; 10];
+    file.read_exact(&mut head).ok()?;
+    let (version, flags) = (head[3], head[5]);
+    // Unsynchronised tags are rare, and not worth undoing for chapters.
+    if &head[..3] != b"ID3" || !(3..=4).contains(&version) || flags & 0x80 != 0 {
+        return None;
+    }
+    let size = syncsafe(&head[6..10])? as u64;
+    let mut tag = vec![0; size.min(MOOV_MAX) as usize];
+    file.read_exact(&mut tag).ok()?;
+    let mut frames = &tag[..];
+    if flags & 0x40 != 0 {
+        // An extended header: its size counts itself in version 4, not in version 3.
+        let size = match version {
+            4 => syncsafe(frames.get(..4)?)? as usize,
+            _ => u32_at(frames, 0)? as usize + 4,
+        };
+        frames = frames.get(size..)?;
+    }
+    let mut chapters: Vec<(f64, String)> = id3_frames(frames, version)
+        .filter(|(id, _)| id == b"CHAP")
+        .filter_map(|(_, body)| {
+            // The element's name, ended by a zero; then its start and end, in milliseconds,
+            // and their byte offsets; then frames of its own.
+            let name = body.iter().position(|&b| b == 0)? + 1;
+            let start = u32_at(body, name)?;
+            let inner = body.get(name + 16..)?;
+            let title = id3_frames(inner, version)
+                .find(|(id, _)| id == b"TIT2")
+                .map(|(_, text)| id3_text(text))
+                .unwrap_or_default();
+            Some((f64::from(start) / 1000.0, title))
+        })
+        .collect();
+    chapters.sort_by(|a, b| a.0.total_cmp(&b.0));
+    (!chapters.is_empty()).then_some(chapters)
+}
+
+/// The frames in `data`, each one's id and body; version 4 sizes them in seven bits a byte.
+fn id3_frames(mut data: &[u8], version: u8) -> impl Iterator<Item = (&[u8], &[u8])> {
+    std::iter::from_fn(move || {
+        let id = data.get(..4)?;
+        if id[0] == 0 {
+            return None;
+        }
+        let raw = data.get(4..8)?;
+        let size = match version {
+            4 => syncsafe(raw)?,
+            _ => u32::from_be_bytes(raw.try_into().ok()?),
+        } as usize;
+        let body = data.get(10..10 + size)?;
+        data = &data[10 + size..];
+        Some((id, body))
+    })
+}
+
+/// Seven bits a byte, as ID3 keeps its sizes so they never read as a sync.
+fn syncsafe(bytes: &[u8]) -> Option<u32> {
+    let bytes: [u8; 4] = bytes.try_into().ok()?;
+    Some(bytes.iter().fold(0, |n, &b| n << 7 | u32::from(b & 0x7f)))
+}
+
+/// A text frame's text: Latin-1, UTF-16 with a byte order mark, UTF-16 big-endian, or UTF-8,
+/// as its first byte says, up to its end.
+fn id3_text(frame: &[u8]) -> String {
+    let (encoding, text) = frame.split_first().unwrap_or((&3, &[]));
+    let units = |big: bool, bytes: &[u8]| -> Vec<u16> {
+        let pair = |p: &[u8]| match big {
+            true => u16::from_be_bytes([p[0], p[1]]),
+            false => u16::from_le_bytes([p[0], p[1]]),
+        };
+        bytes.chunks_exact(2).map(pair).collect()
+    };
+    let text = match encoding {
+        0 => text.iter().map(|&b| char::from(b)).collect(),
+        1 => match text {
+            [0xfe, 0xff, rest @ ..] => String::from_utf16_lossy(&units(true, rest)),
+            [0xff, 0xfe, rest @ ..] => String::from_utf16_lossy(&units(false, rest)),
+            rest => String::from_utf16_lossy(&units(false, rest)),
+        },
+        2 => String::from_utf16_lossy(&units(true, text)),
+        _ => String::from_utf8_lossy(text).into_owned(),
+    };
+    text.trim_end_matches('\0').trim().to_string()
 }
 
 /// The boxes in `data`: each one's kind and what it holds.
@@ -178,6 +280,11 @@ fn offsets(stbl: &[u8], n: usize) -> Option<Vec<u64>> {
 mod tests {
     use super::*;
 
+    /// Each chapter's start and title, to compare.
+    fn marks(chapters: Vec<Chapter>) -> Vec<(f64, String)> {
+        chapters.into_iter().map(|c| (c.start, c.title)).collect()
+    }
+
     /// A box of `kind` holding `body`.
     fn mp4box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut b = ((body.len() + 8) as u32).to_be_bytes().to_vec();
@@ -208,7 +315,7 @@ mod tests {
         let moov = mp4box(b"moov", &mp4box(b"udta", &mp4box(b"chpl", &chpl)));
         let (_d, path) = file(&[mp4box(b"ftyp", b"M4B "), moov]);
         assert_eq!(
-            read(&path),
+            marks(read(&path)),
             [(0.0, "The Whale".into()), (61.5, "The Camel".into())]
         );
     }
@@ -246,7 +353,60 @@ mod tests {
         );
         let moov = mp4box(b"moov", &[audio, text].concat());
         let (_d, path) = file(&[mdat, moov]);
-        assert_eq!(read(&path), [(0.0, "Whale".into()), (30.0, "Camel".into())]);
+        assert_eq!(
+            marks(read(&path)),
+            [(0.0, "Whale".into()), (30.0, "Camel".into())]
+        );
+    }
+
+    /// An ID3 frame, its size as `version` writes it.
+    fn frame(id: &[u8; 4], body: &[u8], version: u8) -> Vec<u8> {
+        let n = body.len() as u32;
+        let size = match version {
+            4 => [n >> 21, n >> 14, n >> 7, n].map(|b| (b & 0x7f) as u8),
+            _ => n.to_be_bytes(),
+        };
+        [&id[..], &size, &[0, 0], body].concat()
+    }
+
+    fn chap(name: &str, start_ms: u32, title: &[u8], version: u8) -> Vec<u8> {
+        let tit2 = frame(b"TIT2", title, version);
+        let times = be(&[start_ms, start_ms + 1000, u32::MAX, u32::MAX]);
+        let body = [name.as_bytes(), &[0], &times, &tit2].concat();
+        frame(b"CHAP", &body, version)
+    }
+
+    fn id3_file(version: u8, frames: &[Vec<u8>]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let body = frames.concat();
+        let n = body.len() as u32;
+        let size = [n >> 21, n >> 14, n >> 7, n].map(|b| (b & 0x7f) as u8);
+        let tag = [&b"ID3"[..], &[version, 0, 0], &size, &body].concat();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("book.mp3");
+        std::fs::write(&path, [tag, vec![0xff, 0xfb, 0, 0]].concat()).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn an_mp3_s_chap_frames_are_its_chapters_in_order_by_start() {
+        for version in [3, 4] {
+            let (_d, path) = id3_file(
+                version,
+                &[
+                    frame(b"TIT2", b"\x03The Book", version),
+                    chap("ch1", 61_500, b"\x03Two", version),
+                    chap("ch0", 0, b"\x01\xff\xfeO\0n\0e\0", version),
+                ],
+            );
+            let chapters = marks(read(&path));
+            assert_eq!(
+                chapters,
+                [(0.0, "One".to_string()), (61.5, "Two".to_string())],
+                "ID3v2.{version}, UTF-16 and UTF-8"
+            );
+        }
+        let (_d, path) = id3_file(4, &[frame(b"TIT2", b"\x03No chapters", 4)]);
+        assert!(read(&path).is_empty());
     }
 
     #[test]

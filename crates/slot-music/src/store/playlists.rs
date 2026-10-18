@@ -1,34 +1,32 @@
-//! Playlists: plain `.m3u` and `.m3u8` files in `Music/Playlists`, as other players read and
-//! write them. Favorites is one of them, always listed, which slot adds songs to and takes them
-//! from.
+//! Playlist files: plain `.m3u` and `.m3u8` in `Music/Playlists`, as other players read and
+//! write them, each song's path from the playlist's folder.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use slot_store::{is_hidden, sort_key};
 
-use crate::library::{Library, MUSIC_DIR};
+use super::Store;
+use crate::library::playlists::Playlist;
+use crate::library::{Library, TrackId, MUSIC_DIR};
 
 /// Where playlists live, in the music folder; the library does not read it as an artist.
 pub const PLAYLISTS_DIR: &str = "Playlists";
 const FAVORITES: &str = "Favorites";
 
-pub struct Playlist {
-    pub name: String,
-    pub path: PathBuf,
-    pub tracks: Vec<usize>,
+impl Store {
+    /// Writes `list` back, whole or not at all: a power-off mid-write never leaves Favorites
+    /// cut short.
+    pub fn write_playlist(&self, list: &Playlist, lib: &Library) {
+        self.write(&list.path, encode(list, lib));
+    }
 }
 
 /// The playlists, Favorites first whether or not it has been written yet, then the rest by name.
-/// Lines that name no track in the library are left out.
+/// Lines that name no track in the library are left out. Read with the library.
 pub fn read(root: &Path, lib: &Library) -> Vec<Playlist> {
     let dir = root.join(MUSIC_DIR).join(PLAYLISTS_DIR);
-    let index: HashMap<&Path, usize> = lib
-        .tracks
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.path.as_path(), i))
-        .collect();
+    let index = lib.index();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .into_iter()
         .flatten()
@@ -52,30 +50,8 @@ pub fn read(root: &Path, lib: &Library) -> Vec<Playlist> {
         .collect()
 }
 
-/// Favorites, the first playlist: songs only, kept as any other playlist file.
-impl Library {
-    pub fn is_favorite(&self, t: usize) -> bool {
-        self.playlists
-            .first()
-            .is_some_and(|f| f.tracks.contains(&t))
-    }
-
-    /// Puts song `t` in Favorites, or takes it out, and writes the file. A queue dealt from
-    /// Favorites before keeps its songs.
-    pub fn toggle_favorite(&mut self, t: usize) {
-        let Some(favorites) = self.playlists.first_mut() else {
-            return;
-        };
-        match favorites.tracks.contains(&t) {
-            true => favorites.tracks.retain(|&f| f != t),
-            false => favorites.tracks.push(t),
-        }
-        write(&self.playlists[0], self);
-    }
-}
-
-/// Writes `list` back, with each song's path from the playlist's folder, as players expect.
-pub fn write(list: &Playlist, lib: &Library) {
+/// `list` as its file has it, each song's path from the playlist's folder, as players expect.
+pub fn encode(list: &Playlist, lib: &Library) -> String {
     let dir = list.path.parent().unwrap_or(Path::new("."));
     let mut text = String::from("#EXTM3U\n");
     for &t in &list.tracks {
@@ -86,18 +62,15 @@ pub fn write(list: &Playlist, lib: &Library) {
         text.push_str(&rel.to_string_lossy());
         text.push('\n');
     }
-    let done = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&list.path, text));
-    if let Err(e) = done {
-        eprintln!("slot: music: {}: {e}", list.path.display());
-    }
+    text
 }
 
 /// The songs a playlist names, by path: from its own folder, from the card, or whole.
-fn tracks(path: &Path, root: &Path, index: &HashMap<&Path, usize>) -> Vec<usize> {
+fn tracks(path: &Path, root: &Path, index: &HashMap<&Path, TrackId>) -> Vec<TrackId> {
     let Ok(bytes) = std::fs::read(path) else {
         return Vec::new();
     };
-    let text = decode(bytes);
+    let text = text(bytes);
     let dir = path.parent().unwrap_or(root);
     text.lines()
         .map(|l| l.trim_start_matches('\u{feff}').trim())
@@ -114,7 +87,7 @@ fn tracks(path: &Path, root: &Path, index: &HashMap<&Path, usize>) -> Vec<usize>
 }
 
 /// A playlist's text: UTF-8 as `.m3u8` promises, or else Latin-1, as older `.m3u` files are.
-fn decode(bytes: Vec<u8>) -> String {
+fn text(bytes: Vec<u8>) -> String {
     String::from_utf8(bytes)
         .unwrap_or_else(|e| e.into_bytes().into_iter().map(char::from).collect())
 }

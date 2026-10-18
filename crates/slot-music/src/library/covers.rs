@@ -5,11 +5,25 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::UNIX_EPOCH;
 
-use crate::library::Library;
-use crate::{tags, Art};
+use crate::library::tags;
+use crate::library::{AlbumId, Library};
+
+/// An album's picture, shrunk to fit the square the screen asked for.
+pub struct Art {
+    pub album: AlbumId,
+    pub w: u32,
+    pub h: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// An album's label to make: from its first song, or its folder, or a blank.
+pub struct Make {
+    pub album: AlbumId,
+    pub song: PathBuf,
+    pub label: PathBuf,
+}
 
 /// Shrunk pictures, beside the cart labels.
 const LABELS: &str = "Labels/Music";
@@ -17,7 +31,7 @@ const LABELS: &str = "Labels/Music";
 const FOLDER_PICTURES: [&str; 4] = ["cover", "folder", "front", "album"];
 
 /// The album's label, named for the album, its artist and title, as players key their pictures.
-pub fn label(root: &Path, lib: &Library, album: usize) -> PathBuf {
+pub fn label(root: &Path, lib: &Library, album: AlbumId) -> PathBuf {
     let album = &lib.albums[album];
     let key = format!("{}\0{}", lib.artists[album.artist].name, album.name).to_lowercase();
     root.join(LABELS)
@@ -25,8 +39,9 @@ pub fn label(root: &Path, lib: &Library, album: usize) -> PathBuf {
 }
 
 /// The albums whose label is missing, or older than their newest song.
-pub fn missing(root: &Path, lib: &Library) -> Vec<usize> {
+pub fn missing(root: &Path, lib: &Library) -> Vec<AlbumId> {
     (0..lib.albums.len())
+        .map(AlbumId)
         .filter(|&a| {
             let made = std::fs::metadata(label(root, lib, a))
                 .and_then(|m| m.modified())
@@ -47,12 +62,12 @@ fn fnv(bytes: &[u8]) -> u64 {
 /// The pass that files the missing labels, one album at a time.
 pub struct Covers {
     total: usize,
-    pending: VecDeque<usize>,
+    pending: VecDeque<AlbumId>,
     working: bool,
 }
 
 impl Covers {
-    pub fn new(missing: Vec<usize>) -> Covers {
+    pub fn new(missing: Vec<AlbumId>) -> Covers {
         Covers {
             total: missing.len(),
             pending: missing.into(),
@@ -67,14 +82,14 @@ impl Covers {
     }
 
     /// The next album's job, once the last one is done.
-    pub fn next(&mut self, root: &Path, lib: &Library) -> Option<Job> {
+    pub fn next(&mut self, root: &Path, lib: &Library) -> Option<Make> {
         if self.working {
             return None;
         }
         let album = self.pending.pop_front()?;
         let song = lib.tracks[*lib.albums[album].tracks.first()?].path.clone();
         self.working = true;
-        Some(Job::Make {
+        Some(Make {
             album,
             song,
             label: label(root, lib, album),
@@ -87,95 +102,42 @@ impl Covers {
     }
 }
 
-pub enum Job {
-    /// Make the album's label from its first song or folder, or a blank.
-    Make {
-        album: usize,
-        song: PathBuf,
-        label: PathBuf,
-    },
-    /// Read a label for the screen.
-    Load { album: usize, label: PathBuf },
-}
-
-pub enum Done {
-    Made(usize),
-    Loaded(Art),
-}
-
-/// The pictures' thread, at low priority. Jobs carry the library generation, so results from
-/// before a rescan are dropped.
-pub struct Worker {
-    jobs: Sender<(u32, Job)>,
-    done: Receiver<(u32, Done)>,
-}
-
-impl Worker {
-    /// `px` is the square pictures are shrunk to fit.
-    pub fn spawn(px: u32) -> Worker {
-        let (jobs, job_rx) = mpsc::channel::<(u32, Job)>();
-        let (done_tx, done) = mpsc::channel();
-        let spawned = std::thread::Builder::new()
-            .name("slot-music-art".into())
-            .spawn(move || {
-                crate::background();
-                for (generation, job) in job_rx {
-                    if let Some(result) = work(job, px) {
-                        if done_tx.send((generation, result)).is_err() {
-                            return;
-                        }
-                    }
-                }
-            });
-        if let Err(e) = spawned {
-            eprintln!("slot: music: {e}");
+/// Makes `job`'s label, shrunk to fit `px`: on the worker, as it reads the card.
+pub fn make(job: &Make, px: u32) {
+    let (song, label) = (&job.song, &job.label);
+    let img = match picture(song) {
+        Some(Ok(img)) => img.thumbnail(px, px).to_rgba8(),
+        Some(Err(e)) => {
+            eprintln!("slot: music: {}: {e}", song.display());
+            image::RgbaImage::new(1, 1)
         }
-        Worker { jobs, done }
-    }
-
-    pub fn send(&self, generation: u32, job: Job) {
-        let _ = self.jobs.send((generation, job));
-    }
-
-    pub fn done(&self) -> impl Iterator<Item = (u32, Done)> + '_ {
-        self.done.try_iter()
+        None => image::RgbaImage::new(1, 1),
+    };
+    if let Err(e) = file_label(&img, label) {
+        eprintln!("slot: music: {}: {e}", label.display());
     }
 }
 
-fn work(job: Job, px: u32) -> Option<Done> {
-    match job {
-        Job::Make { album, song, label } => {
-            let img = match picture(&song) {
-                Some(Ok(img)) => img.thumbnail(px, px).to_rgba8(),
-                Some(Err(e)) => {
-                    eprintln!("slot: music: {}: {e}", song.display());
-                    image::RgbaImage::new(1, 1)
-                }
-                None => image::RgbaImage::new(1, 1),
-            };
-            if let Err(e) = file_label(&img, &label) {
-                eprintln!("slot: music: {}: {e}", label.display());
-            }
-            Some(Done::Made(album))
+/// `album`'s label to show, shrunk to fit `px`; none when it is missing or blank, the album
+/// having no picture.
+pub fn load(album: AlbumId, label: &Path, px: u32) -> Option<Art> {
+    match image::open(label) {
+        Ok(img) if img.width() <= 1 => None,
+        Ok(img) => {
+            let img = img.thumbnail(px, px).to_rgba8();
+            let (w, h) = img.dimensions();
+            Some(Art {
+                album,
+                w,
+                h,
+                rgba: img.into_raw(),
+            })
         }
-        Job::Load { album, label } => match image::open(&label) {
-            // A blank label: the album has no picture.
-            Ok(img) if img.width() <= 1 => None,
-            Ok(img) => {
-                let img = img.thumbnail(px, px).to_rgba8();
-                let (w, h) = img.dimensions();
-                Some(Done::Loaded(Art {
-                    album,
-                    w,
-                    h,
-                    rgba: img.into_raw(),
-                }))
-            }
-            Err(e) => {
-                eprintln!("slot: music: {}: {e}", label.display());
-                None
-            }
-        },
+        Err(image::ImageError::IoError(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            eprintln!("slot: music: {}: {e}", label.display());
+            None
+        }
     }
 }
 
@@ -210,6 +172,25 @@ pub fn file_label(img: &image::RgbaImage, path: &Path) -> image::ImageResult<()>
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_shrunk_picture_is_filed_whole_under_its_album_name() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("Labels/Music/Aerosmith - Get a Grip.png");
+        let img = image::RgbaImage::from_pixel(3, 2, image::Rgba([1, 2, 3, 255]));
+        file_label(&img, &path).unwrap();
+        let back = image::open(&path).unwrap().to_rgba8();
+        assert_eq!(back.dimensions(), (3, 2));
+        assert!(!path.with_extension("png.part").exists());
+        assert!(
+            load(AlbumId(0), &path, 2).is_some_and(|art| art.w == 2),
+            "read back, shrunk"
+        );
+        assert!(
+            load(AlbumId(0), &d.path().join("none.png"), 2).is_none(),
+            "none yet: no picture"
+        );
+    }
+
     fn aged(path: &Path, secs_ago: u64) {
         let t = std::time::SystemTime::now() - std::time::Duration::from_secs(secs_ago);
         std::fs::File::options()
@@ -230,7 +211,7 @@ mod tests {
             aged(&p, 50);
         }
         let lib = Library::scan(d.path());
-        let album = |name: &str| lib.albums.iter().position(|a| a.name == name).unwrap();
+        let album = |name: &str| AlbumId(lib.albums.iter().position(|a| a.name == name).unwrap());
         let blank = image::RgbaImage::new(1, 1);
         for (name, age) in [("Old", 100), ("Current", 0)] {
             let path = label(d.path(), &lib, album(name));
@@ -251,13 +232,17 @@ mod tests {
         let picture = image::RgbaImage::from_fn(64, 32, |x, _| image::Rgba([x as u8, 0, 0, 255]));
         picture.save(folder.join("Cover.PNG")).unwrap();
         let lib = Library::scan(d.path());
-        let path = label(d.path(), &lib, 0);
-        assert_eq!(path, label(d.path(), &lib, 0), "the same every time");
-        let mut covers = Covers::new(vec![0]);
+        let path = label(d.path(), &lib, AlbumId(0));
+        assert_eq!(
+            path,
+            label(d.path(), &lib, AlbumId(0)),
+            "the same every time"
+        );
+        let mut covers = Covers::new(vec![AlbumId(0)]);
         assert_eq!(covers.progress(), Some((0, 1)));
         let job = covers.next(d.path(), &lib).unwrap();
         assert!(covers.next(d.path(), &lib).is_none(), "one at a time");
-        assert!(matches!(work(job, 16), Some(Done::Made(0))));
+        make(&job, 16);
         covers.made();
         assert_eq!(covers.progress(), None);
         assert_eq!(image::open(&path).unwrap().width(), 16, "shrunk to fit");

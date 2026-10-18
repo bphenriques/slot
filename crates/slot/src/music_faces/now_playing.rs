@@ -16,7 +16,7 @@ use crate::app::App;
 /// An album picture on the GPU, and its colour for Dynamic Color.
 #[derive(Copy, Clone)]
 pub(super) struct Picture {
-    album: usize,
+    album: slot_music::AlbumId,
     face: MusicFace,
     pub(super) tint: [u8; 3],
 }

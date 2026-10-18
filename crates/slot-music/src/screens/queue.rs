@@ -1,12 +1,12 @@
 //! The queue, opened from Now Playing. A plays from a track, or held puts it next; X takes it
-//! out, and held goes on taking out the ones after, quicker and quicker; Y lifts it to carry with
-//! Up and Down, until Y puts it down (R1 puts it next, B back), or held puts it in Favorites or
-//! takes it out.
+//! out, and held goes on taking out the ones after, quicker and quicker; Y puts it in Favorites
+//! or takes it out, as in every list, and held lifts it to carry with Up and Down, as a long press
+//! drags a row on a phone, until Y puts it down (R1 puts it next, B back).
 
 use super::{list, Body, Legend, Screen};
+use crate::browse::keys::Mode;
+use crate::browse::rows::Row;
 use crate::browse::{Browser, Context, Key, Outcome, QueueView};
-use crate::keys::Mode;
-use crate::rows::Row;
 use crate::{text, Music};
 
 /// After how many repeats X held takes out one track more at a time: about a second, at the
@@ -25,22 +25,19 @@ pub(crate) fn mode(cx: &Context, i: usize, key: Key) -> Mode {
 }
 
 /// The keys a queued track takes tapped; the rest move through the list.
-pub(crate) fn press(b: &mut Browser, i: usize, key: Key) -> Option<Outcome> {
+pub(crate) fn press(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Option<Outcome> {
     match key {
         Key::X => {
             b.run = 0;
             Some(Outcome::Remove { at: i, n: 1 })
         }
-        Key::Y => {
-            b.carry = Some(i);
-            Some(Outcome::None)
-        }
+        Key::Y => Some(Outcome::Favorite(cx.queue.tracks[i])),
         _ => None,
     }
 }
 
-/// Held: A puts the track next, Y favorites it, and X goes on taking tracks out, one more at
-/// once each `RUN` repeats.
+/// Held: A puts the track next, Y lifts it to carry, and X goes on taking tracks out, one more
+/// at once each `RUN` repeats.
 pub(crate) fn held(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Outcome {
     match key {
         Key::A => {
@@ -56,7 +53,10 @@ pub(crate) fn held(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Outcome
                 n: 1 + b.run / RUN,
             }
         }
-        Key::Y => Outcome::Favorite(cx.queue.tracks[i]),
+        Key::Y => {
+            b.carry = Some(i);
+            Outcome::None
+        }
         _ => Outcome::None,
     }
 }

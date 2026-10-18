@@ -61,11 +61,18 @@ impl App {
                 | Phase::Ejecting { .. }
         );
         let shown = matches!(self.phase, Phase::Music);
+        // Off-screen keys let go, but not in the dark, where the shoulders still play.
+        let dark = matches!(self.phase, Phase::Doze { .. });
+        let mut rumble = None;
         if let Some(music) = &mut self.music {
-            if !shown {
+            if !shown && !dark {
                 music.release(None);
             }
             music.poll(game);
+            rumble = music.rumble();
+        }
+        if let Some(strength) = rumble {
+            self.set_rumble(strength);
         }
         // Music playing in the dark postpones the screen-off power-off until it stops.
         if matches!(self.phase, Phase::Doze { .. }) && self.music_audible() {
@@ -102,6 +109,8 @@ impl App {
             Action::GbaUp(btn) => (key(btn), false),
             Action::FfStart => (Some(Key::R2), true),
             Action::FfStop => (Some(Key::R2), false),
+            Action::RewindStart => (Some(Key::L2), true),
+            Action::RewindStop => (Some(Key::L2), false),
             _ => return,
         };
         match (key, down) {
@@ -155,6 +164,13 @@ impl App {
         self.music_faces = faces;
     }
 
+    /// For the performance log: how long the music screen took to draw.
+    pub fn note_music_draw(&self, took: std::time::Duration) {
+        if let Some(music) = &self.music {
+            music.note_draw(took);
+        }
+    }
+
     pub fn music_owns_audio(&self) -> bool {
         self.music.as_ref().is_some_and(Music::owns_audio)
     }
@@ -163,7 +179,7 @@ impl App {
         self.music.as_ref().is_some_and(Music::audible)
     }
 
-    /// The codec's level while Muse may sound: slot's volume, scaled through fades.
+    /// The codec's level while music may sound: slot's volume, scaled through fades.
     pub fn music_volume(&self) -> Option<u8> {
         let music = self.music.as_ref().filter(|m| m.audible())?;
         Some((f32::from(self.output_volume()) * music.volume_scale()).round() as u8)

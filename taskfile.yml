@@ -5,9 +5,6 @@ vars:
   GPSP_HOST: vendor/gpsp_libretro.dylib
   MGBA_COMMIT: e31759b24e7a4e3899285ff720d7b573ac328ae7
   GPSP_COMMIT: 7b2dd37394e2822110cacef321e9bb291a305b77
-  MUSE_RELEASE: plorpos-v1.5.2
-  MUSE_ZIP: plorpOS-h700-v1.5.2.zip
-  MUSE_SHA: e7d3ac9d5ce49a94773dfc0c99e8e170ce78e0df52c361cf2f273a8cd48eb350
   SLOT_IN_PROCESS: >-
     --test bios --test core --test core_options --test e2e --test emu --test gb_palette_recolour --test gpsp
     --test link_ui --test mgba_gb_link --test mgba_link --test render_colour_correction
@@ -304,15 +301,6 @@ tasks:
         vars:
           CMD: sh network/build-tools.sh
 
-  muse:
-    desc: Take Muse, plorpOS's music daemon, and its FFmpeg from the pinned plorpOS H700 release
-    status:
-      - test -f vendor/muse/muse
-      - grep -q "plorpOS {{.MUSE_RELEASE}} " vendor/muse/versions.txt
-    cmds:
-      - sh music/fetch-muse.sh {{.MUSE_RELEASE}} {{.MUSE_ZIP}} {{.MUSE_SHA}}
-      - 'echo "fetched vendor/muse from plorpOS {{.MUSE_RELEASE}}"'
-
   build:device:
     desc: Build for the H700, in an arm64 container unless this is already one
     deps: [network:tools]
@@ -338,7 +326,7 @@ tasks:
 
   dist:device:
     desc: Build the SD2 tree for an H700 device, OUT defaults to ./dist-device
-    deps: [core:device, core:gpsp, build:device, muse]
+    deps: [core:device, core:gpsp, build:device]
     vars:
       OUT: '{{.OUT | default "dist-device"}}'
     cmds:
@@ -351,21 +339,14 @@ tasks:
       - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example {{.OUT}}/Config/
       - mkdir {{.OUT}}/System/slot-net
       - cp vendor/slot-net/iw vendor/slot-net/*.so.* {{.OUT}}/System/slot-net/
-      - mkdir -p {{.OUT}}/System/muse/lib
-      - cp vendor/muse/muse vendor/muse/musectl {{.OUT}}/System/muse/
-      - cp vendor/muse/lib/*.so.* {{.OUT}}/System/muse/lib/
       - cp -R card/System/* {{.OUT}}/System/
       - file vendor/mgba_libretro.so | grep -q aarch64
       - file vendor/gpsp_libretro.so | grep -q aarch64
       - cp vendor/mgba_libretro.so {{.OUT}}/System/
       - cp vendor/gpsp_libretro.so {{.OUT}}/System/
       - cp -r licenses {{.OUT}}/System/licenses
-      - cp -R vendor/muse/licenses {{.OUT}}/System/licenses/muse
-      - cp vendor/muse/versions.txt {{.OUT}}/System/licenses/muse/
       - cp -r vendor/slot-net/licenses/. {{.OUT}}/System/licenses/
       - cp vendor/slot-net/versions.txt {{.OUT}}/System/licenses/slot-net.meta
-      - cp vendor/muse/licenses/* {{.OUT}}/System/licenses/
-      - cp vendor/muse/versions.txt {{.OUT}}/System/licenses/muse.meta
       - |
         set -euo pipefail
         sha="$(cat vendor/gpsp-src.sha)"
@@ -385,7 +366,7 @@ tasks:
 
   deploy:device:
     desc: Build and push onto a device over adb, then restart it. SD defaults to /mnt/sdcard
-    deps: [core:device, core:gpsp, build:device, muse]
+    deps: [core:device, core:gpsp, build:device]
     vars:
       SD: '{{.SD | default "/mnt/sdcard"}}'
     cmds:
@@ -398,9 +379,6 @@ tasks:
       - adb push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example '{{.SD}}/Config/'
       - adb shell mkdir -p '{{.SD}}/System/slot-net'
       - adb push vendor/slot-net/iw vendor/slot-net/*.so.* '{{.SD}}/System/slot-net/'
-      - adb shell mkdir -p '{{.SD}}/System/muse/lib'
-      - adb push vendor/muse/muse vendor/muse/musectl '{{.SD}}/System/muse/'
-      - adb push vendor/muse/lib/. '{{.SD}}/System/muse/lib/'
       - adb push vendor/mgba_libretro.so '{{.SD}}/System/mgba_libretro.so'
       - adb push vendor/gpsp_libretro.so '{{.SD}}/System/gpsp_libretro.so'
       - adb push licenses '{{.SD}}/System/'

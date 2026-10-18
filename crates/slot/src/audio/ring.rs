@@ -200,7 +200,7 @@ impl Ring {
         self.muted.load(Ordering::Relaxed)
     }
 
-    /// Another process (Muse) has the codec: BaseOS has no mixer, so the output stays closed.
+    /// The music player has the codec: BaseOS has no mixer, so the output stays closed.
     pub fn set_yielded(&self, yielded: bool) {
         self.yielded.store(yielded, Ordering::Relaxed);
     }

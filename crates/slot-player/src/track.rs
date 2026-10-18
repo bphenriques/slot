@@ -1,5 +1,5 @@
-//! A file as the writer reads it: decoded, brought to the device's stereo at 48 kHz the way Muse
-//! brings it, with a 64-tap sinc filter, and played at its speed, its pitch kept.
+//! A file as the writer reads it: decoded, brought to the device's stereo at 48 kHz with a
+//! resampler as fine as a 64-tap sinc filter, and played at its speed, its pitch kept.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -31,8 +31,10 @@ pub struct Track {
     /// How fast it plays, and the stretch that does it for a speed other than 1.
     speed: f32,
     stretch: Option<Stretch>,
-    /// Its ReplayGain, and what every sample is multiplied by for the leveling asked.
-    gains: Gains,
+    /// Its ReplayGain, read once leveled, and what every sample is multiplied by for the
+    /// leveling asked; and where it is, to read it from.
+    gains: Option<Gains>,
+    path: std::path::PathBuf,
     gain: f32,
     /// Decoded stereo at the file's rate, then ready to play, and how much of it is played.
     decoded: Vec<f32>,
@@ -71,7 +73,8 @@ impl Track {
             true => None,
             false => Some(resampler(rate)?),
         };
-        let gains = Gains::read(path);
+        // Its tags are read only when leveled: most play as recorded.
+        let gains = (leveling != Leveling::Off).then(|| Gains::read(path));
         let mut track = Track {
             channels: usize::from(decoder.channels().get()),
             decoder,
@@ -79,7 +82,8 @@ impl Track {
             speed,
             stretch: None,
             gains,
-            gain: gains.factor(leveling),
+            gain: gains.map_or(1.0, |g| g.factor(leveling)),
+            path: path.to_path_buf(),
             decoded: Vec::new(),
             ready: Vec::new(),
             at: 0,
@@ -120,7 +124,10 @@ impl Track {
     }
 
     pub fn set_leveling(&mut self, leveling: Leveling) {
-        self.gain = self.gains.factor(leveling);
+        if leveling != Leveling::Off && self.gains.is_none() {
+            self.gains = Some(Gains::read(&self.path));
+        }
+        self.gain = self.gains.map_or(1.0, |g| g.factor(leveling));
     }
 
     /// Plays on at `speed`: what was ready at the last is dropped.
@@ -227,7 +234,7 @@ impl Track {
     }
 }
 
-/// A resampler from `rate` to the device's: FFT-based, as fine as Muse's 64-tap sinc filter for
+/// A resampler from `rate` to the device's: FFT-based, as fine as a 64-tap sinc filter for
 /// the one ratio a file has, at a fraction of the work. Its blocks are a whole number of the
 /// ratio's input steps (147 frames from 44.1 kHz), or it converts at a ratio a little off.
 fn resampler(rate: u32) -> Result<Fft<f32>, String> {

@@ -7,12 +7,13 @@
 
 use super::{list, now_playing, Body, Legend, NowPlayingBody, Screen, Status};
 use crate::books;
+use crate::browse::keys::Mode;
+use crate::browse::rows::Row;
 use crate::browse::{Browser, Context, Key, Outcome, View};
-use crate::keys::Mode;
-use crate::muse::PlayState;
-use crate::player::Repeat;
-use crate::rows::Row;
+use crate::library::{BookId, TrackId};
+use crate::playback::player::Repeat;
 use crate::{text, Music};
+use slot_player::PlayState;
 
 /// As music's: Left and Right step tapped and seek held. Y waits to see whether it is held.
 pub(crate) fn mode(key: Key) -> Mode {
@@ -70,11 +71,20 @@ pub(crate) fn press_row(b: &mut Browser, row: Row, key: Key) -> Option<Outcome> 
 }
 
 /// Now Playing for `book`, of which `track` plays.
-pub(crate) fn screen(music: &Music, book: usize, track: usize) -> Screen {
+pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
     let (lib, player) = (&music.library, &music.player);
-    let (pos, len) = (player.smooth_pos(), player.time().1);
+    let (pos, len) = (player.time().0, player.time().1);
     let (title, start, end, (n, of)) = match player.chapter() {
-        Some((i, title, start, end)) => (title.into(), start, end, (i + 1, player.chapters())),
+        // A chapter with no title of its own is named as its part is.
+        Some(c) => (
+            match c.chapter.title.is_empty() {
+                true => lib.tracks[track].title.clone(),
+                false => c.chapter.title.clone(),
+            },
+            c.chapter.start,
+            c.end,
+            (c.index + 1, player.chapters()),
+        ),
         None => (lib.tracks[track].title.clone(), 0.0, len, player.place()),
     };
     let speed = player.speed();
@@ -89,7 +99,7 @@ pub(crate) fn screen(music: &Music, book: usize, track: usize) -> Screen {
         false => (len - pos, None),
     };
     // The bookmarks in the chapter playing, along its bar.
-    let marks = music.shelf.bookmarks(lib, book).iter();
+    let marks = music.books.shelf.bookmarks(lib, book).iter();
     let marks = marks
         .filter(|m| m.part == part && (start..end).contains(&m.pos))
         .map(|m| ((m.pos - start) / (end - start)) as f32)
@@ -104,7 +114,7 @@ pub(crate) fn screen(music: &Music, book: usize, track: usize) -> Screen {
             repeat: Repeat::Off,
             shuffled: false,
             favorite: false,
-            sleeping: music.sleep.left().is_some(),
+            sleeping: music.transport.sleep.left().is_some(),
         },
         progress: (end > start).then(|| ((pos - start) / (end - start)).clamp(0.0, 1.0) as f32),
         marks,
@@ -130,7 +140,7 @@ pub(crate) fn screen(music: &Music, book: usize, track: usize) -> Screen {
 /// The chapters of the book playing, or a book's bookmarks.
 pub(crate) fn list(music: &Music) -> Screen {
     match music.browser.view() {
-        View::Bookmarks(book) => match music.shelf.bookmarks(&music.library, book) {
+        View::Bookmarks(book) => match music.books.shelf.bookmarks(&music.library, book) {
             [] => Screen::message(text::BOOKMARKS, text::NO_BOOKMARKS),
             _ => list::rows_screen(music, |_| Legend::Bookmarks),
         },

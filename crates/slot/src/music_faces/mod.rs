@@ -4,15 +4,16 @@
 mod list;
 mod motion;
 mod now_playing;
+mod text_view;
 
 use slot_gfx::{Compositor, TexId};
 use slot_input::Millis;
 use slot_music::{text, Body, Legend, RowIcon, RowText};
 use slot_ui::{
     marquee_offset, music_caret_face, music_heart_face, music_hint_face, music_letter_face,
-    music_line_face, music_moon_face, music_ring_face, music_row_face, music_row_heart_face,
-    music_status_face, music_tint_ink, music_title_w, music_window, BodyFaces, Ink, LineInk,
-    MusicFace, MusicFaces, MusicTheme, UndoFace, MUSIC_STATUS,
+    music_line_face, music_moon_face, music_paragraph_face, music_ring_face, music_row_face,
+    music_row_heart_face, music_status_face, music_tint_ink, music_title_w, music_window,
+    BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme, UndoFace, MUSIC_STATUS,
 };
 
 use crate::app::App;
@@ -25,7 +26,17 @@ const RING_STEPS: f32 = 40.0;
 #[derive(Clone, PartialEq)]
 enum Spec {
     Line(String, LineInk),
-    Row { text: RowText, ink: Ink, px: u32 },
+    Row {
+        text: RowText,
+        ink: Ink,
+        px: u32,
+    },
+    /// A paragraph, wrapped to the width.
+    Paragraph {
+        text: String,
+        ink: Ink,
+        px: u32,
+    },
 }
 
 impl Spec {
@@ -37,6 +48,9 @@ impl Spec {
     fn face(&self, width: u32, theme: &MusicTheme) -> Option<UndoFace> {
         match self {
             Spec::Line(text, ink) => music_line_face(text, *ink, width, theme),
+            Spec::Paragraph { text, ink, px } => {
+                music_paragraph_face(text, *ink, *px as f32, width, theme)
+            }
             Spec::Row { text, ink, px } => {
                 let icon = text.icon.map(|RowIcon::Play| MUSIC_STATUS[0]);
                 music_row_face(
@@ -54,13 +68,16 @@ impl Spec {
     }
 }
 
-/// A line's face at full length, and the window of it on screen.
+/// A line's face, and the window of it on screen. The face at full length is kept only for a
+/// line too long to show whole, which scrolls through it; the rest live on as textures alone.
 #[derive(Default)]
 struct Line {
     /// What the face is of, and the width and theme it was drawn to.
     spec: Option<(Spec, u32, MusicTheme)>,
     full: Option<UndoFace>,
     tex: Option<TexId>,
+    /// The face's size, and the window of it uploaded.
+    size: Option<(u32, u32)>,
     shown: Option<(u32, u32)>,
 }
 
@@ -76,19 +93,29 @@ impl Line {
     ) -> Option<MusicFace> {
         let key = (spec, width, theme);
         if self.spec.as_ref() != Some(&key) {
-            self.full = key.0.face(width, &theme);
+            let face = key.0.face(width, &theme);
             self.spec = Some(key);
-            self.shown = None;
+            (self.size, self.shown, self.full) = (face.as_ref().map(|f| (f.w, f.h)), None, None);
+            match face {
+                // Whole: uploaded once, and not kept.
+                Some(face) if face.w <= width => {
+                    put(compositor, &mut self.tex, face.w, face.h, &face.rgba);
+                    self.shown = Some((0, face.w));
+                }
+                face => self.full = face,
+            }
         }
-        let full = self.full.as_ref()?;
-        let w = width.min(full.w);
-        let x = scroll.map_or(0, |ms| marquee_offset(full.w - w, ms));
-        if self.shown != Some((x, w)) {
-            let face = music_window(full, x, w);
-            put(compositor, &mut self.tex, face.w, face.h, &face.rgba);
-            self.shown = Some((x, w));
+        let (full_w, h) = self.size?;
+        let w = width.min(full_w);
+        if let Some(full) = &self.full {
+            let x = scroll.map_or(0, |ms| marquee_offset(full.w - w, ms));
+            if self.shown != Some((x, w)) {
+                let face = music_window(full, x, w);
+                put(compositor, &mut self.tex, face.w, face.h, &face.rgba);
+                self.shown = Some((x, w));
+            }
         }
-        Some((self.tex?, w, full.h))
+        Some((self.tex?, w, h))
     }
 }
 
@@ -221,6 +248,8 @@ pub struct MusicText {
     header: Lines,
     lines: Lines,
     values: Lines,
+    /// The text view's paragraphs: the lyrics.
+    paragraphs: Lines,
     glyphs: Styled<()>,
     /// Each legend's hints.
     legends: Vec<(Legend, Styled<()>)>,
@@ -261,9 +290,17 @@ impl MusicText {
     }
 
     pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
+        let began = std::time::Instant::now();
+        if self.draw(app, compositor) {
+            app.note_music_draw(began.elapsed());
+        }
+    }
+
+    /// Draws the music screen, when it is shown: true when it was.
+    fn draw(&mut self, app: &mut App, compositor: &mut Compositor) -> bool {
         let Some(screen) = app.music_screen() else {
             self.motion.hide();
-            return;
+            return false;
         };
         let now = app.now();
         let (canvas, theme) = (app.canvas(), app.music_theme());
@@ -277,7 +314,7 @@ impl MusicText {
         let menu = match &screen.body {
             Body::List(list) => list.menu,
             Body::Message(_) => true,
-            Body::NowPlaying(_) => false,
+            Body::NowPlaying(_) | Body::Text(_) => false,
         };
         let clock = screen.clock && !menu;
         let title_w = music_title_w(clock, canvas);
@@ -327,6 +364,9 @@ impl MusicText {
             Body::Message(line) => {
                 BodyFaces::List(list::message(self, compositor, canvas, line, now))
             }
+            Body::Text(body) => {
+                BodyFaces::Text(text_view::faces(self, compositor, canvas, body, now))
+            }
             Body::NowPlaying(body) => BodyFaces::NowPlaying(now_playing::faces(
                 self, app, compositor, canvas, body, glyphs, now,
             )),
@@ -343,6 +383,7 @@ impl MusicText {
             letter,
             ring,
         });
+        true
     }
 }
 

@@ -21,29 +21,43 @@
 //!   or "Pause"). A button that does more held says so: "Play, Hold Next".
 //! - **Ring**: in the corner while a key is held to act, filling until it does; let go
 //!   before it closes and nothing happens. Tinted on Now Playing, as its bar is.
+//! - **Text view**: paragraphs to read, wrapped and centred, the one in focus held in the middle;
+//!   followed lines lit, the rest dim (lyrics).
+//! - **Motion**: everything that moves eases the one way `tween` says, over its durations; a
+//!   new target takes over from where a value is drawn. Only what is drawn moves.
+//!
+//! The kit, a part a file: `face` (lines, rows, paragraphs, hints, ring, symbols), `list`,
+//! `now_playing`, `text_view`, `tween`, with every colour from `theme` and the album's from
+//! `tint`. Its only contract with the music player is `slot_music::Screen`: what to show, never
+//! how; the frontend (`slot::music_faces`) turns a `Screen` into these faces. Another kit could
+//! take this one's place behind that contract without `slot-music` knowing.
 
 mod face;
 mod list;
 mod now_playing;
 mod slot;
+mod text_view;
 mod theme;
 mod tint;
+mod tween;
 
 use slot_power::Battery;
 
 use slot::{
-    centred_hints, cluster_width, draw_gauge, draw_printed, ease, push, Canvas, Draw, Printed,
-    TexId, GAUGE_H, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H, QUICK_EDGE,
+    centred_hints, cluster_width, draw_gauge, draw_printed, push, Canvas, Draw, Printed, TexId,
+    GAUGE_H, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H, QUICK_EDGE,
 };
 
 pub use face::{
     marquee_offset, music_caret_face, music_heart_face, music_hint_face, music_letter_face,
-    music_line_face, music_moon_face, music_ring_face, music_row_face, music_row_heart_face,
-    music_status_face, music_window, Ink, LineInk, MUSIC_STATUS,
+    music_line_face, music_moon_face, music_paragraph_face, music_ring_face, music_row_face,
+    music_row_heart_face, music_status_face, music_window, Ink, LineInk, MUSIC_STATUS,
 };
 pub use list::{music_action_px, music_row_px};
+pub use text_view::TextFaces;
 pub use theme::MusicTheme;
 pub use tint::{music_tint, music_tint_ink, MusicTint};
+pub use tween::{music_eased, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS};
 
 // Type.
 /// List type as a share of its row spacing, from Normal: 24 px on 44 px rows. Small and Large
@@ -93,11 +107,7 @@ const MARQUEE_STEP: u32 = 2;
 /// scrolls.
 const FIT_MIN: f32 = 0.88;
 
-// Motion, in slot's eased style and range: quick, and only moving or fading what is drawn.
-/// The highlight gliding to the next row.
-pub const MUSIC_GLIDE_MS: u64 = 90;
-/// A screen's body sliding in from the side it was opened towards.
-pub const MUSIC_SLIDE_MS: u64 = 160;
+// Motion: its durations and curve are in `tween`.
 const SLIDE_PX: f32 = 56.0;
 /// The box the letter a list jumped to shows in, and the letter's size.
 const LETTER_BOX: f32 = 96.0;
@@ -105,9 +115,6 @@ const LETTER_PX: f32 = 64.0;
 /// The ring a held key fills in the corner, and how thick it is.
 const RING_PX: u32 = 22;
 const RING_STROKE: f32 = 3.0;
-
-/// A new album picture fading in.
-pub const MUSIC_ART_MS: u64 = 220;
 
 /// A texture and its size.
 pub type MusicFace = (TexId, u32, u32);
@@ -150,6 +157,7 @@ impl Default for MusicFaces {
 pub enum BodyFaces {
     List(ListFaces),
     NowPlaying(NowPlayingFaces),
+    Text(TextFaces),
 }
 
 impl Default for BodyFaces {
@@ -184,6 +192,9 @@ pub struct ListFaces {
     /// The rows that are favorites, and the heart drawn at their right.
     pub hearts: Vec<bool>,
     pub heart: Option<MusicFace>,
+    /// The rows that open a page, and the › drawn at their right.
+    pub opens: Vec<bool>,
+    pub arrow: Option<MusicFace>,
 }
 
 /// The track playing: its three lines, picture, state symbols, bar, place and time.
@@ -222,11 +233,6 @@ impl Default for MusicMotion {
             art: 1.0,
         }
     }
-}
-
-/// Slot's ease over `over` ms, `since` ms in.
-pub fn music_eased(since: u64, over: u64) -> f32 {
-    ease((since as f32 / over as f32).min(1.0))
 }
 
 /// The visible width of a line, beside the picture or across the canvas.
@@ -285,6 +291,7 @@ pub fn draw_music(faces: &MusicFaces, out: &mut Vec<Draw>) {
     match &faces.body {
         BodyFaces::List(list) => list::draw(list, canvas, theme, out),
         BodyFaces::NowPlaying(np) => now_playing::draw(np, faces.motion.art, canvas, theme, out),
+        BodyFaces::Text(text) => text_view::draw(text, canvas, out),
     }
     // A new body slides in from its side, opaque by halfway so the travel reads; the header
     // and legend stay.

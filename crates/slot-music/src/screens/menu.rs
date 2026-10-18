@@ -1,11 +1,12 @@
 //! The menus START opens: Now Playing's, for the song playing (Favorites, the sleep timer,
-//! repeat, go to its album or artist, Song Info), and a list's, for what no key does on the
-//! song or book picked: go to its album or artist and Song Info, or start the book over and
-//! mark it finished. START or B closes them.
+//! repeat, go to its album or artist, Song Info); Up Next's, to save the queue as a playlist
+//! or clear it; and a list's, for what no key does on the song or book picked: go to its album
+//! or artist and Song Info, or start the book over and mark it finished. START or B closes them.
 
 use super::{list, settings, Body, Legend, Screen};
+use crate::browse::rows::{self, Row};
 use crate::browse::{Browser, Context, Key, Outcome, View};
-use crate::rows::{self, Row};
+use crate::library::TrackId;
 use crate::{text, Music};
 
 /// START: opens the menu for what is shown, or closes the one open.
@@ -15,7 +16,8 @@ pub(crate) fn toggle(b: &mut Browser, cx: &Context) {
         View::NowPlaying if cx.queue.tracks.get(cx.queue.at).is_some() => {
             b.push(View::PlayingMenu, 0)
         }
-        View::PlayingMenu | View::RowMenu(_) | View::SongInfo(_) => b.pop(),
+        View::Queue if !cx.queue.tracks.is_empty() => b.push(View::QueueMenu, 0),
+        View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_) => b.pop(),
         _ => {
             // A list's songs and books have menus; its other rows do all with their keys.
             let rows = rows::rows(cx, view);
@@ -32,6 +34,10 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
         Row::Setting(s) => return settings::press(s, key),
         // Song Info only tells: no row to move to or pick.
         Row::Info(_) => return Some(Outcome::None),
+        // Shuffle turns on or off as a setting does, beside Repeat.
+        Row::ShuffleQueue => {
+            return matches!(key, Key::A | Key::Left | Key::Right).then_some(Outcome::ShuffleQueue);
+        }
         // A book's speed steps as a setting does.
         Row::Speed => {
             let by = match key {
@@ -46,6 +52,17 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
     }
     if key != Key::A {
         return None;
+    }
+    // The queue's menu acts and closes; the queue, cleared, shows what plays.
+    if b.view() == View::QueueMenu {
+        b.pop();
+        return Some(match row {
+            Row::SaveQueue => Outcome::SaveQueue,
+            _ => {
+                b.set_at(0);
+                Outcome::Clear
+            }
+        });
     }
     let song = rows::subject(cx.queue, b.view());
     // The book playing's menu: its chapters and bookmarks open over Now Playing, as the queue
@@ -95,7 +112,7 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
 
 /// The song's album or artist, on the song. The menu closes, so B returns to
 /// where it was opened.
-fn go_to(b: &mut Browser, cx: &Context, row: Row, t: usize) {
+fn go_to(b: &mut Browser, cx: &Context, row: Row, t: TrackId) {
     let album = cx.lib.tracks[t].album;
     let (view, on) = match row {
         Row::GoToAlbum => (

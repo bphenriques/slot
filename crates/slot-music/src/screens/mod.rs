@@ -3,6 +3,7 @@
 pub(crate) mod book;
 pub(crate) mod dark;
 pub(crate) mod list;
+pub(crate) mod lyrics;
 pub(crate) mod main;
 pub(crate) mod menu;
 pub(crate) mod now_playing;
@@ -11,10 +12,11 @@ pub(crate) mod settings;
 
 use std::time::Duration;
 
-use crate::browse::{Context, Key, View};
-use crate::player::Repeat;
-use crate::rows::RowText;
+use crate::browse::rows::RowText;
+use crate::browse::{Key, View};
+use crate::playback::player::Repeat;
 
+use crate::text::Notice;
 use crate::{text, Art, Music};
 
 /// How long a notice like "+N" shows in the corner.
@@ -27,12 +29,11 @@ const RING_AFTER: f32 = 0.25;
 /// Which button hints a screen shows, with the state they word.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Legend {
-    /// The main menu: whether something plays for SELECT to go to, what A held does on the row,
-    /// and whether X held stops it all there.
+    /// The main menu: whether something plays for SELECT to go to, and what A held does on the
+    /// row.
     Main {
         playing: bool,
         hold: Option<MainHold>,
-        stop: bool,
     },
     /// A library list, by what its highlighted row is.
     List(Target),
@@ -42,9 +43,15 @@ pub enum Legend {
     },
     /// The queue while a track is carried.
     Carry,
-    /// Now Playing: A pauses or plays.
+    /// Now Playing: A pauses or plays, and X shows the lyrics when the song has any.
     NowPlaying {
         playing: bool,
+        lyrics: bool,
+    },
+    /// The lyrics: A pauses or plays, or plays from the line scrolled to; X closes them.
+    Lyrics {
+        playing: bool,
+        line: bool,
     },
     /// An audiobook playing: A pauses or plays, and the arrows jump `jump` seconds.
     Book {
@@ -59,6 +66,8 @@ pub enum Legend {
     Menu,
     /// Rebuild Library, which acts only when A is held, as it takes long.
     Hold,
+    /// A row that tries something on the device: A tries it.
+    Test,
     Back,
 }
 
@@ -91,18 +100,13 @@ impl Legend {
         let mut all = vec![Legend::Carry, Legend::Settings, Legend::Menu];
         all.extend([
             Legend::Hold,
+            Legend::Test,
             Legend::Back,
             Legend::Chapters,
             Legend::Bookmarks,
         ]);
         for hold in [None, Some(MainHold::Shuffle), Some(MainHold::Resume)] {
-            for stop in on {
-                all.extend(on.map(|playing| Legend::Main {
-                    playing,
-                    hold,
-                    stop,
-                }));
-            }
+            all.extend(on.map(|playing| Legend::Main { playing, hold }));
         }
         for jump in [10, 15, 30] {
             all.extend(on.map(|playing| Legend::Book { playing, jump }));
@@ -119,7 +123,16 @@ impl Legend {
             .map(Legend::List),
         );
         all.extend(on.map(|restart| Legend::Queue { restart }));
-        all.extend(on.map(|playing| Legend::NowPlaying { playing }));
+        for (playing, more) in on.into_iter().flat_map(|a| on.map(|b| (a, b))) {
+            all.push(Legend::NowPlaying {
+                playing,
+                lyrics: more,
+            });
+            all.push(Legend::Lyrics {
+                playing,
+                line: more,
+            });
+        }
         all
     }
 }
@@ -149,6 +162,17 @@ pub enum Body {
     NowPlaying(NowPlayingBody),
     /// A line in place of a list: the library being read, nothing playing.
     Message(String),
+    /// Paragraphs to read, one held in the middle: lyrics.
+    Text(TextBody),
+}
+
+/// Lines of text, centred, `focus` in the middle. `lit` is the one lit, the rest dim, when the
+/// lines follow along (`Some`, if none is yet); else every line is lit.
+#[derive(Clone, PartialEq, Debug)]
+pub struct TextBody {
+    pub lines: Vec<String>,
+    pub lit: Option<Option<usize>>,
+    pub focus: usize,
 }
 
 /// A page of rows with one highlighted.
@@ -228,12 +252,24 @@ impl Screen {
 
 impl Music {
     pub fn screen(&self) -> Screen {
+        let began = std::time::Instant::now();
+        let screen = self.build_screen();
+        self.note_screen(began.elapsed());
+        screen
+    }
+
+    fn build_screen(&self) -> Screen {
         let screen = match self.browser.view() {
             View::Main => main::screen(self),
-            View::Settings => settings::screen(self),
+            View::Settings | View::Sound | View::BookSettings | View::Debug => {
+                settings::screen(self)
+            }
             View::Queue => queue::screen(self),
+            View::Lyrics => lyrics::screen(self),
             View::NowPlaying => now_playing::screen(self),
-            View::PlayingMenu | View::RowMenu(_) | View::SongInfo(_) => menu::screen(self),
+            View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_) => {
+                menu::screen(self)
+            }
             View::Artists
             | View::Artist(_)
             | View::Albums
@@ -242,12 +278,24 @@ impl Music {
             | View::Playlists
             | View::Playlist(_)
             | View::RecentlyAdded
+            | View::RecentlyPlayed
             | View::Books => list::screen(self),
             View::Chapters | View::Bookmarks(_) => book::list(self),
         };
-        // A notice shows in any corner left empty, Now Playing's too.
+        // A notice shows in any corner left empty, Now Playing's too; else there, the sleep
+        // timer counting down.
+        let sleeping = (self.browser.view() == View::NowPlaying
+            && self.transport.sleep.left().is_some())
+        .then(|| text::sleeping(self.transport.sleep.remaining()));
         let corner = match screen.corner.is_empty() {
-            true => self.notice().unwrap_or_default(),
+            true => {
+                // Locked, it says so until unlocked.
+                let locked = self
+                    .pocket
+                    .locked
+                    .then(|| text::notice(&Notice::Locked(true)));
+                self.notice().or(locked).or(sleeping).unwrap_or_default()
+            }
             false => screen.corner,
         };
         Screen {
@@ -270,29 +318,7 @@ impl Music {
     /// The playing album's picture, on Now Playing only.
     pub fn art(&self) -> Option<&Art> {
         let shown = self.browser.view() == View::NowPlaying && self.player.current().is_some();
-        self.art.as_ref().filter(|_| shown)
-    }
-
-    /// Songs the scan has gone through, of those it found.
-    pub(crate) fn reading(&self) -> (usize, usize) {
-        use std::sync::atomic::Ordering::Relaxed;
-        (
-            self.reading.done.load(Relaxed),
-            self.reading.of.load(Relaxed),
-        )
-    }
-
-    /// What the screens and their keys read.
-    pub(crate) fn context(&self) -> Context<'_> {
-        Context {
-            lib: &self.library,
-            queue: self.player.queue(),
-            settings: self.settings,
-            sleep: self.sleep.left(),
-            shelf: &self.shelf,
-            book: self.book().map(|(b, _)| b),
-            back: self.back.map(|(_, _, pos)| pos),
-        }
+        self.pictures.art.as_ref().filter(|_| shown)
     }
 
     /// A fresh notice, worded.

@@ -28,26 +28,24 @@ color = on
 # The music screens' colours: slot (follow slot's Appearance), dark or light.
 theme = slot
 
-# What plays the music: muse (plorpOS's Muse) or slot (slot's own player). Only set here; read
-# when slot starts.
-player = muse
-
-# Both sides alike, for one ear or one speaker: on or off. Slot's player only, where Music
-# Settings shows it as Mono Audio.
+# Both sides alike, for one ear or one speaker: on or off. Music Settings shows it as Mono
+# Audio.
 mono = off
 
-# Each song straight on from the last, with no gap, as live albums need: on or off. Slot's player
-# only, where Music Settings shows it.
-gapless = on
-
-# Songs, or albums, brought to one loudness from their ReplayGain tags: off, track or album.
-# Slot's player only, where Music Settings shows it as Volume Leveling.
+# Songs brought to one loudness from their ReplayGain tags: on or off. An album keeps its own
+# loudness when played in order; shuffled, each song is levelled. Music Settings shows it as Volume
+# Leveling. Songs always follow on with no gap.
 leveling = off
 
-# Seconds a song's end fades into the next: 0, 3 or 6. Never a book's. Slot's player only.
+# Seconds a song's end fades into the next: 0, 3 or 6. Never a book's.
 crossfade = 0
 
-# For audiobooks, with slot's player: pauses cut short (on or off), and dB louder (0, 3 or 6;
+# For audiobooks: pauses cut short (on or off), and dB louder (0, 3 or 6;
 # the loudest is rounded off rather than clipped).
 skip_silence = off
 boost = 0
+
+# Pocket mode: L1 + R1 or L2 + R2 together, tapped, play or pause and, held, lock the music's
+# other keys, so nothing changes in a pocket: on or off. A lock buzzes unless pocket_buzz = off.
+pocket = on
+pocket_buzz = on

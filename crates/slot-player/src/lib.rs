@@ -2,8 +2,7 @@
 //! hears an [`Event`]. A player knows files and transport and nothing else; what an album or a
 //! book is, and what plays next, are slot's.
 //!
-//! [`Handle`] is the one face of every player: slot's own, here, decoding with rodio into ALSA,
-//! or another, as plorpOS's Muse is, over its socket.
+//! [`Handle`] is the player's face: decoding with rodio into ALSA, or into any [`Output`].
 
 mod alsa;
 mod engine;
@@ -13,8 +12,9 @@ mod track;
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 
-pub use engine::{Capture, Output};
+pub use engine::Output;
 pub use level::Leveling;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
@@ -30,6 +30,12 @@ pub enum PlayState {
 pub enum Command {
     /// Open and play `path`, from `at` seconds in, at `speed` (1 is as recorded).
     Play {
+        path: PathBuf,
+        at: f64,
+        speed: f32,
+    },
+    /// As `Play`, but paused there: a song skipped to while paused waits to be played.
+    Cue {
         path: PathBuf,
         at: f64,
         speed: f32,
@@ -58,71 +64,93 @@ pub enum Command {
 /// What a player tells slot.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Event {
-    /// The player is there to play, or went away.
-    Connected(bool),
-    State(PlayState),
-    /// Where the file playing is, and how long it is, in seconds.
-    Pos {
-        at: f64,
-        len: f64,
-    },
+    /// The player stopped working, and plays no more: it could not start, or it failed.
+    Gone,
     /// The file ran out by itself.
     End(PathBuf),
     /// The file ran out, and play went on with no gap into `Next`'s, which is now playing.
     Into(PathBuf),
+    /// The file could not be played: slot moves on to the next.
     Error(String),
-    /// A file was opened: its chapters follow, each where it starts and its title.
-    Meta,
-    Chapter {
-        at: f64,
-        title: String,
-    },
+    /// The sound device stopped working, not the file: the player has paused where it was.
+    Lost(String),
 }
 
-/// A player running on its own thread: commands in, events out. A player that cannot start
-/// says so with `Connected(false)`, and drops what it is sent.
+/// A player running on its own thread: commands in, events out. A player that cannot start, or
+/// that panics, says so with `Gone`, and drops what it is sent.
 pub struct Handle {
     commands: Sender<Command>,
     events: Receiver<Event>,
+    shared: Arc<engine::Shared>,
+}
+
+/// The player as it is now: playing, paused or stopped, and where in the file playing, and how
+/// long it is, in seconds; read whenever wanted, rather than told.
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
+pub struct Status {
+    pub state: PlayState,
+    pub at: f64,
+    pub len: f64,
 }
 
 impl Handle {
-    /// Runs `player` on a thread named `name`, with the two ends it talks through.
-    pub fn spawn(
+    /// Runs `player` on a thread named `name`, with the two ends it talks through and the status
+    /// it keeps.
+    fn spawn(
         name: &str,
-        player: impl FnOnce(Receiver<Command>, Sender<Event>) + Send + 'static,
+        player: impl FnOnce(Arc<engine::Shared>, Receiver<Command>, Sender<Event>) + Send + 'static,
     ) -> Handle {
+        let shared = Arc::new(engine::Shared::default());
+        let kept = shared.clone();
         let (commands, command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let spawned = std::thread::Builder::new()
             .name(name.into())
-            .spawn(move || player(command_rx, event_tx));
+            .spawn(move || {
+                let told = event_tx.clone();
+                let run = std::panic::AssertUnwindSafe(|| player(kept, command_rx, event_tx));
+                if std::panic::catch_unwind(run).is_err() {
+                    let _ = told.send(Event::Gone);
+                }
+            });
         if let Err(e) = spawned {
             eprintln!("slot: {name}: {e}");
         }
-        Handle { commands, events }
+        Handle {
+            commands,
+            events,
+            shared,
+        }
     }
 
     /// slot's own player, on `output`.
     pub fn on(output: impl Output) -> Handle {
-        Handle::spawn("slot-player", move |commands, events| {
-            engine::run(output, &commands, &events)
+        Handle::spawn("slot-player", move |shared, commands, events| {
+            engine::run(output, shared, &commands, &events)
         })
     }
 
     /// slot's own player, on the device's ALSA output.
     pub fn slot() -> Handle {
-        Handle::spawn("slot-player", |commands, events| match alsa::Alsa::load() {
-            Ok(alsa) => engine::run(alsa, &commands, &events),
-            Err(why) => {
-                eprintln!("slot: player: {why}");
-                let _ = events.send(Event::Connected(false));
-            }
-        })
+        Handle::spawn(
+            "slot-player",
+            |shared, commands, events| match alsa::Alsa::load() {
+                Ok(alsa) => engine::run(alsa, shared, &commands, &events),
+                Err(why) => {
+                    eprintln!("slot: player: {why}");
+                    let _ = events.send(Event::Gone);
+                }
+            },
+        )
     }
 
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
+    }
+
+    /// The player as it is now.
+    pub fn status(&self) -> Status {
+        engine::status(&self.shared)
     }
 
     pub fn events(&self) -> impl Iterator<Item = Event> + '_ {

@@ -9,9 +9,9 @@ use std::time::UNIX_EPOCH;
 
 use slot_store::is_hidden;
 
+use crate::library::tags::{self, Tags};
 use crate::library::{is_audio, Library, Record, BOOKS_DIR, MUSIC_DIR};
-use crate::playlists::PLAYLISTS_DIR;
-use crate::tags::{self, Tags};
+use crate::store::playlists::PLAYLISTS_DIR;
 
 pub const CACHE_FILE: &str = "Config/music-library.tsv";
 /// The cache's first line; a cache in another layout is read as empty.

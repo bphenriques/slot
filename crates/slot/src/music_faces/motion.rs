@@ -2,41 +2,23 @@
 //! highlight glides, rows slide to new places as the list changes, and a new album picture fades
 //! in.
 
-use std::sync::OnceLock;
-
 use slot_input::Millis;
 use slot_music::{RowText, Screen};
-use slot_ui::{music_eased, MusicMotion, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS};
+use slot_ui::{music_eased, MusicMotion, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS};
 
 /// Rows moved further than this came from elsewhere, as a new page, and just arrive.
 const MOVED_MAX: usize = 2;
-
-/// How many times slower everything moves, from `SLOT_MUSIC_SLOW`: 10 to watch a slide
-/// closely, 0 for none at all.
-fn slow() -> f32 {
-    static SLOW: OnceLock<f32> = OnceLock::new();
-    *SLOW.get_or_init(|| {
-        let slow = std::env::var("SLOT_MUSIC_SLOW").ok();
-        slow.and_then(|s| s.parse().ok()).unwrap_or(1.0)
-    })
-}
-
-/// A value moving from `from` to `to`, starting at `since`.
-#[derive(Copy, Clone, Default)]
-struct Tween {
-    from: f32,
-    to: f32,
-    since: Millis,
-}
 
 #[derive(Default)]
 pub(super) struct Motion {
     /// The screen shown, by title and depth, when it came in and from which side.
     shown: Option<(String, usize)>,
-    entered: Tween,
+    entered: MusicTween,
     side: f32,
     /// The highlight, and the rows it glides over.
-    bar: Tween,
+    bar: MusicTween,
+    /// The text view's line in the middle, as it moves to another.
+    focus: MusicTween,
     rows: Vec<RowText>,
     /// How many rows each row moved by when the rows last changed in place, and when: they
     /// slide from where they were.
@@ -66,7 +48,7 @@ impl Motion {
             Some((_, was)) if was > screen.depth => -1.0,
             _ => 0.0,
         };
-        self.entered = Tween {
+        self.entered = MusicTween {
             from: 0.0,
             to: 1.0,
             since: now,
@@ -87,24 +69,16 @@ impl Motion {
                 false => self.follow(rows, now),
             }
             self.rows = rows.to_vec();
-            self.bar = Tween {
-                from: to,
-                to,
-                since: now,
-            };
+            self.bar = MusicTween::still(to, now);
         } else if to != self.bar.to {
             self.rides = false;
-            self.bar = Tween {
-                from: self.tween(self.bar, now, MUSIC_GLIDE_MS),
-                to,
-                since: now,
-            };
+            self.bar.toward(to, now, MUSIC_GLIDE_MS);
         }
         let ride = match self.rides {
             true => self.offsets(now).get(selected).copied().unwrap_or(0.0),
             false => 0.0,
         };
-        self.tween(self.bar, now, MUSIC_GLIDE_MS) + ride
+        self.bar.at(now, MUSIC_GLIDE_MS) + ride
     }
 
     /// Where each row was before `rows` replaced the last ones: a row taken out leaves the
@@ -140,6 +114,16 @@ impl Motion {
         }
     }
 
+    /// Where the text view's middle is, in lines: it moves smoothly to `to`; on a new screen it
+    /// starts there.
+    pub fn focus(&mut self, to: f32, now: Millis) -> f32 {
+        match self.entered.since == now {
+            true => self.focus = MusicTween::still(to, now),
+            false => self.focus.toward(to, now, MUSIC_SLIDE_MS),
+        }
+        self.focus.at(now, MUSIC_SLIDE_MS)
+    }
+
     /// A new album picture is up, to fade in.
     pub fn new_art(&mut self, now: Millis) {
         self.art = now;
@@ -147,24 +131,15 @@ impl Motion {
 
     pub fn at(&self, now: Millis) -> MusicMotion {
         MusicMotion {
-            enter: self.tween(self.entered, now, MUSIC_SLIDE_MS),
+            enter: self.entered.at(now, MUSIC_SLIDE_MS),
             side: self.side,
             art: self.eased(self.art, now, MUSIC_ART_MS),
         }
     }
 
-    /// `tween` at `now`, over `over` ms.
-    fn tween(&self, tween: Tween, now: Millis, over: Millis) -> f32 {
-        let u = self.eased(tween.since, now, over);
-        tween.from + (tween.to - tween.from) * u
-    }
-
     /// How far along an ease begun at `since`, 0 to 1.
     fn eased(&self, since: Millis, now: Millis, over: Millis) -> f32 {
-        match (over as f32 * slow()) as Millis {
-            0 => 1.0,
-            over => music_eased(now.saturating_sub(since), over),
-        }
+        music_eased(now.saturating_sub(since), over)
     }
 }
 

@@ -76,6 +76,11 @@ impl<K: Copy + PartialEq> Keys<K> {
         (waited && down.fired == 0).then_some(Press::Tap(key))
     }
 
+    /// Whether a key is down, to act on as it is held.
+    pub fn held(&self) -> bool {
+        self.down.is_some()
+    }
+
     /// The screen was left: the key down does nothing more.
     pub fn cancel(&mut self) {
         self.down = None;

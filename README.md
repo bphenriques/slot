@@ -52,8 +52,8 @@ notes are in the [changelog](CHANGELOG.md).
   using slot's normal method. This works seamlessly, no config needed.
 - **ROMs in subfolders.** Slot also finds games one folder down, like `Games/GBA/Homebrew/`, so
   a library sorted into folders still shows on the shelf.
-- **Music player.** QUICK MENU > MUSIC plays the music in `Music/Artist/Album/` through Muse,
-  plorpOS's player. Browse artists, albums and tracks; queue, shuffle and repeat; see album
+- **Music player.** QUICK MENU > MUSIC plays the music in `Music/Artist/Album/` through slot's
+  own player. Browse artists, albums and tracks; queue, shuffle and repeat; see album
   art on Now Playing. The queue is kept across reboots. Starting a game pauses the music, and
   it can play on with the screen off. Settings are in `Config/music.txt` (see the example).
 

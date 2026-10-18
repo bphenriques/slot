@@ -1,4 +1,4 @@
-//! The codec's volume, for Muse, which plays straight to it. `lineout volume` is 0 to 31 at
+//! The codec's volume, for the music player, which plays straight to it. `lineout volume` is 0 to 31 at
 //! 1.5 dB a step, 0 muted, as plorpOS found on the H700.
 
 use std::ffi::{c_char, c_int, c_long, c_uint, c_void, CString};
@@ -98,7 +98,7 @@ pub fn raw_level(volume: u8) -> c_long {
     }
 }
 
-/// While Muse plays, the codec follows slot's volume; afterwards it is restored.
+/// While music plays, the codec follows slot's volume; afterwards it is restored.
 #[derive(Default)]
 pub struct LineOut {
     ctl: Option<Ctl>,
@@ -108,7 +108,7 @@ pub struct LineOut {
 }
 
 impl LineOut {
-    /// `Some(volume)` while Muse plays, `None` once slot has the sound back.
+    /// `Some(volume)` while music plays, `None` once slot has the sound back.
     pub fn follow(&mut self, volume: Option<u8>) {
         match volume {
             Some(v) if self.applied != Some(v) => {

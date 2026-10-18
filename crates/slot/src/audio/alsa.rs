@@ -89,7 +89,7 @@ impl Alsa {
             let err = unsafe { (self.open)(&mut pcm, cname.as_ptr(), SND_PCM_STREAM_PLAYBACK, 0) };
             if err < 0 || pcm.is_null() {
                 last = AudioError::Device(format!("{name}: {}", self.message(err)));
-                // Busy is the codec taken (Muse has it; BaseOS has no mixer), not a missing
+                // Busy is the codec taken (music has it; BaseOS has no mixer), not a missing
                 // device: the raw ones after it skip BaseOS's routing and play silence.
                 if err == -libc::EBUSY {
                     break;

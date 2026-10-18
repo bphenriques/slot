@@ -1,19 +1,23 @@
 //! The queue: the order tracks play in, the place in it, and every edit to it. Playing it is
 //! the player's.
 
+use crate::library::TrackId;
+
 /// Tracks in the order played, as Rockbox keeps them, and the place of the one playing. A
 /// shuffle reorders the tracks once and keeps the order before it, to go back to; Repeat All
-/// goes round the same order, as most players do.
+/// goes round the same order, as most players do. What is added plays before the rest, as
+/// Spotify and Apple Music have it: `added` is just past the last of it.
 #[derive(Default)]
 pub struct Queue {
-    tracks: Vec<usize>,
+    tracks: Vec<TrackId>,
     at: usize,
-    original: Option<Vec<usize>>,
+    original: Option<Vec<TrackId>>,
+    added: usize,
 }
 
 impl Queue {
     /// `tracks` from `at`, shuffled first when there is a `seed`.
-    pub fn new(mut tracks: Vec<usize>, at: usize, seed: Option<u64>) -> Queue {
+    pub fn new(mut tracks: Vec<TrackId>, at: usize, seed: Option<u64>) -> Queue {
         let original = seed.map(|seed| {
             let original = tracks.clone();
             deal(&mut tracks, seed);
@@ -24,13 +28,14 @@ impl Queue {
             tracks,
             at,
             original,
+            added: 0,
         }
     }
 
     /// Groups (albums or artists, `sizes` long) in a shuffled order, each kept whole.
-    pub fn groups(tracks: Vec<usize>, sizes: &[usize], seed: u64) -> Queue {
+    pub fn groups(tracks: Vec<TrackId>, sizes: &[usize], seed: u64) -> Queue {
         let mut rest = tracks.as_slice();
-        let mut groups: Vec<&[usize]> = sizes
+        let mut groups: Vec<&[TrackId]> = sizes
             .iter()
             .map(|&n| {
                 let (group, after) = rest.split_at(n.min(rest.len()));
@@ -43,10 +48,11 @@ impl Queue {
             tracks: groups.concat(),
             at: 0,
             original: Some(tracks),
+            added: 0,
         }
     }
 
-    pub fn tracks(&self) -> &[usize] {
+    pub fn tracks(&self) -> &[TrackId] {
         &self.tracks
     }
 
@@ -54,7 +60,7 @@ impl Queue {
         self.at
     }
 
-    pub fn current(&self) -> Option<usize> {
+    pub fn current(&self) -> Option<TrackId> {
         self.tracks.get(self.at).copied()
     }
 
@@ -103,6 +109,7 @@ impl Queue {
                 self.at = 0;
             }
         }
+        self.added = 0;
     }
 
     /// Takes out the track at `i`, except the one playing.
@@ -111,6 +118,7 @@ impl Queue {
             return;
         }
         let track = self.tracks.remove(i);
+        self.added -= usize::from(i < self.added);
         if i < self.at {
             self.at -= 1;
         }
@@ -129,6 +137,12 @@ impl Queue {
         }
         let track = self.tracks.remove(from);
         self.tracks.insert(to, track);
+        // A track carried into what was added is added too, and one carried out of it is not.
+        self.added = match self.added {
+            a if from < a && a <= to => a - 1,
+            a if to < a && a <= from => a + 1,
+            a => a,
+        };
         self.at = match self.at {
             a if a == from => to,
             a if from < a && a <= to => a - 1,
@@ -137,10 +151,12 @@ impl Queue {
         };
     }
 
-    /// Puts tracks just after the one playing; into an empty queue, they wait to be played.
-    pub fn play_next(&mut self, tracks: &[usize]) {
+    /// Puts tracks just after the one playing, ahead of what was added before; into an empty
+    /// queue, they wait to be played.
+    pub fn play_next(&mut self, tracks: &[TrackId]) {
         let after = (self.at + 1).min(self.tracks.len());
         self.tracks.splice(after..after, tracks.iter().copied());
+        self.added = self.added.max(after) + tracks.len();
         if let (Some(original), Some(current)) = (&mut self.original, self.tracks.get(self.at)) {
             let after = original
                 .iter()
@@ -150,8 +166,19 @@ impl Queue {
         }
     }
 
-    pub fn enqueue(&mut self, tracks: &[usize]) {
-        self.tracks.extend_from_slice(tracks);
+    /// Takes out everything but the one playing, as Clear in a queue does.
+    pub fn clear(&mut self) {
+        self.tracks = self.current().into_iter().collect();
+        self.at = 0;
+        self.original = self.original.take().map(|_| self.tracks.clone());
+        self.added = 0;
+    }
+
+    /// Adds tracks after the one playing and what was added before it, ahead of the rest.
+    pub fn enqueue(&mut self, tracks: &[TrackId]) {
+        let after = self.added.max(self.at + 1).min(self.tracks.len());
+        self.tracks.splice(after..after, tracks.iter().copied());
+        self.added = after + tracks.len();
         if let Some(original) = &mut self.original {
             original.extend_from_slice(tracks);
         }

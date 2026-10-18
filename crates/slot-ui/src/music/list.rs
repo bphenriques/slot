@@ -5,7 +5,7 @@
 use super::slot::{push, Canvas, Draw, MENU_PAD, MENU_PX, QUICK_EDGE, QUICK_PITCH};
 use super::theme::rgba;
 use super::{
-    draw_progress, ListFaces, MusicTheme, ACTION_SCALE, BAR_INSET, CARET_GAP, LEGEND_Y,
+    draw_progress, ListFaces, MusicFace, MusicTheme, ACTION_SCALE, BAR_INSET, CARET_GAP, LEGEND_Y,
     LIST_TYPE_PER_ROW, PROGRESS_Y, ROWS_Y,
 };
 
@@ -128,7 +128,8 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
     let right = canvas.w - QUICK_EDGE;
     draw_rules(list, grid, right, theme, out);
     draw_values(list, grid, right, out);
-    draw_hearts(list, grid, right, theme, out);
+    draw_marks(list, &list.hearts, list.heart, grid, right, theme, out);
+    draw_marks(list, &list.opens, list.arrow, grid, right, theme, out);
 }
 
 /// The highlight, where it is gliding to; lighter when its row is lifted.
@@ -175,6 +176,11 @@ fn draw_values(list: &ListFaces, grid: Grid, right: f32, out: &mut Vec<Draw>) {
             continue;
         };
         let y = grid.row_mid(i, h);
+        // Beside a ›, as iOS has it: "Albums 120 ›".
+        let right = match (list.arrow, list.opens.get(i)) {
+            (Some((_, aw, _)), Some(true)) => right - aw as f32 - CARET_GAP,
+            _ => right,
+        };
         match (list.carets, list.selected == Some(i)) {
             (Some([(lt, lw, lh), (rt, rw, rh)]), true) => {
                 let rx = right - rw as f32;
@@ -189,13 +195,22 @@ fn draw_values(list: &ListFaces, grid: Grid, right: f32, out: &mut Vec<Draw>) {
     }
 }
 
-/// Hearts at the right edge of favorite songs: dim, as values are, and lit on the highlight.
-fn draw_hearts(list: &ListFaces, grid: Grid, right: f32, theme: &MusicTheme, out: &mut Vec<Draw>) {
-    let Some((tex, w, h)) = list.heart else {
+/// A mark at the right edge of the rows `on` says: a favorite's heart, the › of one that opens
+/// a page. Dim, as values are, and lit on the highlight.
+fn draw_marks(
+    list: &ListFaces,
+    on: &[bool],
+    mark: Option<MusicFace>,
+    grid: Grid,
+    right: f32,
+    theme: &MusicTheme,
+    out: &mut Vec<Draw>,
+) {
+    let Some((tex, w, h)) = mark else {
         return;
     };
     let x = right - w as f32;
-    for (i, _) in list.hearts.iter().enumerate().filter(|(_, &on)| on) {
+    for (i, _) in on.iter().enumerate().filter(|(_, &on)| on) {
         push(out, tex, x, grid.row_mid(i, h), w, h);
         if let Some(Draw::Tex { alpha, .. }) = out.last_mut() {
             *alpha = if list.selected == Some(i) {

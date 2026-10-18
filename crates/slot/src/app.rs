@@ -1803,6 +1803,9 @@ impl App {
 
     pub fn poweroff(&mut self) {
         self.settle_saves();
+        if let Some(music) = &mut self.music {
+            music.flush();
+        }
         if let Some(power) = &mut self.power {
             power.poweroff();
         }

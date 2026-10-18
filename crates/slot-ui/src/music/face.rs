@@ -111,6 +111,36 @@ pub fn music_line_face(
     fitted(fit_w, px, |px| Some(padded(&[run(text, tone, px, h)?])))
 }
 
+/// A paragraph in `ink`, wrapped to `width` and each line centred, as the text view shows its
+/// lines; none for an empty one, a gap.
+pub fn music_paragraph_face(
+    text: &str,
+    ink: Ink,
+    px: f32,
+    width: u32,
+    theme: &MusicTheme,
+) -> Option<UndoFace> {
+    let font = label_font()?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    let layout = fit(font, text, width as f32, PARAGRAPH_LINES, px, px);
+    let line_h = font.horizontal_line_metrics(px)?.new_line_size;
+    let h = (line_h * layout.lines.len() as f32).ceil() as u32;
+    // As wide as its widest line, and a pixel either side for glyphs past their advance.
+    let widest = layout
+        .lines
+        .iter()
+        .map(|l| line_width(font, l, layout.px, layout.tracking));
+    let w = (widest.fold(0.0, f32::max).ceil() as u32 + 2).min(width);
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    draw_centred(&mut rgba, w, h, &layout, theme.ink(ink));
+    Some(UndoFace { rgba, w, h })
+}
+
+/// The most lines one paragraph wraps to.
+const PARAGRAPH_LINES: usize = 8;
+
 /// A list row: icon, number, name in `ink`, artist; empty parts are skipped. The number and
 /// artist are dim, or faint with a faint name. Fitted to `fit_w` as lines are.
 #[allow(clippy::too_many_arguments)]

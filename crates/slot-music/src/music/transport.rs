@@ -1,0 +1,157 @@
+//! The transport as the state runs it: fades in and out, the sleep timer, play and pause, the
+//! sound told the player for what plays, and Recently Played as songs are heard.
+
+use super::{Effect, Music};
+use crate::playback::fade::{Fade, Fading, SleepTimer, FADE, SLEEP_FADE};
+use crate::playback::recent::Recent;
+use crate::store::Kept;
+use slot_player::{Command, Leveling, PlayState};
+
+/// The sound last told the player for what plays.
+#[derive(Copy, Clone, PartialEq)]
+pub(super) struct Sound {
+    crossfade: u32,
+    skip_silence: bool,
+    boost: u32,
+    level: Leveling,
+}
+
+/// The transport's own: a fade running, the sleep timer, and the sound last told the player.
+#[derive(Default)]
+pub(crate) struct Transport {
+    pub(crate) fade: Option<Fade>,
+    pub(crate) sleep: SleepTimer,
+    pub(super) sound: Option<Sound>,
+}
+
+impl Music {
+    /// Acts on held keys, runs the sleep timer and ends fades.
+    pub(super) fn tick(&mut self) {
+        if let Some(press) = self.keys.due() {
+            self.act(press);
+        }
+        let ends = self
+            .end_left()
+            .is_some_and(|left| self.transport.sleep.end_due(left));
+        if self.transport.sleep.due() || ends {
+            self.fall_asleep();
+        }
+        if let Some(fade) = self.transport.fade.filter(Fade::done) {
+            self.transport.fade = None;
+            if fade.is_out() {
+                self.pause_now();
+            }
+            // Asleep, the listener likely missed a while before the timer ran out.
+            if fade.fading == Fading::Asleep && self.book().is_some() {
+                let back = self.player.seek(-crate::books::SLEPT_BACK);
+                self.send(back);
+            }
+        }
+    }
+
+    /// The sleep timer ran out: the music fades out to a pause, or, silent already, pauses.
+    fn fall_asleep(&mut self) {
+        match self.player.owns_audio() {
+            true => {
+                let fade = Fade::new(self.volume_scale(), Fading::Asleep, SLEEP_FADE);
+                self.transport.fade = Some(fade);
+            }
+            false => self.pause_now(),
+        }
+    }
+
+    /// Pauses at once, or plays, fading in. A press during a fade out turns it back; the sleep
+    /// timer's then starts again.
+    pub(super) fn toggle(&mut self) -> Option<Command> {
+        // A saved queue still being read back plays once it is.
+        if self.player.queue().waiting {
+            self.scan.play_when_read ^= true;
+            return None;
+        }
+        if let Some(fade) = self.transport.fade.filter(Fade::is_out) {
+            if fade.fading == Fading::Asleep {
+                self.transport.sleep.again();
+            }
+            self.transport.fade = Some(Fade::new(self.volume_scale(), Fading::In, FADE));
+            return None;
+        }
+        // A book picks up a little back.
+        let rewind = self.resume_book();
+        self.send(rewind);
+        let command = self.player.toggle(&self.library);
+        if self.player.owns_audio() {
+            self.transport.fade = Some(Fade::new(0.0, Fading::In, FADE));
+        }
+        command
+    }
+
+    /// What slot's volume is scaled by: the fade's level, 0 while a pause or stop is on its
+    /// way to the player, 1 otherwise.
+    pub fn volume_scale(&self) -> f32 {
+        match self.player.owns_audio() {
+            true => self.transport.fade.map_or(1.0, |f| f.level()),
+            false => 0.0,
+        }
+    }
+
+    /// For a game starting or the screen going off: at once, without a fade.
+    pub fn pause(&mut self) {
+        self.pause_now();
+        self.run();
+    }
+
+    pub(super) fn pause_now(&mut self) {
+        self.transport.fade = None;
+        let command = self.player.pause();
+        self.send(command);
+        self.keep_queue();
+    }
+
+    /// Tells the player the sound for what plays, when it changes: a book is never crossfaded,
+    /// and only a book skips silence and is boosted.
+    pub(super) fn tell_sound(&mut self) {
+        let s = &self.settings;
+        let level = s.level(self.player.shuffled());
+        let sound = match self.book().is_some() {
+            true => Sound {
+                crossfade: 0,
+                skip_silence: s.skip_silence,
+                boost: s.boost,
+                level,
+            },
+            false => Sound {
+                crossfade: s.crossfade,
+                skip_silence: false,
+                boost: 0,
+                level,
+            },
+        };
+        if self.transport.sound == Some(sound) {
+            return;
+        }
+        self.transport.sound = Some(sound);
+        let boost = 10f32.powf(sound.boost as f32 / 20.0);
+        self.out.extend(
+            [
+                Command::Level(sound.level),
+                Command::Crossfade(f64::from(sound.crossfade)),
+                Command::SkipSilence(sound.skip_silence),
+                Command::Boost(boost),
+            ]
+            .map(Effect::Player),
+        );
+    }
+
+    /// Puts the song playing first in Recently Played once it has played a while.
+    pub(super) fn count_played(&mut self) {
+        let Some(t) = self.player.current().filter(|_| self.book().is_none()) else {
+            return;
+        };
+        let (at, len) = self.player.time();
+        let playing = self.player.state() == PlayState::Playing;
+        if self.recent.hear(t, at, len, playing) {
+            let text = self.recent.encode(self.card());
+            self.out.push(Effect::Write(Recent::FILE.into(), text));
+        }
+    }
+}

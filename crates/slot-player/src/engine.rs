@@ -1,5 +1,5 @@
 //! slot's player: a [`Track`] brings a file to 48 kHz stereo at its speed and loudness, and a
-//! thread of its own writes it to the output, with Muse's headroom, and as one side when mono.
+//! thread of its own writes it to the output, with headroom, and as one side when mono.
 //! The file to follow is opened ahead, so the writer goes on into it with no gap. Pausing stops
 //! the writing, so the device can be let go; the moment heard is kept, and playing on starts
 //! from it.
@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::level::Leveling;
 use crate::track::Track;
+use crate::Status;
 use crate::{Command, Event, PlayState};
 
 /// What every file is brought to: what the device's mixer takes.
@@ -22,12 +23,11 @@ pub const CHANNELS: u16 = 2;
 const CHUNK: usize = 4096;
 /// How often the player looks for an end and says where it is.
 const TICK: Duration = Duration::from_millis(100);
-const POS_EVERY: Duration = Duration::from_millis(500);
 /// How long the writer waits after the device failed before it tries again; and after a track
 /// ran out with none after it, before it lets the device go.
 const IDLE: Duration = Duration::from_millis(20);
 const RELEASE_AFTER: Duration = Duration::from_millis(500);
-/// Room left at the top, as Muse leaves it, for a resampled peak to go over the samples': 2 dB.
+/// Room left at the top, as players leave it, for a resampled peak to go over the samples': 2 dB.
 const HEADROOM: f32 = 0.794_328;
 
 /// Where the sound goes: interleaved stereo at [`RATE`], each sample -1 to 1.
@@ -53,9 +53,9 @@ struct Tracks {
     mix: Vec<f32>,
 }
 
-/// What the engine and the writer share.
+/// What the engine and the writer share, and the status read from them.
 #[derive(Default)]
-struct Shared {
+pub(crate) struct Shared {
     /// Written while `playing`.
     tracks: Mutex<Tracks>,
     playing: AtomicBool,
@@ -74,10 +74,53 @@ struct Shared {
     /// Both sides alike, for one ear or one speaker; and louder, as an f32's bits.
     mono: AtomicBool,
     boost: AtomicU32,
-    /// Why the sound stopped working, to tell slot once.
+    /// Why the file stopped playing, or the device stopped working, to tell slot once; and
+    /// whether the writer is gone, its thread panicked.
     failed: Mutex<Option<String>>,
+    lost: Mutex<Option<String>>,
+    dead: AtomicBool,
     /// Wakes the writer, which waits on it while there is nothing to write.
     wake: Condvar,
+    /// What the engine says of the file open, and when the writer last wrote: the status is
+    /// worked out from them.
+    published: Mutex<Published>,
+    sampled: Mutex<Option<Instant>>,
+}
+
+/// The engine's state and the file open, as it last said: where it was opened or moved to, at
+/// what speed, and how long it is.
+#[derive(Copy, Clone, Default)]
+struct Published {
+    state: PlayState,
+    open: bool,
+    from: f64,
+    speed: f32,
+    len: f64,
+}
+
+/// The player now: the moment heard is where the file was opened or moved to, with what was
+/// written and heard since, and, playing, what the device has played since the last write.
+pub(crate) fn status(shared: &Shared) -> Status {
+    let p = *lock(&shared.published);
+    if !p.open {
+        return Status {
+            state: p.state,
+            ..Status::default()
+        };
+    }
+    let written = shared.written.load(Ordering::Acquire);
+    let queued = shared.queued.load(Ordering::Acquire);
+    let mut heard = written.saturating_sub(queued) as f64;
+    if p.state == PlayState::Playing && shared.playing.load(Ordering::Acquire) {
+        let since = lock(&shared.sampled).map_or(0.0, |at| at.elapsed().as_secs_f64());
+        heard += (since * f64::from(RATE)).min(queued as f64);
+    }
+    let at = p.from + heard * f64::from(p.speed) / f64::from(RATE);
+    Status {
+        state: p.state,
+        at: if p.len > 0.0 { at.min(p.len) } else { at },
+        len: p.len,
+    }
 }
 
 impl Shared {
@@ -87,6 +130,10 @@ impl Shared {
 
     fn fail(&self, why: String) {
         lock(&self.failed).get_or_insert(why);
+    }
+
+    fn lose(&self, why: String) {
+        lock(&self.lost).get_or_insert(why);
     }
 }
 
@@ -111,22 +158,33 @@ struct Engine {
     state: PlayState,
     leveling: Leveling,
     skip_silence: bool,
-    told: Instant,
 }
 
 /// Plays into `output` what `commands` asks, telling `events`, until slot drops its end.
-pub fn run(output: impl Output, commands: &Receiver<Command>, events: &Sender<Event>) {
-    let shared = Arc::new(Shared::default());
+pub fn run(
+    output: impl Output,
+    shared: Arc<Shared>,
+    commands: &Receiver<Command>,
+    events: &Sender<Event>,
+) {
     shared.boost.store(1f32.to_bits(), Ordering::Release);
     let writer = {
         let shared = shared.clone();
         std::thread::Builder::new()
             .name("slot-player-out".into())
-            .spawn(move || write(output, &shared))
+            .spawn(move || {
+                // A panic here, outside a file's decoding, ends the player: slot is told, and
+                // starts another.
+                let out = AssertUnwindSafe(|| write(output, &shared));
+                if catch_unwind(out).is_err() {
+                    shared.lose("the sound stopped".into());
+                    shared.dead.store(true, Ordering::Release);
+                }
+            })
     };
     if let Err(e) = writer {
         let _ = events.send(Event::Error(e.to_string()));
-        let _ = events.send(Event::Connected(false));
+        let _ = events.send(Event::Gone);
         return;
     }
     let mut engine = Engine {
@@ -136,9 +194,8 @@ pub fn run(output: impl Output, commands: &Receiver<Command>, events: &Sender<Ev
         state: PlayState::Stopped,
         leveling: Leveling::Off,
         skip_silence: false,
-        told: Instant::now(),
     };
-    let mut open = events.send(Event::Connected(true)).is_ok();
+    let mut open = true;
     while open {
         // Only playing is there an end to look for, or a place to tell: else it sleeps.
         let next = match engine.state {
@@ -150,10 +207,13 @@ pub fn run(output: impl Output, commands: &Receiver<Command>, events: &Sender<Ev
             Err(RecvTimeoutError::Timeout) => Vec::new(),
             Err(RecvTimeoutError::Disconnected) => break,
         };
-        open = told
-            .into_iter()
-            .chain(engine.tick())
-            .all(|event| events.send(event).is_ok());
+        let told: Vec<Event> = told.into_iter().chain(engine.tick()).collect();
+        engine.publish();
+        open = told.into_iter().all(|event| events.send(event).is_ok());
+        if shared.dead.load(Ordering::Acquire) {
+            let _ = events.send(Event::Gone);
+            break;
+        }
     }
     shared.quit.store(true, Ordering::Release);
     shared.wake();
@@ -162,30 +222,8 @@ pub fn run(output: impl Output, commands: &Receiver<Command>, events: &Sender<Ev
 impl Engine {
     fn command(&mut self, command: Command) -> Vec<Event> {
         match command {
-            Command::Play { path, at, speed } => {
-                // A skip is heard at once; a track after one that ran out follows what is left.
-                let flush = self.state == PlayState::Playing;
-                self.next = None;
-                match self.open(&path, at, speed) {
-                    Ok((track, len)) => {
-                        self.now = Some(Now {
-                            path,
-                            from: at,
-                            speed,
-                            len,
-                        });
-                        self.put(Some(track), flush);
-                        self.go(PlayState::Playing)
-                    }
-                    // The state stays: slot, still playing, moves on to the next.
-                    Err(why) => {
-                        self.now = None;
-                        self.put(None, true);
-                        self.shared.playing.store(false, Ordering::Release);
-                        vec![Event::Error(format!("{}: {why}", path.display()))]
-                    }
-                }
-            }
+            Command::Play { path, at, speed } => self.load(path, at, speed, PlayState::Playing),
+            Command::Cue { path, at, speed } => self.load(path, at, speed, PlayState::Paused),
             Command::Next(path) => {
                 self.set_next(path);
                 Vec::new()
@@ -194,24 +232,29 @@ impl Engine {
                 self.shared.playing.store(false, Ordering::Release);
                 self.shared.release.store(true, Ordering::Release);
                 self.move_to(None, None);
-                self.go(PlayState::Paused)
+                self.go(PlayState::Paused);
+                Vec::new()
             }
-            Command::Resume if self.state == PlayState::Paused => self.go(PlayState::Playing),
+            Command::Resume if self.state == PlayState::Paused => {
+                self.go(PlayState::Playing);
+                Vec::new()
+            }
             Command::Seek(at) if self.now.is_some() => {
                 self.move_to(Some(at), None);
                 self.flush_if_playing();
-                vec![self.pos()]
+                Vec::new()
             }
             Command::Speed(speed) if self.now.is_some() => {
                 self.move_to(None, Some(speed));
                 self.flush_if_playing();
-                vec![self.pos()]
+                Vec::new()
             }
             Command::Stop => {
                 (self.now, self.next) = (None, None);
                 self.put(None, true);
                 self.shared.release.store(true, Ordering::Release);
-                self.go(PlayState::Stopped)
+                self.go(PlayState::Stopped);
+                Vec::new()
             }
             Command::Mono(on) => {
                 self.shared.mono.store(on, Ordering::Release);
@@ -249,12 +292,20 @@ impl Engine {
         }
     }
 
-    /// An end, a file gone on into the next, a failure, and where it is, now and then.
+    /// An end, a file gone on into the next, or a failure.
     fn tick(&mut self) -> Vec<Event> {
         if self.state != PlayState::Playing {
             return Vec::new();
         }
-        // The device failing, or the file: slot moves on, and stops after a few.
+        // The device failing pauses where it was, so nothing is skipped for it; the file failing
+        // moves slot on, and stops it after a few.
+        let lost = lock(&self.shared.lost).take();
+        if let Some(why) = lost {
+            self.shared.release.store(true, Ordering::Release);
+            self.move_to(None, None);
+            self.go(PlayState::Paused);
+            return vec![Event::Lost(why)];
+        }
         if let Some(why) = lock(&self.shared.failed).take() {
             return vec![Event::Error(why)];
         }
@@ -264,7 +315,7 @@ impl Engine {
         if heard && self.shared.went_on.swap(false, Ordering::AcqRel) {
             self.now = self.next.take();
             let into = self.now.as_ref().map(|n| Event::Into(n.path.clone()));
-            return into.into_iter().chain([self.pos()]).collect();
+            return into.into_iter().collect();
         }
         // Its place is the next file's until then: none to tell.
         if self.shared.went_on.load(Ordering::Acquire) {
@@ -272,28 +323,29 @@ impl Engine {
         }
         if self.shared.ended.swap(false, Ordering::AcqRel) {
             let path = self.now.take().map(|n| n.path);
-            let mut told = self.go(PlayState::Stopped);
-            told.extend(path.map(Event::End));
-            return told;
+            self.go(PlayState::Stopped);
+            return path.map(Event::End).into_iter().collect();
         }
-        match self.now.is_some() && self.told.elapsed() >= POS_EVERY {
-            true => {
-                self.told = Instant::now();
-                vec![self.pos()]
-            }
-            false => Vec::new(),
-        }
+        Vec::new()
     }
 
-    fn go(&mut self, state: PlayState) -> Vec<Event> {
+    /// Says the state and the file open, for the status read from them.
+    fn publish(&self) {
+        let now = self.now.as_ref();
+        *lock(&self.shared.published) = Published {
+            state: self.state,
+            open: now.is_some(),
+            from: now.map_or(0.0, |n| n.from),
+            speed: now.map_or(1.0, |n| n.speed),
+            len: now.map_or(0.0, |n| n.len),
+        };
+    }
+
+    fn go(&mut self, state: PlayState) {
         self.state = state;
         let playing = state == PlayState::Playing && self.now.is_some();
         self.shared.playing.store(playing, Ordering::Release);
         self.shared.wake();
-        self.told = Instant::now();
-        let mut told = vec![Event::State(state)];
-        told.extend(self.now.is_some().then(|| self.pos()));
-        told
     }
 
     fn flush_if_playing(&self) {
@@ -313,6 +365,36 @@ impl Engine {
         self.shared.went_on.store(false, Ordering::Release);
         if flush {
             self.shared.flush.store(true, Ordering::Release);
+        }
+    }
+
+    /// Opens `path` from `at` to play, or, `Paused`, to wait to be played: a skip is heard at
+    /// once, and a file after one that ran out follows what is left of it.
+    fn load(&mut self, path: PathBuf, at: f64, speed: f32, state: PlayState) -> Vec<Event> {
+        let flush = self.state == PlayState::Playing;
+        self.next = None;
+        match self.open(&path, at, speed) {
+            Ok((track, len)) => {
+                self.now = Some(Now {
+                    path,
+                    from: at,
+                    speed,
+                    len,
+                });
+                self.put(Some(track), flush);
+                if state == PlayState::Paused {
+                    self.shared.release.store(true, Ordering::Release);
+                }
+                self.go(state);
+                Vec::new()
+            }
+            // The state stays: slot, still playing, moves on to the next.
+            Err(why) => {
+                self.now = None;
+                self.put(None, true);
+                self.shared.playing.store(false, Ordering::Release);
+                vec![Event::Error(format!("{}: {why}", path.display()))]
+            }
         }
     }
 
@@ -388,13 +470,6 @@ impl Engine {
             false => at,
         }
     }
-
-    fn pos(&self) -> Event {
-        Event::Pos {
-            at: self.heard(),
-            len: self.now.as_ref().map_or(0.0, |n| n.len),
-        }
-    }
 }
 
 /// The writer: the file playing, a chunk at a time, while it plays; asleep otherwise, the
@@ -424,10 +499,12 @@ fn write(mut output: impl Output, shared: &Shared) {
         }
         // The end of the last file is filled out with silence, a frame whole.
         if let Err(why) = output.write(&chunk) {
-            shared.fail(why);
+            shared.playing.store(false, Ordering::Release);
+            shared.lose(why);
             std::thread::sleep(IDLE);
         }
         shared.queued.store(output.delay(), Ordering::Release);
+        *lock(&shared.sampled) = Some(Instant::now());
         open = true;
     }
 }
@@ -560,33 +637,4 @@ impl Tracks {
         }
         read
     }
-}
-
-/// An output that keeps what it is given, for tests: as fast as it is written, or no faster
-/// than `pace` times as heard.
-#[derive(Clone, Default)]
-pub struct Capture {
-    pub samples: Arc<Mutex<Vec<f32>>>,
-    pub pace: Option<f64>,
-}
-
-impl Output for Capture {
-    fn write(&mut self, samples: &[f32]) -> Result<(), String> {
-        if let Some(pace) = self.pace {
-            let frames = samples.len() / usize::from(CHANNELS);
-            std::thread::sleep(Duration::from_secs_f64(
-                frames as f64 / f64::from(RATE) / pace,
-            ));
-        }
-        lock(&self.samples).extend_from_slice(samples);
-        Ok(())
-    }
-
-    fn delay(&mut self) -> u64 {
-        0
-    }
-
-    fn flush(&mut self) {}
-
-    fn release(&mut self) {}
 }

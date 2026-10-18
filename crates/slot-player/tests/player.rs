@@ -2,12 +2,40 @@
 //! played, paused, moved through and stopped.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use slot_player::{Capture, Command, Event, Handle, PlayState};
+use slot_player::{Command, Event, Handle, Output, PlayState, Status};
 
 const RATE: f64 = 48_000.0;
 const WAIT: Duration = Duration::from_secs(5);
+
+/// An output that keeps what it is given: as fast as it is written, or no faster than `pace`
+/// times as heard.
+#[derive(Clone, Default)]
+struct Capture {
+    samples: Arc<Mutex<Vec<f32>>>,
+    pace: Option<f64>,
+}
+
+impl Output for Capture {
+    fn write(&mut self, samples: &[f32]) -> Result<(), String> {
+        if let Some(pace) = self.pace {
+            let secs = samples.len() as f64 / 2.0 / RATE / pace;
+            std::thread::sleep(Duration::from_secs_f64(secs));
+        }
+        self.samples.lock().unwrap().extend_from_slice(samples);
+        Ok(())
+    }
+
+    fn delay(&mut self) -> u64 {
+        0
+    }
+
+    fn flush(&mut self) {}
+
+    fn release(&mut self) {}
+}
 
 /// A WAV of `secs` seconds, 16-bit at `rate`, every sample a quarter of full scale.
 fn wav(dir: &Path, name: &str, secs: f64, rate: u32, channels: u16) -> PathBuf {
@@ -55,7 +83,6 @@ fn player(pace: Option<f64>) -> (Handle, Capture) {
         ..Capture::default()
     };
     let handle = Handle::on(capture.clone());
-    assert_eq!(handle.wait(WAIT), Some(Event::Connected(true)));
     (handle, capture)
 }
 
@@ -80,6 +107,22 @@ fn until(handle: &Handle, last: impl Fn(&Event) -> bool) -> Vec<Event> {
     }
 }
 
+/// The status once it is as `wanted`, failing if it is not in time.
+fn settle(handle: &Handle, wanted: impl Fn(&Status) -> bool) -> Status {
+    let given_up = std::time::Instant::now() + WAIT;
+    loop {
+        let status = handle.status();
+        if wanted(&status) {
+            return status;
+        }
+        assert!(
+            std::time::Instant::now() < given_up,
+            "not in time: {status:?}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// The seconds of sound the capture holds.
 fn heard(capture: &Capture) -> f64 {
     capture.samples.lock().unwrap().len() as f64 / 2.0 / RATE
@@ -98,16 +141,8 @@ fn a_file_plays_to_its_end_and_says_so() {
     let (handle, capture) = player(None);
     handle.send(play(&path, 0.0));
     let told = until(&handle, |e| matches!(e, Event::End(_)));
-    assert_eq!(told[0], Event::State(PlayState::Playing));
-    assert!(
-        matches!(told[1], Event::Pos { at, len } if at == 0.0 && near(len, 0.5)),
-        "{told:?}"
-    );
-    let n = told.len();
-    assert_eq!(
-        told[n - 2..],
-        [Event::State(PlayState::Stopped), Event::End(path)]
-    );
+    assert_eq!(told, [Event::End(path)], "the end, and nothing else told");
+    settle(&handle, |s| s.state == PlayState::Stopped);
     assert!(near(heard(&capture), 0.5), "{}", heard(&capture));
     assert!(capture.samples.lock().unwrap().iter().any(|&s| s > 0.1));
 }
@@ -130,11 +165,10 @@ fn a_pause_keeps_the_moment_heard_and_playing_on_goes_on_from_it() {
     handle.send(play(&path, 0.0));
     std::thread::sleep(Duration::from_millis(150));
     handle.send(Command::Pause);
-    until(&handle, |e| *e == Event::State(PlayState::Paused));
-    let Some(Event::Pos { at, .. }) = handle.wait(WAIT) else {
-        panic!("where it paused")
-    };
+    let at = settle(&handle, |s| s.state == PlayState::Paused).at;
     assert!(at > 0.2 && at < 1.5, "paused a way in: {at}");
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(handle.status().at, at, "and stays there");
     std::thread::sleep(Duration::from_millis(100));
     let paused = heard(&capture);
     std::thread::sleep(Duration::from_millis(100));
@@ -156,19 +190,11 @@ fn a_move_while_paused_plays_on_from_there() {
     handle.send(play(&path, 0.0));
     std::thread::sleep(Duration::from_millis(50));
     handle.send(Command::Pause);
-    until(&handle, |e| *e == Event::State(PlayState::Paused));
-    assert!(
-        matches!(handle.wait(WAIT), Some(Event::Pos { .. })),
-        "where it paused"
-    );
+    settle(&handle, |s| s.state == PlayState::Paused);
     std::thread::sleep(Duration::from_millis(50));
     let before = heard(&capture);
     handle.send(Command::Seek(1.5));
-    let told = until(&handle, |e| matches!(e, Event::Pos { .. }));
-    assert!(
-        matches!(told.last(), Some(&Event::Pos { at, .. }) if near(at, 1.5)),
-        "{told:?}"
-    );
+    settle(&handle, |s| near(s.at, 1.5));
     handle.send(Command::Resume);
     until(&handle, |e| matches!(e, Event::End(_)));
     assert!(
@@ -200,7 +226,7 @@ fn stop_ends_the_file_without_an_end() {
     handle.send(play(&path, 0.0));
     std::thread::sleep(Duration::from_millis(50));
     handle.send(Command::Stop);
-    until(&handle, |e| *e == Event::State(PlayState::Stopped));
+    settle(&handle, |s| s.state == PlayState::Stopped && s.len == 0.0);
     std::thread::sleep(Duration::from_millis(700));
     assert!(!handle.events().any(|e| matches!(e, Event::End(_))));
 }
@@ -237,14 +263,42 @@ impl slot_player::Output for Broken {
 }
 
 #[test]
-fn a_device_that_will_not_sound_is_told_as_an_error() {
+fn a_device_that_will_not_sound_pauses_where_it_was_and_is_no_file_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = wav(dir.path(), "a.wav", 2.0, 48_000, 2);
     let handle = Handle::on(Broken);
-    assert_eq!(handle.wait(WAIT), Some(Event::Connected(true)));
     handle.send(play(&path, 0.0));
-    let told = until(&handle, |e| matches!(e, Event::Error(_)));
-    assert_eq!(told.last(), Some(&Event::Error("no sound".into())));
+    let told = until(&handle, |e| matches!(e, Event::Lost(_)));
+    assert_eq!(told.last(), Some(&Event::Lost("no sound".into())));
+    assert!(!told.iter().any(|e| matches!(e, Event::Error(_))));
+    settle(&handle, |s| s.state == PlayState::Paused);
+}
+
+/// An output that panics: a fault in the player's own code.
+struct Panics;
+
+impl slot_player::Output for Panics {
+    fn write(&mut self, _: &[f32]) -> Result<(), String> {
+        panic!("a fault")
+    }
+
+    fn delay(&mut self) -> u64 {
+        0
+    }
+
+    fn flush(&mut self) {}
+
+    fn release(&mut self) {}
+}
+
+#[test]
+fn a_player_that_panics_says_it_is_gone_rather_than_play_on_unheard() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav(dir.path(), "a.wav", 2.0, 48_000, 2);
+    let handle = Handle::on(Panics);
+    handle.send(play(&path, 0.0));
+    let told = until(&handle, |e| *e == Event::Gone);
+    assert!(told.iter().any(|e| matches!(e, Event::Lost(_))), "{told:?}");
 }
 
 /// A tone of `hz` at `rate`, a quarter of full scale.
@@ -268,7 +322,7 @@ fn pitch(capture: &Capture) -> f64 {
 }
 
 #[test]
-fn sound_keeps_muse_s_headroom() {
+fn sound_keeps_its_headroom() {
     let dir = tempfile::tempdir().unwrap();
     let path = wav(dir.path(), "a.wav", 0.25, 48_000, 2);
     let (handle, capture) = player(None);
@@ -338,20 +392,18 @@ fn a_speed_set_while_playing_goes_on_from_the_moment_heard() {
     handle.send(play(&path, 0.0));
     std::thread::sleep(Duration::from_millis(100));
     handle.send(Command::Speed(1.5));
-    let told = until(&handle, |e| matches!(e, Event::Pos { at, .. } if *at > 0.0));
-    let Some(&Event::Pos { at, .. }) = told.last() else {
-        unreachable!()
-    };
+    std::thread::sleep(Duration::from_millis(20));
+    let at = handle.status().at;
     assert!(at > 0.2 && at < 1.0, "on from where it was: {at}");
-    let told = until(&handle, |e| matches!(e, Event::End(_)));
-    let last = told.iter().rev().find_map(|e| match e {
-        Event::Pos { at, .. } => Some(*at),
-        _ => None,
-    });
-    assert!(
-        last.is_none_or(|at| at <= 2.0),
-        "never past the end: {last:?}"
-    );
+    for _ in 0..20 {
+        let status = handle.status();
+        assert!(
+            status.at <= status.len.max(2.0),
+            "never past the end: {status:?}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    until(&handle, |e| matches!(e, Event::End(_)));
 }
 
 #[test]
@@ -453,4 +505,41 @@ fn a_crossfade_blends_the_end_into_the_next() {
         "{}",
         sound as f64 / 2.0 / RATE
     );
+}
+
+#[test]
+fn a_cued_file_waits_paused_with_nothing_heard() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav(dir.path(), "a.wav", 0.25, 48_000, 2);
+    let (handle, capture) = player(None);
+    handle.send(Command::Cue {
+        path: path.clone(),
+        at: 0.0,
+        speed: 1.0,
+    });
+    let cued = settle(&handle, |s| s.state == PlayState::Paused && s.len > 0.0);
+    assert_eq!(cued.at, 0.0, "open, at its start");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(heard(&capture), 0.0, "nothing until played");
+    handle.send(Command::Resume);
+    until(&handle, |e| matches!(e, Event::End(_)));
+    assert!(near(heard(&capture), 0.25));
+}
+
+#[test]
+fn the_status_moves_on_with_what_is_heard_and_holds_still_paused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav(dir.path(), "a.wav", 2.0, 48_000, 2);
+    let (handle, _capture) = player(Some(1.0));
+    handle.send(play(&path, 0.0));
+    let first = settle(&handle, |s| s.state == PlayState::Playing && s.at > 0.0);
+    assert!(near(first.len, 2.0), "its length: {first:?}");
+    std::thread::sleep(Duration::from_millis(300));
+    let later = handle.status();
+    let moved = later.at - first.at;
+    assert!(
+        moved > 0.15 && moved < 0.6,
+        "about as long as it played: {moved}"
+    );
+    handle.send(Command::Stop);
 }
