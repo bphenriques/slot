@@ -72,8 +72,19 @@ fn the_music_stays_audible_until_the_player_confirms_it_stopped() {
     reported(&mut p, PlayState::Playing);
     p.stop();
     assert!(!p.owns_audio(), "a game may start opening the codec");
-    assert!(p.audible(), "but the player has not let go yet");
-    reported(&mut p, PlayState::Stopped);
+    assert!(p.audible(), "but the player has not said so yet");
+    said(&mut p, PlayState::Stopped, true);
+    assert!(p.audible(), "stopped, but its last moment still fading out");
+    said(&mut p, PlayState::Stopped, false);
+    assert!(!p.audible(), "quiet: the codec is slot's again");
+    // Paused alike: the codec keeps the music's level through the fade, so it is not heard louder.
+    p.play(&lib, Queue::new(ids(&[0]), 0, None));
+    reported(&mut p, PlayState::Playing);
+    p.pause();
+    assert!(!p.owns_audio());
+    said(&mut p, PlayState::Paused, true);
+    assert!(p.audible());
+    said(&mut p, PlayState::Paused, false);
     assert!(!p.audible());
 }
 
@@ -93,10 +104,10 @@ fn repeat_one_replays_and_repeat_all_wraps_round() {
     let (_d, lib) = library(&["X/A/01 one.mp3", "X/A/02 two.mp3"]);
     let mut p = Player::default();
     p.play(&lib, Queue::new(ids(&[0, 1]), 1, None));
-    p.set_repeat(slot_music::Repeat::One);
+    p.set_repeat(crate::Repeat::One);
     let again = p.on(&lib, Event::End(lib.tracks[1].path.clone()));
     assert_eq!(played(again), lib.tracks[1].path);
-    p.set_repeat(slot_music::Repeat::All);
+    p.set_repeat(crate::Repeat::All);
     let wrapped = p.on(&lib, Event::End(lib.tracks[1].path.clone()));
     assert_eq!(played(wrapped), lib.tracks[0].path);
     assert_eq!(played(p.skip(&lib, -1)), lib.tracks[1].path);
@@ -148,7 +159,7 @@ fn repeat_all_goes_round_the_same_shuffle() {
     let files: Vec<&str> = files.iter().map(String::as_str).collect();
     let (_d, lib) = library(&files);
     let mut p = Player::default();
-    p.set_repeat(slot_music::Repeat::All);
+    p.set_repeat(crate::Repeat::All);
     p.play(&lib, Queue::new((0..8).map(TrackId).collect(), 0, Some(7)));
     let first: Vec<TrackId> = p.queue().tracks.to_vec();
     assert_eq!(p.up_next(), Some(first[1]));
@@ -293,7 +304,7 @@ fn up_next_is_the_next_in_the_queue_or_the_first_again_under_repeat_all() {
     assert_eq!(p.up_next(), Some(TrackId(1)));
     p.skip(&lib, 1);
     assert_eq!(p.up_next(), None, "the end");
-    p.set_repeat(slot_music::Repeat::All);
+    p.set_repeat(crate::Repeat::All);
     assert_eq!(p.up_next(), Some(TrackId(0)));
 }
 
@@ -302,7 +313,7 @@ fn the_queue_opens_at_what_plays_in_a_shuffled_queue_after_skips() {
     let files: Vec<String> = (1..=60).map(|i| format!("X/A/{i:02} t{i}.mp3")).collect();
     let (_d, lib) = library(&files.iter().map(String::as_str).collect::<Vec<_>>());
     let mut p = Player::default();
-    p.set_repeat(slot_music::Repeat::One);
+    p.set_repeat(crate::Repeat::One);
     p.play(&lib, Queue::new((0..60).map(TrackId).collect(), 0, Some(7)));
     for _ in 0..36 {
         p.skip(&lib, 1);
@@ -391,7 +402,7 @@ fn gapless_tells_the_player_what_follows_and_the_queue_follows_it() {
     );
     // Repeat One goes on into the same song.
     let mut p = Player::default();
-    p.set_repeat(slot_music::Repeat::One);
+    p.set_repeat(crate::Repeat::One);
     p.play(&lib, Queue::new(ids(&[0, 1]), 0, None));
     assert_eq!(p.upcoming(&lib, true), Some(Command::Next(Some(path(0)))));
 }
@@ -401,7 +412,7 @@ fn gapless_never_takes_a_book_past_its_end() {
     let (_d, lib) = books();
     let parts = lib.albums[lib.books[0].album].tracks.clone();
     let mut p = Player::default();
-    p.set_repeat(slot_music::Repeat::All);
+    p.set_repeat(crate::Repeat::All);
     p.play(&lib, Queue::new(parts.clone(), parts.len() - 1, None));
     assert_eq!(
         p.upcoming(&lib, true),
@@ -433,14 +444,26 @@ fn a_place_asked_for_is_shown_until_the_player_is_there() {
     heard(&mut p, 150.0, 200.0);
     assert_eq!(p.time(), (150.0, 200.0), "as the player has it");
     p.skip(&lib, 1);
-    heard(&mut p, 150.5, 200.0);
+    heard_at(&mut p, 150.5, 200.0, 1000);
     assert_eq!(
         p.time(),
         (0.0, 0.0),
         "the next song's start, not the last's place"
     );
+    heard_at(&mut p, 150.6, 200.0, 1499);
+    assert_eq!(p.time(), (0.0, 0.0), "for half a second at most");
+    heard_at(&mut p, 150.7, 200.0, 1500);
+    assert_eq!(
+        p.time(),
+        (150.7, 200.0),
+        "then the player's own, whatever it says"
+    );
     heard(&mut p, 0.1, 180.0);
-    assert_eq!(p.time(), (0.1, 180.0), "there: the player's own again");
+    assert_eq!(
+        p.time(),
+        (0.1, 180.0),
+        "the next file open: the player's own"
+    );
     p.seek(30);
     assert_eq!(p.time().0, 30.1, "a seek shows at once");
 }

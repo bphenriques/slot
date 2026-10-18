@@ -1,9 +1,9 @@
 //! The rows of each list: what they are, what they say, and the tracks they stand for.
 
-use slot_store::{initial, sort_key};
+use crate::library::sort::{initial, sort_key};
 
 use crate::books;
-use crate::browse::{Context, QueueView, View};
+use crate::browse::{BookList, Context, QueueView, View};
 use crate::library::Library;
 use crate::library::{AlbumId, ArtistId, BookId, TrackId};
 use crate::settings::Setting;
@@ -30,7 +30,6 @@ pub enum Row {
     Rebuild,
     /// The Debug page, and what it holds besides a setting.
     Debug,
-    TestBuzz,
     LastError,
     Setting(Setting),
     PlayAll,
@@ -40,9 +39,14 @@ pub enum Row {
     Track(TrackId),
     /// A place in the queue.
     Queued(usize),
-    /// The audiobooks, and a book; its menu starts it over, or marks it finished or not.
+    /// The audiobooks, and a book; its menu starts it over, or marks it finished or not. The
+    /// audiobooks' menu plays on the latest book, or lists them, or their authors.
     Books,
     Book(BookId),
+    Continue,
+    BookList(BookList),
+    Authors,
+    Author(ArtistId),
     StartOver,
     Finished,
     /// A book's chapters and bookmarks, from its menu, and one of each; and its speed there.
@@ -101,8 +105,6 @@ pub struct RowText {
     pub action: bool,
     /// A song in Favorites, marked with a heart at the right.
     pub favorite: bool,
-    /// Opens a page of its own, in a menu: marked with a dim › at the right.
-    pub opens: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -150,17 +152,22 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
             rows.extend((!lib.books.is_empty()).then_some(Row::Books));
             rows.extend([Row::Artists, Row::Albums, Row::Tracks, Row::Settings]);
         }
-        // Those being listened to first, the latest on top, as players have them; then those
-        // not begun, then those finished, each by title.
+        // The book to continue and those being listened to, when there are; then by author, all,
+        // and those finished, once there are.
         View::Books => {
-            let mut books: Vec<BookId> = (0..lib.books.len()).map(BookId).collect();
-            books.sort_by_key(|&b| {
-                let p = cx.shelf.place(lib, b);
-                let begun = p.when > 0 && !p.finished;
-                (p.finished, !begun, std::cmp::Reverse(p.when))
-            });
-            rows.extend(books.into_iter().map(Row::Book));
+            let any = |list| !books::listed(lib, cx.shelf, list).is_empty();
+            rows.extend(any(BookList::Listening).then_some(Row::Continue));
+            rows.extend(any(BookList::Listening).then_some(Row::BookList(BookList::Listening)));
+            rows.extend([Row::Authors, Row::BookList(BookList::All)]);
+            rows.extend(any(BookList::Finished).then_some(Row::BookList(BookList::Finished)));
         }
+        View::BookList(list) => rows.extend(
+            books::listed(lib, cx.shelf, list)
+                .into_iter()
+                .map(Row::Book),
+        ),
+        View::Authors => rows.extend(books::authors(lib).into_iter().map(Row::Author)),
+        View::Author(a) => rows.extend(books::by(lib, a).into_iter().map(Row::Book)),
         // The file's own chapters, or else the book's parts.
         View::Chapters => match queue.chapters.len() {
             0 => rows.extend((0..queue.tracks.len()).map(Row::Chapter)),
@@ -181,12 +188,7 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         }
         View::Sound => rows.extend(Setting::SOUND.map(Row::Setting)),
         View::BookSettings => rows.extend(Setting::BOOKS.map(Row::Setting)),
-        View::Debug => rows.extend([
-            Row::TestBuzz,
-            Row::Setting(Setting::BuzzLength),
-            Row::Setting(Setting::PerfLog),
-            Row::LastError,
-        ]),
+        View::Debug => rows.extend([Row::Setting(Setting::PerfLog), Row::LastError]),
         View::Queue => rows.extend((0..queue.tracks.len()).map(Row::Queued)),
         View::Artists => rows.extend(lib.music_artists.iter().map(|&a| Row::Artist(a))),
         View::Artist(a) => rows.extend(lib.artists[a].albums.iter().map(|&a| Row::Album(a))),
@@ -247,27 +249,7 @@ pub(crate) fn label(cx: &Context, view: View, row: Row) -> RowText {
         text.before.clear();
     }
     text.action = fixed(view).contains(&row);
-    text.opens = view.is_menu() && opens_page(row);
     text
-}
-
-/// Whether `row`, in a menu, opens a page; the rest act, or go somewhere as they say.
-fn opens_page(row: Row) -> bool {
-    matches!(
-        row,
-        Row::Playlists
-            | Row::Books
-            | Row::Artists
-            | Row::Albums
-            | Row::Tracks
-            | Row::Settings
-            | Row::Sound
-            | Row::BookSettings
-            | Row::Debug
-            | Row::SongInfo
-            | Row::Chapters
-            | Row::Bookmarks
-    )
 }
 
 fn describe(cx: &Context, view: View, row: Row) -> RowText {
@@ -290,6 +272,14 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             (false, false) => RowText::plain(text::RESUME),
         },
         Row::Artist(a) => RowText::plain(&lib.artists[a].name),
+        Row::Author(a) => RowText::plain(&lib.artists[a].name),
+        // Continue lit, as an action is, then the book it plays on, dim.
+        Row::Continue => RowText {
+            after: books::latest(lib, cx.shelf)
+                .map(|b| lib.albums[lib.books[b].album].name.clone())
+                .unwrap_or_default(),
+            ..RowText::plain(text::CONTINUE)
+        },
         // Favorites is worded here; the rest are named by their files.
         Row::Playlist(0) => RowText::plain(text::FAVORITES),
         Row::Playlist(p) => RowText::plain(&lib.playlists[p].name),
@@ -405,6 +395,9 @@ pub(crate) fn value(cx: &Context, row: Row) -> Option<String> {
         Row::Artists => count(cx.lib.music_artists.len()),
         Row::Albums => count(cx.lib.albums_by_name.len()),
         Row::Books => count(cx.lib.books.len()),
+        Row::BookList(list) => count(books::listed(cx.lib, cx.shelf, list).len()),
+        Row::Authors => count(books::authors(cx.lib).len()),
+        Row::Author(a) => count(books::by(cx.lib, a).len()),
         // How far into a book, once begun.
         Row::Book(b) => {
             let place = cx.shelf.place(cx.lib, b);
@@ -510,6 +503,8 @@ pub(crate) fn name(lib: &Library, row: Row) -> Option<&str> {
         Row::Artist(a) => Some(&lib.artists[a].name),
         Row::Album(a) => Some(&lib.albums[a].name),
         Row::Track(t) => Some(&lib.tracks[t].title),
+        Row::Author(a) => Some(&lib.artists[a].name),
+        Row::Book(b) => Some(&lib.albums[lib.books[b].album].name),
         _ => None,
     }
 }

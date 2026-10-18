@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
-use slot_store::{is_hidden, sort_key};
+use crate::library::sort::sort_key;
+use slot_store::is_hidden;
 
 use super::Store;
 use crate::library::playlists::Playlist;
@@ -15,6 +16,7 @@ pub const PLAYLISTS_DIR: &str = "Playlists";
 const FAVORITES: &str = "Favorites";
 
 impl Store {
+    #[cfg(test)]
     /// Writes `list` back, whole or not at all: a power-off mid-write never leaves Favorites
     /// cut short.
     pub fn write_playlist(&self, list: &Playlist, lib: &Library) {

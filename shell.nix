@@ -13,5 +13,8 @@ pkgs.mkShell {
     file
     rsync
     android-tools
+    cargo-llvm-cov
+    cargo-zigbuild
+    zig
   ];
 }

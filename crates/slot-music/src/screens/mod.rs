@@ -1,5 +1,6 @@
 //! What the music screens show, one file per screen, each with what its keys do.
 
+pub(crate) mod binds;
 pub(crate) mod book;
 pub(crate) mod dark;
 pub(crate) mod list;
@@ -13,7 +14,8 @@ pub(crate) mod settings;
 use std::time::Duration;
 
 use crate::browse::rows::RowText;
-use crate::browse::{Key, View};
+use crate::browse::rows::{self, Row};
+use crate::browse::{Browser, Context, View};
 use crate::playback::player::Repeat;
 
 use crate::text::Notice;
@@ -21,8 +23,8 @@ use crate::{text, Art, Music};
 
 /// How long a notice like "+N" shows in the corner.
 const NOTICE: Duration = Duration::from_millis(1500);
-/// How long the letter a list jumped to shows.
-const LETTER: Duration = Duration::from_millis(600);
+/// How long the letter a list moved to shows.
+pub(crate) const LETTER: Duration = Duration::from_millis(600);
 /// How far into a hold its ring shows, so a tap does not flash it.
 const RING_AFTER: f32 = 0.25;
 
@@ -66,8 +68,6 @@ pub enum Legend {
     Menu,
     /// Rebuild Library, which acts only when A is held, as it takes long.
     Hold,
-    /// A row that tries something on the device: A tries it.
-    Test,
     Back,
 }
 
@@ -91,6 +91,8 @@ pub enum Target {
     All,
     /// An audiobook: A plays it on, Y lists its bookmarks, START has its menu.
     Book,
+    /// A book's author: A lists their books.
+    Author,
 }
 
 impl Legend {
@@ -100,7 +102,6 @@ impl Legend {
         let mut all = vec![Legend::Carry, Legend::Settings, Legend::Menu];
         all.extend([
             Legend::Hold,
-            Legend::Test,
             Legend::Back,
             Legend::Chapters,
             Legend::Bookmarks,
@@ -119,6 +120,7 @@ impl Legend {
                 Target::Playlist,
                 Target::All,
                 Target::Book,
+                Target::Author,
             ]
             .map(Legend::List),
         );
@@ -151,9 +153,16 @@ pub struct Screen {
     pub clock: bool,
     /// The letter a list just jumped to, shown large in the middle.
     pub letter: Option<char>,
-    /// A key held to act, and how far, 0 to 1: a ring fills until it does, and the key's hint
-    /// says what the hold does.
-    pub hold: Option<(Key, f32)>,
+    /// A key held to act, filling a ring until it does.
+    pub hold: Option<Hold>,
+}
+
+/// A key held to act: how far, 0 to 1, and which of the legend's hints is its, for the ring to
+/// fill around its key; none where it has no hint, and the ring fills in the corner.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Hold {
+    pub done: f32,
+    pub hint: Option<usize>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -279,14 +288,18 @@ impl Music {
             | View::Playlist(_)
             | View::RecentlyAdded
             | View::RecentlyPlayed
-            | View::Books => list::screen(self),
+            | View::BookList(_)
+            | View::Authors
+            | View::Author(_) => list::screen(self),
+            View::Books => main::books(self),
             View::Chapters | View::Bookmarks(_) => book::list(self),
         };
+        let now = self.now.at;
         // A notice shows in any corner left empty, Now Playing's too; else there, the sleep
         // timer counting down.
         let sleeping = (self.browser.view() == View::NowPlaying
-            && self.transport.sleep.left().is_some())
-        .then(|| text::sleeping(self.transport.sleep.remaining()));
+            && self.transport.sleep.left(now).is_some())
+        .then(|| text::sleeping(self.transport.sleep.remaining(now)));
         let corner = match screen.corner.is_empty() {
             true => {
                 // Locked, it says so until unlocked.
@@ -303,13 +316,16 @@ impl Music {
             clock: self.settings.clock,
             letter: self
                 .letter
-                .filter(|(_, at)| at.elapsed() < LETTER)
+                .filter(|(_, at)| now.saturating_duration_since(*at) < LETTER)
                 .map(|(c, _)| c),
             hold: self
                 .keys
-                .holding()
+                .holding(now)
                 .filter(|&(_, done)| done >= RING_AFTER)
-                .map(|(key, done)| (key, (done - RING_AFTER) / (1.0 - RING_AFTER))),
+                .map(|(key, done)| Hold {
+                    done: (done - RING_AFTER) / (1.0 - RING_AFTER),
+                    hint: text::hint_of(screen.legend, key),
+                }),
             corner,
             ..screen
         }
@@ -324,6 +340,77 @@ impl Music {
     /// A fresh notice, worded.
     fn notice(&self) -> Option<String> {
         let (notice, at) = self.notice.as_ref()?;
-        (at.elapsed() < NOTICE).then(|| text::notice(notice))
+        (self.now.at.saturating_duration_since(*at) < NOTICE).then(|| text::notice(notice))
+    }
+}
+
+/// The legend of the screen `b` shows, from what it is on and how things stand: the one place it
+/// is chosen, so the hints the screen shows and the way its keys act are the one table's.
+pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
+    let row = b.row(cx);
+    let playing = cx.queue.playing;
+    let something = !rows::idle(cx.queue);
+    if b.carry.is_some() {
+        return Legend::Carry;
+    }
+    match b.view() {
+        View::NowPlaying if cx.book.is_some() => Legend::Book {
+            playing,
+            jump: cx.settings.jump,
+        },
+        View::NowPlaying => Legend::NowPlaying {
+            playing,
+            lyrics: cx.lyrics.lines > 0,
+        },
+        View::Lyrics => Legend::Lyrics {
+            playing,
+            line: cx.lyrics.timed && !lyrics::following(b, cx.now),
+        },
+        View::Main => Legend::Main {
+            playing: something,
+            hold: row.and_then(|row| main::hold(cx, row)),
+        },
+        View::Books => Legend::Main {
+            playing: something,
+            hold: None,
+        },
+        View::Queue => match row {
+            Some(Row::Queued(i)) => Legend::Queue {
+                restart: i == cx.queue.at,
+            },
+            _ => Legend::Back,
+        },
+        // Rebuild Library acts only when A is held; the pages it opens open; Last Error is only
+        // told.
+        View::Settings | View::Sound | View::BookSettings | View::Debug => match row {
+            Some(Row::Rebuild) => Legend::Hold,
+            Some(Row::Sound | Row::BookSettings | Row::Debug) => Legend::Menu,
+            Some(Row::LastError) => Legend::Back,
+            _ => Legend::Settings,
+        },
+        View::SongInfo(_) => Legend::Back,
+        View::PlayingMenu | View::QueueMenu | View::RowMenu(_) => Legend::Menu,
+        View::Chapters => Legend::Chapters,
+        View::Bookmarks(_) => Legend::Bookmarks,
+        View::Artists
+        | View::Artist(_)
+        | View::Albums
+        | View::Album(_)
+        | View::Tracks
+        | View::Playlists
+        | View::Playlist(_)
+        | View::RecentlyAdded
+        | View::RecentlyPlayed
+        | View::BookList(_)
+        | View::Authors
+        | View::Author(_) => Legend::List(match row {
+            Some(Row::Track(_)) => Target::Song,
+            Some(Row::Album(_)) => Target::Album,
+            Some(Row::Artist(_)) => Target::Artist,
+            Some(Row::Playlist(_) | Row::RecentlyAdded | Row::RecentlyPlayed) => Target::Playlist,
+            Some(Row::Book(_)) => Target::Book,
+            Some(Row::Author(_)) => Target::Author,
+            _ => Target::All,
+        }),
     }
 }

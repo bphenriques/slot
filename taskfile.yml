@@ -87,6 +87,33 @@ tasks:
       - task: test
       - task: test:card
 
+  check:music:
+    desc: >-
+      The music player's checks, as AGENTS.md lists them: format, lint, tests (the rules among
+      them), then how far slot's own files have moved from upstream's, to keep to hooks
+    cmds:
+      - cargo fmt -p slot-music -p slot-ui -p slot -p slot-player -- --check
+      - cargo clippy -p slot-music -p slot-ui -p slot-input -p slot-player --tests -- -D warnings
+      - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
+      - cargo test -p slot-music -p slot-ui -p slot-input -p slot-player
+      - cargo test -p slot --no-default-features --features slot/device --lib
+      - git checkout -- crates/slot/tests/prefetch.rs crates/slot/tests/runahead.rs
+      - task: footprint
+
+  coverage:
+    desc: How much of the music player's crates the tests run, file by file
+    cmds:
+      - rustup component add llvm-tools-preview
+      - cargo llvm-cov -p slot-music -p slot-player --summary-only
+
+  footprint:
+    desc: slot's own files as changed from upstream's, ours left out; growth here is a hook too many
+    cmds:
+      - >-
+        git diff --stat upstream/pvaibhav-improvements --
+        crates/slot/src crates/slot-input/src crates/slot-ui/src
+        ':!crates/slot/src/music_faces' ':!crates/slot/src/app/music.rs' ':!crates/slot-ui/src/music'
+
   test:card:
     desc: Test the scripts slot ships on the card, off-device
     cmds:
@@ -302,14 +329,26 @@ tasks:
           CMD: sh network/build-tools.sh
 
   build:device:
-    desc: Build for the H700, in an arm64 container unless this is already one
+    desc: >-
+      Build for the H700: natively on an arm64 Linux box; elsewhere cross-compiled with zig for
+      the device's glibc (bullseye's, as the container had it), minutes faster than compiling
+      inside an emulated arm64 container
     deps: [network:tools]
+    vars:
+      PACKAGES: -p slot -p slot-services --no-default-features --features slot/device
     cmds:
-      - task: device:sh
-        vars:
-          CMD: >-
-            cargo build --profile device --target-dir target-device
-            -p slot -p slot-services --no-default-features --features slot/device
+      - |
+        set -eu
+        if [ "$(uname -s)-$(uname -m)" = "Linux-aarch64" ]; then
+          cargo build --profile device --target-dir target-device {{.PACKAGES}}
+        else
+          rustup target add aarch64-unknown-linux-gnu >/dev/null 2>&1
+          cargo zigbuild --profile device --target aarch64-unknown-linux-gnu.2.31 \
+            --target-dir target-device {{.PACKAGES}}
+          mkdir -p target-device/device
+          cp target-device/aarch64-unknown-linux-gnu/device/slot \
+            target-device/aarch64-unknown-linux-gnu/device/slot-services target-device/device/
+        fi
       - file target-device/device/slot | grep -q aarch64
       - 'echo "built target-device/device/slot"'
 

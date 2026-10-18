@@ -3,12 +3,14 @@
 
 pub use std::path::{Path, PathBuf};
 
-pub use slot_music::store::queue::SavedQueue;
-pub use slot_music::store::{Card, Kept, Store};
-pub use slot_music::{
-    text::Notice, track_title, AlbumId, ArtistId, BookId, Browser, Chapter, Command, Context,
-    Event, Key, Library, Mode, Outcome, PlayState, Player, Queue, QueueView, Recent, Settings,
-    Shuffle, TrackId, View,
+pub(crate) use crate::books::chapters::Chapter;
+pub(crate) use crate::library::ArtistId;
+pub(crate) use crate::playback::recent::Recent;
+pub(crate) use crate::store::queue::SavedQueue;
+pub(crate) use crate::store::{Card, Kept, Store};
+pub(crate) use crate::{
+    text::Notice, track_title, AlbumId, BookId, Browser, Command, Context, Event, Key, Library,
+    Mode, Outcome, PlayState, Player, Queue, QueueView, Settings, Shuffle, TrackId, View,
 };
 pub use tempfile::TempDir;
 
@@ -28,7 +30,7 @@ pub fn cx<'a>(lib: &'a Library, queue: QueueView<'a>, settings: Settings) -> Con
     Context {
         queue,
         settings,
-        ..Context::new(lib)
+        ..Context::new(lib, at(0))
     }
 }
 
@@ -67,8 +69,8 @@ pub fn played(c: Option<Command>) -> PathBuf {
     }
 }
 
-pub fn record(path: &str, tags: slot_music::Tags) -> slot_music::Record {
-    slot_music::Record {
+pub fn record(path: &str, tags: crate::Tags) -> crate::Record {
+    crate::Record {
         path: PathBuf::from("/card/Music").join(path),
         modified: 0,
         added: 0,
@@ -82,7 +84,7 @@ pub fn books() -> (TempDir, Library) {
     let (d, mut lib) = library(&[
         "../Audiobooks/Kipling - Just So/01 whale.mp3",
         "../Audiobooks/Kipling - Just So/02 camel.mp3",
-        "../Audiobooks/Wilde - The Happy Prince.m4b",
+        "../Audiobooks/Wilde - The Selfish Giant.m4b",
     ]);
     let parts = lib.albums[lib.books[0].album].tracks.clone();
     for (&t, secs) in parts.iter().zip([60.0, 180.0]) {
@@ -106,14 +108,44 @@ pub fn chapters(marks: &[(f64, &str)]) -> Vec<Chapter> {
     marks.iter().map(chapter).collect()
 }
 
-/// The player heard `at` seconds into a file `len` long, in whatever state it is.
-pub fn heard(p: &mut Player, at: f64, len: f64) {
-    let state = p.state();
-    p.observe(slot_music::PlayerStatus { state, at, len });
+/// A test's own time: its first moment, and moments `ms` after it, so nothing waits on the
+/// clock. Each test runs on a thread of its own, so each has its own first moment.
+pub fn at(ms: u64) -> std::time::Instant {
+    std::thread_local!(static FIRST: std::time::Instant = std::time::Instant::now());
+    FIRST.with(|first| *first + std::time::Duration::from_millis(ms))
 }
 
-/// The player says it is `state`, where it was.
+/// The player heard `at` seconds into a file `len` long, in whatever state it is.
+pub fn heard(p: &mut Player, at: f64, len: f64) {
+    heard_at(p, at, len, 0);
+}
+
+/// As `heard`, `ms` into the tests' time.
+pub fn heard_at(p: &mut Player, at_s: f64, len: f64, ms: u64) {
+    let state = p.state();
+    let status = crate::PlayerStatus {
+        state,
+        at: at_s,
+        len,
+        sounding: state == PlayState::Playing,
+    };
+    p.observe(status, at(ms));
+}
+
+/// The player says it is `state`, where it was, its device quiet once it is not playing.
 pub fn reported(p: &mut Player, state: PlayState) {
-    let (at, len) = p.time();
-    p.observe(slot_music::PlayerStatus { state, at, len });
+    said(p, state, state == PlayState::Playing);
+}
+
+/// The player says it is `state`, where it was, its device still `sounding` or not: paused or
+/// stopped, it sounds until its last moment has faded out.
+pub fn said(p: &mut Player, state: PlayState, sounding: bool) {
+    let (at_s, len) = p.time();
+    let status = crate::PlayerStatus {
+        state,
+        at: at_s,
+        len,
+        sounding,
+    };
+    p.observe(status, at(0));
 }

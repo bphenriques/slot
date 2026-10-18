@@ -4,7 +4,7 @@
 
 use super::worker::Job;
 use super::{Effect, Music};
-use crate::books::shelf::{self, Bookmark, Place, Shelf};
+use crate::books::shelf::{Bookmark, Place, Shelf};
 use crate::books::{rewind, SPEEDS};
 use crate::library::{BookId, TrackId};
 use crate::playback::queue::Queue;
@@ -46,7 +46,7 @@ impl Music {
             p if over || p.finished => Place::start(p.speed),
             p => p,
         };
-        let at = place.pos - rewind(shelf::now().saturating_sub(place.when));
+        let at = place.pos - rewind(self.now.wall.saturating_sub(place.when));
         self.open_book(book, place.part, at.max(0.0))
     }
 
@@ -115,7 +115,7 @@ impl Music {
         match plays_on {
             true => self.player.restore(parts, part, place.pos, true),
             false => {
-                let at = place.pos - rewind(shelf::now().saturating_sub(place.when));
+                let at = place.pos - rewind(self.now.wall.saturating_sub(place.when));
                 let stop = self.player.put(Queue::new(parts, part, None), at.max(0.0));
                 self.send(stop);
             }
@@ -131,7 +131,7 @@ impl Music {
         }
         let when = self.books.shelf.place(&self.library, book).when;
         self.player
-            .rewind(rewind(shelf::now().saturating_sub(when)))
+            .rewind(rewind(self.now.wall.saturating_sub(when)))
     }
 
     /// Notes where the book playing is, and when it last played; written down now and then
@@ -146,11 +146,11 @@ impl Music {
                 pos: self.player.time().0,
                 speed: self.player.speed(),
                 finished: false,
-                when: if playing { shelf::now() } else { was.when },
+                when: if playing { self.now.wall } else { was.when },
             };
             self.books.shelf.set_place(&self.library, book, place);
         }
-        if self.books.shelf.due(playing) {
+        if self.books.shelf.due(playing, self.now.at) {
             let text = self.books.shelf.encode(self.card());
             self.out.push(Effect::Write(Shelf::FILE.into(), text));
         }
@@ -175,7 +175,7 @@ impl Music {
         };
         let place = Place {
             finished: true,
-            when: shelf::now(),
+            when: self.now.wall,
             ..Place::start(self.player.speed())
         };
         self.books.shelf.set_place(&self.library, book, place);
@@ -296,11 +296,13 @@ impl Music {
                 self.player.set_chapters(track, chapters.clone());
             }
         }
-        for part in [Some(track), self.player.up_next()].into_iter().flatten() {
-            if self.chapters.ask(part) {
-                let path = self.library.tracks[part].path.clone();
-                self.work(Job::Chapters { track: part, path });
-            }
+        let wanted: Vec<_> = [Some(track), self.player.up_next()]
+            .into_iter()
+            .flatten()
+            .collect();
+        for part in self.chapters.want(&wanted) {
+            let path = self.library.tracks[part].path.clone();
+            self.work(Job::Chapters { track: part, path });
         }
     }
 

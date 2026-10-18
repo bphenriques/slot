@@ -6,7 +6,8 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -47,47 +48,43 @@ pub(crate) struct Stats {
     pub screen: Timing,
     pub glue: Timing,
     pub what: Mutex<String>,
+    /// Files the player was told to open: a song played, skipped to or gone on into.
+    pub opened: AtomicU64,
 }
 
-/// The log, running: its thread stops when this is dropped.
+/// The log, running: its thread stops when this is dropped, the channel it waits on closing.
 pub(crate) struct PerfLog {
     pub stats: Arc<Stats>,
-    stop: Arc<AtomicBool>,
+    _running: Sender<()>,
 }
 
 impl PerfLog {
     pub fn start(root: &Path) -> PerfLog {
         let stats = Arc::new(Stats::default());
-        let stop = Arc::new(AtomicBool::new(false));
-        let (kept, stopped, path) = (stats.clone(), stop.clone(), root.join(PERF_FILE));
+        let (running, stopped) = mpsc::channel();
+        let (kept, path) = (stats.clone(), root.join(PERF_FILE));
         let spawned = std::thread::Builder::new()
             .name("slot-music-perf".into())
             .spawn(move || write(&path, &kept, &stopped));
         if let Err(e) = spawned {
             eprintln!("slot: music: {e}");
         }
-        PerfLog { stats, stop }
-    }
-}
-
-impl Drop for PerfLog {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        PerfLog {
+            stats,
+            _running: running,
+        }
     }
 }
 
 /// Every `EVERY`, a line: the timings, each thread's share of one core, and the memory held.
-fn write(path: &PathBuf, stats: &Stats, stop: &AtomicBool) {
+fn write(path: &PathBuf, stats: &Stats, stopped: &Receiver<()>) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let mut was = cpu();
     let mut since = Instant::now();
-    while !stop.load(Ordering::Relaxed) {
-        std::thread::sleep(Duration::from_millis(250));
-        if since.elapsed() < EVERY {
-            continue;
-        }
+    // Asleep the while between lines; woken early only to stop.
+    while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(EVERY) {
         let secs = since.elapsed().as_secs_f64();
         let now = cpu();
         let line = line(stats, &was, &now, secs);
@@ -106,6 +103,7 @@ fn line(stats: &Stats, was: &Cpu, now: &Cpu, secs: f64) -> String {
     let (poll, poll_max, frames) = stats.poll.take();
     let (screen, screen_max, _) = stats.screen.take();
     let (glue, glue_max, _) = stats.glue.take();
+    let opened = stats.opened.swap(0, Ordering::Relaxed);
     let what = stats
         .what
         .lock()
@@ -122,12 +120,54 @@ fn line(stats: &Stats, was: &Cpu, now: &Cpu, secs: f64) -> String {
         .collect();
     format!(
         "{} {secs:.0}s {what} | {:.0} fps | music {poll}us (max {poll_max}) screen {screen}us \
-         (max {screen_max}) draw {glue}us (max {glue_max}) | cpu {} | rss {} MB",
+         (max {screen_max}) draw {glue}us (max {glue_max}) | opened {opened} | sound {} | cpu {} \
+         | rss {} MB",
         slot_store::stamp_now(),
         frames as f64 / secs,
+        sound(),
         threads.join(" "),
         now.rss_mb,
     )
+}
+
+/// What each playback device open is really running at, as the kernel says: its format, rate
+/// and channels, past any conversion ALSA's library does on the way; "closed" when none is.
+fn sound() -> String {
+    let cards = std::fs::read_dir("/proc/asound")
+        .into_iter()
+        .flatten()
+        .flatten();
+    let pcms = cards.flat_map(|card| {
+        std::fs::read_dir(card.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+    });
+    let subs = pcms
+        .filter(|p| p.file_name().to_string_lossy().ends_with('p'))
+        .flat_map(|p| std::fs::read_dir(p.path()).into_iter().flatten().flatten());
+    let open: Vec<String> = subs
+        .filter_map(|s| hw_params(&std::fs::read_to_string(s.path().join("hw_params")).ok()?))
+        .collect();
+    match open.is_empty() {
+        true => "closed".into(),
+        false => open.join(", "),
+    }
+}
+
+/// A device's `hw_params` said short: "S16_LE 44100 Hz 2 ch"; none while it is closed.
+fn hw_params(text: &str) -> Option<String> {
+    let field = |name: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(name)?.strip_prefix(':'))
+            .and_then(|v| v.split_whitespace().next())
+    };
+    Some(format!(
+        "{} {} Hz {} ch",
+        field("format")?,
+        field("rate")?,
+        field("channels")?
+    ))
 }
 
 /// Each thread's processor time so far, by its name, in clock ticks; and the memory held.
@@ -180,6 +220,13 @@ mod tests {
         let stat = "123 (slot-player o) S 1 2 3 4 5 6 7 8 9 10 40 2 0 0 20 0 9 0 99";
         assert_eq!(thread_ticks(stat), Some(("slot-player o".into(), 42)));
         assert_eq!(thread_ticks("garbage"), None);
+    }
+
+    #[test]
+    fn a_device_s_format_and_rate_are_read_from_its_hw_params() {
+        let open = "access: RW_INTERLEAVED\nformat: S16_LE\nsubformat: STD\nchannels: 2\nrate: 44100 (44100/1)\nperiod_size: 1024\n";
+        assert_eq!(hw_params(open).as_deref(), Some("S16_LE 44100 Hz 2 ch"));
+        assert_eq!(hw_params("closed\n"), None);
     }
 
     #[test]

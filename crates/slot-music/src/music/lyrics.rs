@@ -1,32 +1,37 @@
-//! The playing song's lyrics, read as it shows on Now Playing or the lyrics: an `.lrc` beside it
-//! or its tags, small enough to read at once, once a song; and where in them the song is.
+//! The playing song's lyrics, read by the worker as it shows on Now Playing or the lyrics, and
+//! the next song's ahead of it, so they are there as it starts; and where in them the song is.
 
+use super::worker::Job;
 use super::Music;
 use crate::browse::{LyricsAt, View};
-use crate::library::TrackId;
-use crate::lyrics::{self, Lyrics};
+use crate::lyrics::Lyrics;
 
 impl Music {
-    /// Reads the playing song's lyrics on Now Playing or the lyrics, when the song is new to
-    /// them, so X shows only where there are some; a new song's are shown from the top. A book
-    /// has none.
+    /// Asks for the playing song's lyrics and the next's on Now Playing or the lyrics, each once,
+    /// so X shows only where there are some; a new song's are shown from the top. A book has
+    /// none.
     pub(crate) fn read_lyrics(&mut self) {
         let view = self.browser.view();
         let shown = matches!(view, View::Lyrics | View::NowPlaying) && self.book().is_none();
         let Some(t) = self.player.current().filter(|_| shown) else {
             return;
         };
-        if self.lyrics.as_ref().is_some_and(|(read, _)| *read == t) {
-            return;
+        if self.lyrics_for.replace(t) != Some(t) {
+            self.browser.set_at(0);
+            self.browser.scrolled = None;
         }
-        self.lyrics = Some((t, lyrics::read(&self.library.tracks[t].path)));
-        self.browser.set_at(0);
-        self.browser.scrolled = None;
+        let wanted: Vec<_> = [Some(t), self.player.up_next()]
+            .into_iter()
+            .flatten()
+            .collect();
+        for song in self.lyrics.want(&wanted) {
+            let path = self.library.tracks[song].path.clone();
+            self.work(Job::Lyrics { track: song, path });
+        }
     }
 
     pub(crate) fn lyrics_now(&self) -> Option<&Lyrics> {
-        let (read, lyrics) = self.lyrics.as_ref()?;
-        (Some(*read) == self.player.current()).then_some(lyrics.as_ref()?)
+        self.lyrics.of(self.player.current()?)?.as_ref()
     }
 
     pub(crate) fn lyrics_at(&self) -> LyricsAt {
@@ -40,6 +45,3 @@ impl Music {
         }
     }
 }
-
-/// The song whose lyrics were read last, and what it has: none for a song without lyrics.
-pub(crate) type SongLyrics = Option<(TrackId, Option<Lyrics>)>;

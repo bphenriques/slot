@@ -1,4 +1,4 @@
-//! The text view's faces: each paragraph wrapped to the room, the lit one lit and the rest dim
+//! The text view's faces: each paragraph wrapped to the room, the lit one lit and the rest faint
 //! as the body says, and the focus moving smoothly from line to line.
 
 use slot_gfx::Compositor;
@@ -21,7 +21,7 @@ pub(super) fn faces(
     let mut lines = Vec::with_capacity(body.lines.len());
     for (i, line) in body.lines.into_iter().enumerate() {
         let ink = match body.lit {
-            Some(lit) if lit != Some(i) => Ink::Dim,
+            Some(lit) if lit != Some(i) => Ink::Faint,
             _ => Ink::Lit,
         };
         let spec = Spec::Paragraph {

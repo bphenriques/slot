@@ -1,11 +1,10 @@
 //! What a key does: the screen shown says, as an `Outcome`, and this carries it out on the
 //! state, asking the world outside only through effects.
 
-use std::time::Duration;
-
-use super::{seed, Effect, Music};
+use super::{Effect, Music};
 use crate::browse::keys::Press;
 use crate::browse::{Key, Outcome, Shuffle, View};
+use crate::library::sort::initial;
 
 use crate::playback::queue::Queue;
 use crate::screens;
@@ -19,17 +18,17 @@ impl Music {
     /// A key tapped or held: what it does on the screen shown. True when it leaves the music
     /// screen.
     pub(crate) fn act(&mut self, press: Press<Key>) -> bool {
-        // The pocket combo: tapped, play or pause, locked or not; held, lock or unlock.
+        // The pocket combo: tapped, play or pause, unless locked, when nothing may change in a
+        // pocket; held, lock or unlock.
         match press {
+            Press::Tap(Key::Pocket) if self.pocket.locked => return false,
             Press::Tap(Key::Pocket) => {
                 let toggle = self.toggle();
                 self.send(toggle);
                 return false;
             }
             Press::Held(Key::Pocket) => {
-                let each = Duration::from_millis(u64::from(self.settings.buzz));
-                self.pocket
-                    .toggle(self.settings.pocket_buzz.then_some(each));
+                self.pocket.toggle(self.settings.pocket_buzz, self.now.at);
                 self.tell(Notice::Locked(self.pocket.locked));
                 return false;
             }
@@ -40,15 +39,13 @@ impl Music {
         let outcome = {
             let cx = self.context();
             match (self.dark, press) {
-                (true, press) => {
-                    let jump = cx.book.map(|_| cx.settings.jump as i32);
-                    screens::dark::act(press, jump)
-                }
+                (true, press) => screens::dark::act(press),
                 (false, Press::Tap(key)) => browser.press(&cx, key),
                 (false, Press::Held(key)) => browser.held(&cx, key),
             }
         };
         self.browser = browser;
+        self.follow_letter(press);
         if matches!(
             outcome,
             Outcome::Skip(_) | Outcome::Chapter(_) | Outcome::GoBookmark { .. }
@@ -71,11 +68,6 @@ impl Music {
                 self.toggle()
             }
             Outcome::Tell(notice) => self.tell(notice),
-            Outcome::TestBuzz => {
-                let each = Duration::from_millis(u64::from(self.settings.buzz));
-                self.pocket.buzz(1, each);
-                None
-            }
             Outcome::PlayBook { book, over } => self.play_book(book, over),
             Outcome::Finish(book) => {
                 self.toggle_finished(book);
@@ -119,21 +111,25 @@ impl Music {
                 None
             }
             Outcome::Letter(letter) => {
-                self.letter = Some((letter, std::time::Instant::now()));
+                self.letter = Some((letter, self.now.at));
                 None
             }
             Outcome::ShuffleQueue => {
-                self.player.edit().toggle_shuffle(seed());
-                None
+                self.player.edit().toggle_shuffle(self.now.seed);
+                self.tell(Notice::Shuffle(self.player.shuffled()))
             }
             Outcome::Change(Setting::SleepTimer, by) => {
-                self.transport.sleep.step(by);
+                self.transport.sleep.step(by, self.now.at);
                 None
             }
             Outcome::Change(setting, by) => {
                 let was = self.settings;
                 self.settings.change(setting, by);
                 self.player.set_repeat(self.settings.repeat);
+                // Up on Now Playing says what it stepped to; a menu row shows it already.
+                if setting == Setting::Repeat && self.browser.view() == View::NowPlaying {
+                    self.tell(Notice::Repeat(self.settings.repeat));
+                }
                 for (key, value) in changes(&self.settings, &was) {
                     self.out.push(Effect::Setting(key, value));
                 }
@@ -168,8 +164,8 @@ impl Music {
             } => {
                 let queue = match shuffle {
                     Shuffle::Off => Queue::new(tracks, start, None),
-                    Shuffle::Tracks => Queue::new(tracks, start, Some(seed())),
-                    Shuffle::Groups(sizes) => Queue::groups(tracks, &sizes, seed()),
+                    Shuffle::Tracks => Queue::new(tracks, start, Some(self.now.seed)),
+                    Shuffle::Groups(sizes) => Queue::groups(tracks, &sizes, self.now.seed),
                 };
                 self.leave_book();
                 self.player.play(&self.library, queue)
@@ -186,5 +182,36 @@ impl Music {
         let list = &self.library.playlists[p];
         let text = playlists::encode(list, &self.library);
         self.out.push(Effect::Write(list.path.clone(), text));
+    }
+}
+
+impl Music {
+    /// Moving fast through a list by name shows the letter it is at, as phones do: held, or a
+    /// page at a time; once shown, the letter follows each move while it lasts.
+    fn follow_letter(&mut self, press: Press<Key>) {
+        let shown = self
+            .letter
+            .is_some_and(|(_, at)| self.now.at.saturating_duration_since(at) < screens::LETTER);
+        let fast = match press {
+            Press::Held(Key::Up | Key::Down | Key::Left | Key::Right) => true,
+            Press::Tap(Key::Left | Key::Right) => true,
+            Press::Tap(Key::Up | Key::Down) => shown,
+            _ => false,
+        };
+        let by_name = matches!(
+            self.browser.view(),
+            View::Artists
+                | View::Albums
+                | View::Tracks
+                | View::Authors
+                | View::BookList(crate::browse::BookList::All)
+        );
+        if !fast || !by_name || self.dark {
+            return;
+        }
+        let row = self.browser.row(&self.context());
+        if let Some(name) = row.and_then(|row| crate::browse::rows::name(&self.library, row)) {
+            self.letter = Some((initial(name), self.now.at));
+        }
     }
 }

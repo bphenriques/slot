@@ -55,7 +55,7 @@ fn a_book_s_chapters_skip_within_it_and_its_speed_goes_to_the_player_but_not_mus
 
 #[test]
 fn a_book_says_its_speed_how_far_through_it_is_and_its_time_left() {
-    use slot_music::text::book_left;
+    use crate::text::book_left;
     assert_eq!(
         book_left(1.25, Some(0.374), 3723.0),
         "1.25× · 37% · 1:02:03 left"
@@ -73,7 +73,7 @@ fn audiobooks_are_kept_apart_from_the_music_and_open_from_the_menu() {
         "X/A/01 one.mp3",
         "../Audiobooks/Kipling - Just So/01 whale.mp3",
         "../Audiobooks/Kipling - Just So/02 camel.mp3",
-        "../Audiobooks/Wilde - The Happy Prince.m4b",
+        "../Audiobooks/Wilde - The Selfish Giant.m4b",
     ]);
     assert_eq!((lib.music_artists.len(), lib.music_tracks().len()), (1, 1));
     assert_eq!(lib.albums_by_name.len(), 1, "books are not albums");
@@ -89,24 +89,31 @@ fn audiobooks_are_kept_apart_from_the_music_and_open_from_the_menu() {
     books.sort();
     assert_eq!(
         books,
-        [("Just So", "Kipling", 2), ("The Happy Prince", "Wilde", 1)]
+        [("Just So", "Kipling", 2), ("The Selfish Giant", "Wilde", 1)]
     );
     let mut b = Browser::default();
     // Shuffle Library, Playlists, then Audiobooks.
     press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
     assert_eq!(b.view(), View::Books);
-    // The first by title, as none is begun.
+    let page = b.page(&Context::new(&lib, at(0)));
+    let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(
+        rows,
+        ["Authors", "All Books"],
+        "none begun, nothing to continue"
+    );
+    // The first by title.
     let book = BookId(0);
     assert_eq!(
-        press(&mut b, &lib, &[Key::A]),
+        press(&mut b, &lib, &[Key::Down, Key::A, Key::A]),
         Outcome::PlayBook { book, over: false }
     );
     assert_eq!(b.view(), View::NowPlaying);
 }
 
 #[test]
-fn books_list_the_one_listened_to_first_with_how_far_by_the_parts_lengths() {
-    use slot_music::books::{Place, Shelf};
+fn the_audiobooks_menu_continues_the_latest_and_lists_them_by_progress_and_author() {
+    use crate::books::{Place, Shelf};
     let (_d, lib) = books();
     let mut shelf = Shelf::new();
     let place = Place {
@@ -119,15 +126,59 @@ fn books_list_the_one_listened_to_first_with_how_far_by_the_parts_lengths() {
     shelf.set_place(&lib, BookId(0), place);
     let cx = Context {
         shelf: &shelf,
-        ..Context::new(&lib)
+        ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
     press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx);
+    let rows: Vec<(&str, &str)> = page
+        .rows
+        .iter()
+        .map(|r| (r.text.as_str(), r.after.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Continue", "Just So"),
+            ("In Progress", ""),
+            ("Authors", ""),
+            ("All Books", "")
+        ],
+        "nothing finished yet"
+    );
+    assert_eq!(page.values[1].as_deref(), Some("2"));
+    // In Progress: the latest listened to first.
+    b.press(&cx, Key::Down);
+    b.press(&cx, Key::A);
+    assert_eq!(b.view(), View::BookList(crate::BookList::Listening));
+    let page = b.page(&cx);
     assert_eq!(page.rows[0].text, "Just So", "the latest listened to");
     // A minute into the second part, after a minute-long first: two of four minutes.
     assert_eq!(page.values[0].as_deref(), Some("50%"));
-    assert_eq!(page.rows[1].text, "The Happy Prince");
+    assert_eq!(page.rows[1].text, "The Selfish Giant");
+    // Authors, each with their books.
+    b.press(&cx, Key::B);
+    b.press(&cx, Key::Down);
+    b.press(&cx, Key::A);
+    let page = b.page(&cx);
+    let authors: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(authors, ["Kipling", "Wilde"]);
+    b.press(&cx, Key::Down);
+    b.press(&cx, Key::A);
+    assert_eq!(b.page(&cx).rows[0].text, "The Selfish Giant");
+    // Continue plays on the latest.
+    b.press(&cx, Key::B);
+    b.press(&cx, Key::B);
+    b.press(&cx, Key::Up);
+    b.press(&cx, Key::Up);
+    assert_eq!(
+        b.press(&cx, Key::A),
+        Outcome::PlayBook {
+            book: BookId(0),
+            over: false
+        }
+    );
+    assert_eq!(b.view(), View::NowPlaying);
 }
 
 #[test]
@@ -147,7 +198,7 @@ fn a_book_s_keys_jump_mark_and_change_speed_and_list_its_marks_and_chapters() {
     let cx = Context {
         queue,
         book: Some(BookId(0)),
-        ..Context::new(&lib)
+        ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
     b.press(&cx, Key::Select);
@@ -214,7 +265,6 @@ fn a_library_with_books_has_their_settings_on_a_page_of_their_own() {
         .iter()
         .position(|r| r.text == "Audiobooks")
         .expect("Audiobooks");
-    assert!(page.rows[row].opens);
     for _ in 0..row {
         b.press(&cx_own, Key::Down);
     }
@@ -227,4 +277,48 @@ fn a_library_with_books_has_their_settings_on_a_page_of_their_own() {
         .map(|r| r.text.clone())
         .collect();
     assert_eq!(rows, ["Jump Length", "Skip Silence", "Volume Boost"]);
+}
+
+#[test]
+fn a_finished_book_leaves_in_progress_for_finished_last_on_the_menu() {
+    use crate::books::{Place, Shelf};
+    let (_d, lib) = books();
+    let mut shelf = Shelf::new();
+    let begun = Place {
+        when: 1_700_000_000,
+        ..Place::default()
+    };
+    shelf.set_place(&lib, BookId(0), begun);
+    shelf.set_place(
+        &lib,
+        BookId(1),
+        Place {
+            finished: true,
+            ..begun
+        },
+    );
+    let cx = Context {
+        shelf: &shelf,
+        ..Context::new(&lib, at(0))
+    };
+    let mut b = Browser::default();
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
+    let page = b.page(&cx);
+    let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(
+        rows,
+        [
+            "Continue",
+            "In Progress",
+            "Authors",
+            "All Books",
+            "Finished"
+        ]
+    );
+    assert_eq!(
+        page.values[1].as_deref(),
+        Some("1"),
+        "the finished one not in it"
+    );
+    assert_eq!(page.values[4].as_deref(), Some("1"));
 }

@@ -37,9 +37,6 @@ pub struct Settings {
     /// (`pocket_buzz = on`).
     pub pocket: bool,
     pub pocket_buzz: bool,
-    /// How long each buzz lasts, in milliseconds (`buzz = 250`), on the Debug page, to find
-    /// what the motor is felt at.
-    pub buzz: u32,
     /// Whether the performance log runs (`perf = on`), on the Debug page.
     pub perf: bool,
 }
@@ -64,7 +61,6 @@ pub enum Setting {
     Color,
     Theme,
     /// On the Debug page.
-    BuzzLength,
     PerfLog,
 }
 
@@ -179,7 +175,6 @@ impl Default for Settings {
             boost: 0,
             pocket: true,
             pocket_buzz: true,
-            buzz: 250,
             perf: false,
         }
     }
@@ -208,7 +203,6 @@ impl Settings {
             Setting::Boost => self.boost = cycle(&BOOSTS, self.boost, by),
             Setting::Pocket => self.pocket ^= true,
             Setting::PocketBuzz => self.pocket_buzz ^= true,
-            Setting::BuzzLength => self.buzz = cycle(&BUZZES, self.buzz, by),
             Setting::PerfLog => self.perf ^= true,
             Setting::Leveling => self.leveling ^= true,
             Setting::Theme => self.theme = cycle(&Theme::ORDER, self.theme, by),
@@ -221,6 +215,4 @@ impl Settings {
 
 /// Crossfade's seconds and Volume Boost's dB, in the order A goes round them.
 pub const FADES: [u32; 3] = [0, 3, 6];
-/// The buzz lengths the Debug page offers, in milliseconds.
-pub const BUZZES: [u32; 4] = [120, 250, 400, 600];
 pub const BOOSTS: [u32; 3] = [0, 3, 6];

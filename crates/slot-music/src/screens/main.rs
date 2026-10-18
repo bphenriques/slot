@@ -3,7 +3,8 @@
 //! made. A held on a list shuffles it all, as its Shuffle row does; on Audiobooks, it plays on
 //! the book listened to last.
 
-use super::{list, Body, Legend, MainHold, Screen};
+use super::{list, Body, MainHold, Screen};
+use crate::books;
 use crate::browse::rows::{self, Row};
 use crate::browse::{Browser, Context, Key, Outcome, Shuffle, View};
 use crate::library::BookId;
@@ -21,11 +22,7 @@ pub(crate) fn hold(cx: &Context, row: Row) -> Option<MainHold> {
 
 /// The book listened to last, unless it was finished.
 fn latest(cx: &Context) -> Option<BookId> {
-    let place = |b| cx.shelf.place(cx.lib, b);
-    (0..cx.lib.books.len())
-        .map(BookId)
-        .filter(|&b| place(b).when > 0 && !place(b).finished)
-        .max_by_key(|&b| place(b).when)
+    books::latest(cx.lib, cx.shelf)
 }
 
 /// Held on `row`: A shuffles its list, or plays on the latest book.
@@ -59,12 +56,7 @@ pub(crate) fn held(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Outcome
 }
 
 pub(crate) fn screen(music: &Music) -> Screen {
-    let playing = !rows::idle(music.player.queue());
-    let cx = music.context();
-    let mut screen = list::rows_screen(music, |row| Legend::Main {
-        playing,
-        hold: row.and_then(|row| hold(&cx, row)),
-    });
+    let mut screen = list::rows_screen(music);
     if !screen.corner.is_empty() {
         return screen;
     }
@@ -78,4 +70,9 @@ pub(crate) fn screen(music: &Music) -> Screen {
         screen.corner = text::optimizing(done, of);
     }
     screen
+}
+
+/// The audiobooks' menu, a menu as this one is: A opens or plays on, SELECT goes to what plays.
+pub(crate) fn books(music: &Music) -> Screen {
+    list::rows_screen(music)
 }

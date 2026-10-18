@@ -22,13 +22,54 @@ const BUSY_FOR: std::time::Duration = std::time::Duration::from_secs(1);
 const BUSY_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 /// Linux's "device or resource busy".
 const EBUSY: c_int = 16;
-/// How long sound fades out where it is cut short, and in where it starts: 10 ms, too short to
-/// hear as a fade, long enough not to click.
+/// How long sound fades in where it starts: 10 ms, too short to hear as a fade, long enough not
+/// to click.
 const FADE: usize = RATE as usize / 100;
+/// How long it fades out where it is cut short, a pause or a skip: 30 ms, still far too short to
+/// read as lag, and long enough that a small speaker does not thump on the way down.
+const FADE_OUT: usize = RATE as usize * 3 / 100;
 /// How much of what was written is kept, to fade out from: all the device can hold.
 const KEPT: usize = RATE as usize / 2 * CHANNELS as usize;
+/// How much silence a paused device is given at a time: 50 ms, so playing on waits no longer.
+const IDLE: usize = RATE as usize / 20;
 
 type Pcm = *mut c_void;
+
+#[derive(Debug, PartialEq)]
+/// Why the device did not open: it failed, or would not take the rate asked.
+enum Unopened {
+    Failed(String),
+    Refused(String),
+}
+
+/// Whether ALSA's own resampling is allowed at `rate`: at [`RATE`], as ever; at a file's own,
+/// not, so a rate the device does not take is refused, for slot-player's resampler to do.
+fn lets_alsa_resample(rate: u32) -> bool {
+    rate == RATE
+}
+
+/// A device that would not be set up at `rate`: refused at a file's own, which [`RATE`] then
+/// stands in for; failed at [`RATE`], for which there is nothing else.
+fn unopened(rate: u32, why: String) -> Unopened {
+    match lets_alsa_resample(rate) {
+        true => Unopened::Failed(why),
+        false => Unopened::Refused(why),
+    }
+}
+
+/// What of the `can` frames the device holds unplayed to take back, at `rate`: all but the next
+/// 50 ms, which it may already be reading ahead of the place it says it is at, its place moving
+/// in steps; sound taken back from under it would jump, heard as a click. With less than that
+/// unplayed, none: it plays out.
+fn taken_back(can: c_long, rate: c_uint) -> c_long {
+    let margin = c_long::from(rate) / 20;
+    (can - margin).max(0)
+}
+
+/// How far through a fade of `of` frames frame `i` is, 0 to 1.
+fn ramp(i: usize, of: usize) -> f32 {
+    (i as f32 / of.max(1) as f32).min(1.0)
+}
 
 pub struct Alsa {
     open: unsafe extern "C" fn(*mut Pcm, *const c_char, c_int, c_int) -> c_int,
@@ -45,9 +86,14 @@ pub struct Alsa {
     strerror: unsafe extern "C" fn(c_int) -> *const c_char,
     pcm: Option<Pcm>,
     samples: Vec<i16>,
+    /// The rate the device is opened at.
+    rate: c_uint,
     /// What was written last, and how many frames are still to fade in.
     written: VecDeque<i16>,
     fade_in: usize,
+    /// Whether it is paused, going on silence; and the silence it writes.
+    hushed: bool,
+    silence: Vec<i16>,
     dither: Dither,
     _lib: Library,
 }
@@ -84,6 +130,9 @@ impl Alsa {
                 samples: Vec::new(),
                 written: VecDeque::new(),
                 fade_in: 0,
+                hushed: false,
+                silence: Vec::new(),
+                rate: RATE,
                 dither: Dither(0x9e37_79b9),
                 _lib: lib,
             })
@@ -100,8 +149,10 @@ impl Alsa {
         }
     }
 
-    /// The device, opened if it is not.
-    fn pcm(&mut self) -> Result<Pcm, String> {
+    /// The device, opened if it is not, at the rate set: at [`RATE`] with ALSA's own resampling
+    /// allowed, as ever; at the file's own without it, so a rate the device does not take is
+    /// refused rather than brought to one by a resampler of unknown quality and cost.
+    fn pcm(&mut self) -> Result<Pcm, Unopened> {
         if let Some(pcm) = self.pcm {
             return Ok(pcm);
         }
@@ -116,7 +167,10 @@ impl Alsa {
             std::thread::sleep(BUSY_RETRY);
         };
         if err < 0 || pcm.is_null() {
-            return Err(format!("opening the sound: {}", self.message(err)));
+            return Err(Unopened::Failed(format!(
+                "opening the sound: {}",
+                self.message(err)
+            )));
         }
         let channels = c_uint::from(CHANNELS);
         let err = unsafe {
@@ -125,15 +179,21 @@ impl Alsa {
                 FORMAT_S16_LE,
                 ACCESS_RW_INTERLEAVED,
                 channels,
-                RATE,
-                1,
+                self.rate,
+                c_int::from(lets_alsa_resample(self.rate)),
                 LATENCY_US,
             )
         };
         if err < 0 {
             unsafe { (self.close)(pcm) };
-            return Err(format!("setting up the sound: {}", self.message(err)));
+            let why = format!(
+                "setting up the sound at {} Hz: {}",
+                self.rate,
+                self.message(err)
+            );
+            return Err(unopened(self.rate, why));
         }
+        eprintln!("slot: player: sound at {} Hz", self.rate);
         self.pcm = Some(pcm);
         self.fade_in = FADE;
         Ok(pcm)
@@ -141,87 +201,129 @@ impl Alsa {
 }
 
 impl Alsa {
-    /// Ends the sound where it is heard without a click: takes back what the device has not
-    /// played, plays a short fade from there, and lets that out. A device that cannot take
-    /// sound back is cut short as it is.
-    fn fade_out(&mut self, pcm: Pcm) {
+    /// Ends the sound where it is heard without a click, and lets the device go quiet: faded out,
+    /// played until it is; cut short, dropped.
+    fn end(&mut self, pcm: Pcm) {
+        match self.fade_out(pcm) {
+            true => unsafe { (self.drain)(pcm) },
+            false => unsafe { (self.drop)(pcm) },
+        };
+        self.hushed = false;
+    }
+
+    /// Fades the sound out where it is heard: takes back what the device has not played but a
+    /// margin it may already be reading, and writes a short fade from there. False where the
+    /// device cannot take sound back, and it is to be cut short as it is.
+    fn fade_out(&mut self, pcm: Pcm) -> bool {
         let channels = usize::from(CHANNELS);
         let can = unsafe { (self.rewindable)(pcm) };
-        let back = match can > 0 {
-            true => unsafe { (self.rewind)(pcm, can as c_ulong) },
+        let take = taken_back(can, self.rate);
+        let back = match take > 0 {
+            true => unsafe { (self.rewind)(pcm, take as c_ulong) },
             false => 0,
         };
         let back = back.max(0) as usize * channels;
-        match back > 0 && back <= self.written.len() {
+        let faded = match back > 0 && back <= self.written.len() {
             true => {
                 let from = self.written.len() - back;
                 let mut fade: Vec<i16> = self
                     .written
                     .range(from..)
-                    .take(FADE * channels)
+                    .take(FADE_OUT * channels)
                     .copied()
                     .collect();
                 let frames = fade.len() / channels;
                 for (i, frame) in fade.chunks_exact_mut(channels).enumerate() {
-                    let down = 1.0 - i as f32 / frames as f32;
+                    let down = 1.0 - ramp(i, frames);
                     frame
                         .iter_mut()
                         .for_each(|s| *s = (f32::from(*s) * down) as i16);
                 }
-                unsafe {
-                    (self.writei)(pcm, fade.as_ptr().cast(), frames as c_ulong);
-                    (self.drain)(pcm);
-                }
+                eprintln!(
+                    "slot: player: faded out, {} of {can} frames taken back",
+                    back / channels
+                );
+                unsafe { (self.writei)(pcm, fade.as_ptr().cast(), frames as c_ulong) };
+                true
             }
-            false => unsafe {
-                (self.drop)(pcm);
-            },
-        }
+            // Little left to play: it plays out, then goes down to nothing from its last.
+            false if can >= 0 && self.written.len() >= channels => {
+                let last: Vec<i16> = self
+                    .written
+                    .range(self.written.len() - channels..)
+                    .copied()
+                    .collect();
+                let mut fade = Vec::with_capacity(FADE_OUT * channels);
+                for i in 0..FADE_OUT {
+                    let down = 1.0 - ramp(i, FADE_OUT);
+                    fade.extend(last.iter().map(|&s| (f32::from(s) * down) as i16));
+                }
+                eprintln!("slot: player: played out, {can} frames left");
+                unsafe { (self.writei)(pcm, fade.as_ptr().cast(), FADE_OUT as c_ulong) };
+                true
+            }
+            // Cut where it is: heard as a click, so said, to know how often the device does it.
+            false => {
+                eprintln!("slot: player: cut short, {can} frames could be taken back");
+                false
+            }
+        };
         self.written.clear();
+        faded
     }
 }
 
 impl Output for Alsa {
+    fn set_rate(&mut self, rate: u32) -> bool {
+        if self.rate == rate {
+            return true;
+        }
+        self.release();
+        self.rate = rate;
+        // Opened now, to know; any other failure is the next write's to say.
+        match self.pcm() {
+            Err(Unopened::Refused(why)) => {
+                eprintln!("slot: player: {why}");
+                self.rate = RATE;
+                false
+            }
+            _ => true,
+        }
+    }
+
     fn write(&mut self, samples: &[f32]) -> Result<(), String> {
-        let pcm = self.pcm()?;
-        self.samples.clear();
+        let pcm = self.pcm().map_err(|e| match e {
+            Unopened::Failed(why) | Unopened::Refused(why) => why,
+        })?;
+        // Played on from a pause: the silence it went on with is taken back, and the sound fades
+        // in after what is left of it.
+        if std::mem::take(&mut self.hushed) {
+            let take = taken_back(unsafe { (self.rewindable)(pcm) }, self.rate);
+            if take > 0 {
+                unsafe { (self.rewind)(pcm, take as c_ulong) };
+            }
+            self.fade_in = FADE;
+        }
+        let mut out = std::mem::take(&mut self.samples);
+        out.clear();
         let dither = &mut self.dither;
-        self.samples.extend(samples.iter().map(|&s| dither.cut(s)));
+        out.extend(samples.iter().map(|&s| dither.cut(s)));
         let channels = usize::from(CHANNELS);
         // A start fades in, rather than jump to where the sound is.
-        for (i, frame) in self
-            .samples
+        for (i, frame) in out
             .chunks_exact_mut(channels)
             .take(self.fade_in)
             .enumerate()
         {
-            let up = (FADE - self.fade_in + i) as f32 / FADE as f32;
+            let up = ramp(FADE - self.fade_in + i, FADE);
             frame
                 .iter_mut()
                 .for_each(|s| *s = (f32::from(*s) * up) as i16);
         }
-        self.fade_in = self.fade_in.saturating_sub(self.samples.len() / channels);
-        self.written.extend(&self.samples);
-        let over = self.written.len().saturating_sub(KEPT);
-        self.written.drain(..over);
-        let mut at = 0;
-        while at < self.samples.len() {
-            let frames = ((self.samples.len() - at) / channels) as c_ulong;
-            let ptr = self.samples[at..].as_ptr().cast();
-            let n = unsafe { (self.writei)(pcm, ptr, frames) };
-            if n < 0 {
-                // An underrun after a quiet moment, or a sleep: recover, and write on.
-                let err = unsafe { (self.recover)(pcm, n as c_int, 1) };
-                if err < 0 {
-                    let why = self.message(err);
-                    self.release();
-                    return Err(format!("writing the sound: {why}"));
-                }
-                continue;
-            }
-            at += n as usize * channels;
-        }
-        Ok(())
+        self.fade_in = self.fade_in.saturating_sub(out.len() / channels);
+        let put = self.put(pcm, &out);
+        self.samples = out;
+        put
     }
 
     fn delay(&mut self) -> u64 {
@@ -237,17 +339,69 @@ impl Output for Alsa {
 
     fn flush(&mut self) {
         if let Some(pcm) = self.pcm {
-            self.fade_out(pcm);
+            self.end(pcm);
             unsafe { (self.prepare)(pcm) };
             self.fade_in = FADE;
         }
     }
 
+    fn hush(&mut self) {
+        let Some(pcm) = self.pcm else {
+            return;
+        };
+        if !self.fade_out(pcm) {
+            unsafe { (self.drop)(pcm) };
+            unsafe { (self.prepare)(pcm) };
+        }
+        self.hushed = true;
+    }
+
+    fn idle(&mut self) -> Result<(), String> {
+        let Some(pcm) = self.pcm.filter(|_| self.hushed) else {
+            return Ok(());
+        };
+        let silence = std::mem::take(&mut self.silence);
+        let silence = match silence.is_empty() {
+            true => vec![0; IDLE * usize::from(CHANNELS)],
+            false => silence,
+        };
+        let put = self.put(pcm, &silence);
+        self.silence = silence;
+        put
+    }
+
     fn release(&mut self) {
         if let Some(pcm) = self.pcm.take() {
-            self.fade_out(pcm);
+            self.end(pcm);
             unsafe { (self.close)(pcm) };
         }
+    }
+}
+
+impl Alsa {
+    /// Writes `samples`, kept to fade out from, waiting while the device is full.
+    fn put(&mut self, pcm: Pcm, samples: &[i16]) -> Result<(), String> {
+        let channels = usize::from(CHANNELS);
+        self.written.extend(samples);
+        let over = self.written.len().saturating_sub(KEPT);
+        self.written.drain(..over);
+        let mut at = 0;
+        while at < samples.len() {
+            let frames = ((samples.len() - at) / channels) as c_ulong;
+            let n = unsafe { (self.writei)(pcm, samples[at..].as_ptr().cast(), frames) };
+            if n < 0 {
+                // An underrun after a quiet moment, or a sleep: recover, and write on.
+                let err = unsafe { (self.recover)(pcm, n as c_int, 1) };
+                if err < 0 {
+                    let why = self.message(err);
+                    self.release();
+                    return Err(format!("writing the sound: {why}"));
+                }
+                continue;
+            }
+            at += n as usize * channels;
+        }
+        Ok(())
     }
 }
 
@@ -275,5 +429,56 @@ impl Dither {
         self.0 ^= self.0 >> 17;
         self.0 ^= self.0 << 5;
         (self.0 >> 8) as f32 / (1 << 24) as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_s_own_rate_is_asked_without_alsa_s_resampling_and_refused_rather_than_failed() {
+        assert!(lets_alsa_resample(RATE), "the rate that stands in, as ever");
+        assert!(
+            !lets_alsa_resample(44_100),
+            "a file's own: the device's, or none"
+        );
+        let why = || "Invalid argument".to_string();
+        assert_eq!(
+            unopened(44_100, why()),
+            Unopened::Refused(why()),
+            "48 kHz then"
+        );
+        assert_eq!(
+            unopened(RATE, why()),
+            Unopened::Failed(why()),
+            "nothing else to try"
+        );
+    }
+
+    #[test]
+    fn sound_is_taken_back_but_for_what_the_device_may_already_be_reading() {
+        assert_eq!(taken_back(12_000, 44_100), 12_000 - 2_205, "all but 50 ms");
+        assert_eq!(taken_back(2_000, 44_100), 0, "less than that: it plays out");
+        assert_eq!(taken_back(-32, 44_100), 0, "an error takes nothing back");
+    }
+
+    #[test]
+    fn a_fade_ramps_evenly_from_its_start_to_its_end() {
+        assert_eq!(ramp(0, FADE), 0.0);
+        assert_eq!(ramp(FADE / 2, FADE), 0.5);
+        assert_eq!(ramp(FADE * 2, FADE), 1.0, "never past full");
+        assert_eq!(ramp(3, 0), 1.0, "a fade of nothing is done");
+    }
+
+    #[test]
+    fn dither_stays_within_a_step_and_never_past_full_scale() {
+        let mut dither = Dither(0x9e37_79b9);
+        for _ in 0..1000 {
+            let quiet = dither.cut(0.0);
+            assert!((-1..=1).contains(&quiet), "{quiet}");
+            assert_eq!(dither.cut(2.0), i16::MAX);
+            assert_eq!(dither.cut(-2.0), i16::MIN);
+        }
     }
 }

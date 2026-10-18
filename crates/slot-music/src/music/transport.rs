@@ -27,16 +27,17 @@ pub(crate) struct Transport {
 impl Music {
     /// Acts on held keys, runs the sleep timer and ends fades.
     pub(super) fn tick(&mut self) {
-        if let Some(press) = self.keys.due() {
+        let now = self.now.at;
+        if let Some(press) = self.keys.due(now) {
             self.act(press);
         }
         let ends = self
             .end_left()
             .is_some_and(|left| self.transport.sleep.end_due(left));
-        if self.transport.sleep.due() || ends {
+        if self.transport.sleep.due(now) || ends {
             self.fall_asleep();
         }
-        if let Some(fade) = self.transport.fade.filter(Fade::done) {
+        if let Some(fade) = self.transport.fade.filter(|f| f.done(now)) {
             self.transport.fade = None;
             if fade.is_out() {
                 self.pause_now();
@@ -53,7 +54,7 @@ impl Music {
     fn fall_asleep(&mut self) {
         match self.player.owns_audio() {
             true => {
-                let fade = Fade::new(self.volume_scale(), Fading::Asleep, SLEEP_FADE);
+                let fade = Fade::new(self.volume_scale(), Fading::Asleep, SLEEP_FADE, self.now.at);
                 self.transport.fade = Some(fade);
             }
             false => self.pause_now(),
@@ -70,9 +71,14 @@ impl Music {
         }
         if let Some(fade) = self.transport.fade.filter(Fade::is_out) {
             if fade.fading == Fading::Asleep {
-                self.transport.sleep.again();
+                self.transport.sleep.again(self.now.at);
             }
-            self.transport.fade = Some(Fade::new(self.volume_scale(), Fading::In, FADE));
+            self.transport.fade = Some(Fade::new(
+                self.volume_scale(),
+                Fading::In,
+                FADE,
+                self.now.at,
+            ));
             return None;
         }
         // A book picks up a little back.
@@ -80,22 +86,21 @@ impl Music {
         self.send(rewind);
         let command = self.player.toggle(&self.library);
         if self.player.owns_audio() {
-            self.transport.fade = Some(Fade::new(0.0, Fading::In, FADE));
+            self.transport.fade = Some(Fade::new(0.0, Fading::In, FADE, self.now.at));
         }
         command
     }
 
-    /// What slot's volume is scaled by: the fade's level, 0 while a pause or stop is on its
-    /// way to the player, 1 otherwise.
+    /// What slot's volume is scaled by: the fade's level, 1 otherwise. A pause keeps the level
+    /// it had: the player fades its own last moment out, and the codec cut to nothing under it
+    /// would click.
     pub fn volume_scale(&self) -> f32 {
-        match self.player.owns_audio() {
-            true => self.transport.fade.map_or(1.0, |f| f.level()),
-            false => 0.0,
-        }
+        self.transport.fade.map_or(1.0, |f| f.level(self.now.at))
     }
 
     /// For a game starting or the screen going off: at once, without a fade.
     pub fn pause(&mut self) {
+        self.stamp();
         self.pause_now();
         self.run();
     }

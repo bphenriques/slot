@@ -3,7 +3,7 @@
 //! or clear it; and a list's, for what no key does on the song or book picked: go to its album
 //! or artist and Song Info, or start the book over and mark it finished. START or B closes them.
 
-use super::{list, settings, Body, Legend, Screen};
+use super::{list, settings, Body, Screen};
 use crate::browse::rows::{self, Row};
 use crate::browse::{Browser, Context, Key, Outcome, View};
 use crate::library::TrackId;
@@ -140,7 +140,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
         // A short list of facts: no count in the corner.
         // Facts to read, not rows to pick: no count, no highlight.
         View::SongInfo(_) => {
-            let mut screen = list::rows_screen(music, |_| Legend::Back);
+            let mut screen = list::rows_screen(music);
             if let Body::List(list) = &mut screen.body {
                 list.readonly = true;
             }
@@ -149,6 +149,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
                 ..screen
             }
         }
-        _ => list::rows_screen(music, |_| Legend::Menu),
+        _ => list::rows_screen(music),
     }
 }

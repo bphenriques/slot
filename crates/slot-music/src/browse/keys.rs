@@ -25,6 +25,9 @@ pub enum Mode {
     Hold,
     /// Tapped, when let go; held, again and again as held: seeking.
     HoldRepeat,
+    /// Tapped, when let go, however long it was held; never as held: a key that may yet be
+    /// part of a chord, as SELECT is with a shoulder.
+    Release,
 }
 
 /// A key acting: tapped, or held.
@@ -54,8 +57,8 @@ impl<K> Default for Keys<K> {
 }
 
 impl<K: Copy + PartialEq> Keys<K> {
-    /// `key` went down, acting as `mode`: a tap now, unless it waits to see if it is held.
-    pub fn press(&mut self, key: K, mode: Mode) -> Option<Press<K>> {
+    /// `key` went down `now`, acting as `mode`: a tap now, unless it waits to see if it is held.
+    pub fn press(&mut self, key: K, mode: Mode, now: Instant) -> Option<Press<K>> {
         let wait = match mode {
             Mode::Hold => LONG,
             _ => DELAY,
@@ -63,7 +66,7 @@ impl<K: Copy + PartialEq> Keys<K> {
         self.down = (mode != Mode::Once).then(|| Down {
             key,
             mode,
-            next: Instant::now() + wait,
+            next: now + wait,
             fired: 0,
         });
         matches!(mode, Mode::Once | Mode::Repeat).then_some(Press::Tap(key))
@@ -72,7 +75,7 @@ impl<K: Copy + PartialEq> Keys<K> {
     /// `key` went up: a tap, if it waited for that and was not held.
     pub fn release(&mut self, key: K) -> Option<Press<K>> {
         let down = self.down.take_if(|d| d.key == key)?;
-        let waited = matches!(down.mode, Mode::Hold | Mode::HoldRepeat);
+        let waited = matches!(down.mode, Mode::Hold | Mode::HoldRepeat | Mode::Release);
         (waited && down.fired == 0).then_some(Press::Tap(key))
     }
 
@@ -88,22 +91,22 @@ impl<K: Copy + PartialEq> Keys<K> {
 
     /// How far the key down is to acting held, 0 to 1, while it waits to: for a ring that
     /// fills, so a hold can be let go before it acts.
-    pub fn holding(&self) -> Option<(K, f32)> {
+    pub fn holding(&self, now: Instant) -> Option<(K, f32)> {
         let down = self
             .down
             .as_ref()
             .filter(|d| d.mode == Mode::Hold && d.fired == 0)?;
-        let left = down.next.saturating_duration_since(Instant::now());
+        let left = down.next.saturating_duration_since(now);
         Some((down.key, 1.0 - left.as_secs_f32() / LONG.as_secs_f32()))
     }
 
-    /// The key down acting as held, when it is due; a hold acts once.
-    pub fn due(&mut self) -> Option<Press<K>> {
-        let now = Instant::now();
+    /// The key down acting as held, when it is due `now`; a hold acts once.
+    pub fn due(&mut self, now: Instant) -> Option<Press<K>> {
         let down = self
             .down
             .as_mut()
-            .filter(|d| now >= d.next && !(d.mode == Mode::Hold && d.fired > 0))?;
+            .filter(|d| d.mode != Mode::Release && now >= d.next)
+            .filter(|d| !(d.mode == Mode::Hold && d.fired > 0))?;
         down.next = now + EVERY[down.fired.min(EVERY.len() - 1)];
         down.fired += 1;
         Some(Press::Held(down.key))
@@ -114,20 +117,19 @@ impl<K: Copy + PartialEq> Keys<K> {
 mod tests {
     use super::*;
 
-    /// Makes the key down due at once.
-    fn hurry(keys: &mut Keys<char>) {
-        if let Some(d) = &mut keys.down {
-            d.next = Instant::now();
-        }
+    /// A moment `ms` after the first: the time is the test's, not the clock's.
+    fn at(ms: u64) -> Instant {
+        std::thread_local!(static FIRST: Instant = Instant::now());
+        FIRST.with(|first| *first + Duration::from_millis(ms))
     }
 
     #[test]
     fn once_and_repeat_act_when_pressed_and_hold_waits() {
         let mut keys = Keys::default();
-        assert_eq!(keys.press('a', Mode::Once), Some(Press::Tap('a')));
+        assert_eq!(keys.press('a', Mode::Once, at(0)), Some(Press::Tap('a')));
         assert_eq!(keys.release('a'), None);
-        assert_eq!(keys.press('a', Mode::Repeat), Some(Press::Tap('a')));
-        assert_eq!(keys.press('b', Mode::Hold), None);
+        assert_eq!(keys.press('a', Mode::Repeat, at(0)), Some(Press::Tap('a')));
+        assert_eq!(keys.press('b', Mode::Hold, at(0)), None);
         assert_eq!(keys.release('a'), None, "b replaced a");
         assert_eq!(keys.release('b'), Some(Press::Tap('b')));
     }
@@ -135,37 +137,54 @@ mod tests {
     #[test]
     fn a_hold_acts_once_and_then_is_no_tap() {
         let mut keys = Keys::default();
-        keys.press('a', Mode::Hold);
+        keys.press('a', Mode::Hold, at(0));
         assert!(
-            keys.holding().is_some_and(|(k, d)| k == 'a' && d < 0.5),
-            "just pressed"
+            keys.holding(at(100))
+                .is_some_and(|(k, d)| k == 'a' && (d - 0.2).abs() < 1e-3),
+            "a fifth of the way"
         );
-        assert_eq!(keys.due(), None, "not yet");
-        hurry(&mut keys);
-        assert_eq!(keys.due(), Some(Press::Held('a')));
-        hurry(&mut keys);
-        assert_eq!(keys.due(), None, "once");
-        assert_eq!(keys.holding(), None, "done");
+        assert_eq!(keys.due(at(499)), None, "not yet");
+        assert_eq!(keys.due(at(500)), Some(Press::Held('a')));
+        assert_eq!(keys.due(at(5000)), None, "once");
+        assert_eq!(keys.holding(at(5000)), None, "done");
         assert_eq!(keys.release('a'), None);
     }
 
     #[test]
     fn a_repeat_goes_on_until_let_go() {
         let mut keys = Keys::default();
-        keys.press('a', Mode::HoldRepeat);
-        for _ in 0..3 {
-            hurry(&mut keys);
-            assert_eq!(keys.due(), Some(Press::Held('a')));
+        keys.press('a', Mode::HoldRepeat, at(0));
+        // After the delay, then quickening: 110 ms, 85, 65.
+        for (when, is) in [
+            (399, None),
+            (400, Some(Press::Held('a'))),
+            (509, None),
+            (510, Some(Press::Held('a'))),
+            (595, Some(Press::Held('a'))),
+        ] {
+            assert_eq!(keys.due(at(when)), is, "at {when} ms");
         }
         assert_eq!(keys.release('a'), None, "held, not tapped");
-        hurry(&mut keys);
-        assert_eq!(keys.due(), None);
+        assert_eq!(keys.due(at(9000)), None);
+    }
+
+    #[test]
+    fn a_release_key_acts_as_it_is_let_go_however_long_and_never_as_held() {
+        let mut keys = Keys::default();
+        assert_eq!(keys.press('s', Mode::Release, at(0)), None);
+        assert_eq!(keys.due(at(5000)), None, "never held");
+        assert_eq!(keys.holding(at(300)), None, "no ring to fill");
+        assert_eq!(keys.release('s'), Some(Press::Tap('s')));
+        // A chord takes it over: another key down in its place, it is no tap.
+        keys.press('s', Mode::Release, at(0));
+        keys.press('l', Mode::Once, at(10));
+        assert_eq!(keys.release('s'), None);
     }
 
     #[test]
     fn leaving_the_screen_drops_the_key_down() {
         let mut keys = Keys::default();
-        keys.press('a', Mode::Hold);
+        keys.press('a', Mode::Hold, at(0));
         keys.cancel();
         assert_eq!(keys.release('a'), None);
     }

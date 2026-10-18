@@ -1,31 +1,14 @@
 //! A list of rows, as every screen but Now Playing is: the library's lists here, and the main
 //! menu, settings and queue on top of it.
 
-use slot_store::initial;
+use crate::library::sort::initial;
 
-use super::{Body, Legend, ListBody, Screen, Target};
-use crate::browse::keys::Mode;
+use super::{Body, Legend, ListBody, Screen};
+use crate::books;
 use crate::browse::rows::{self, Row};
 use crate::browse::{per_page, Browser, Context, Key, Outcome, Shuffle, View};
 use crate::text::{self, Notice};
 use crate::Music;
-
-/// Held, these move through rows, pages and letters, or carry a queued track.
-pub(crate) fn repeats(key: Key) -> bool {
-    matches!(
-        key,
-        Key::Up | Key::Down | Key::Left | Key::Right | Key::L1 | Key::R1
-    )
-}
-
-/// A waits to see whether it is held on a row with songs to put next; the moving keys repeat.
-pub(crate) fn mode(cx: &Context, view: View, row: Row, key: Key) -> Mode {
-    match key {
-        Key::A if rows::tracks(cx, view, row).is_some() => Mode::Hold,
-        key if repeats(key) => Mode::Repeat,
-        _ => Mode::Once,
-    }
-}
 
 /// A held puts the row's songs next.
 pub(crate) fn held(cx: &Context, view: View, row: Row, key: Key) -> Outcome {
@@ -102,13 +85,20 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         Row::Sound => (View::Sound, Outcome::None),
         Row::BookSettings => (View::BookSettings, Outcome::None),
         Row::Debug => (View::Debug, Outcome::None),
-        Row::TestBuzz => return Outcome::TestBuzz,
         Row::LastError => return Outcome::None,
         Row::Playlists => (View::Playlists, Outcome::None),
         Row::Playlist(p) => (View::Playlist(p), Outcome::None),
         Row::RecentlyAdded => (View::RecentlyAdded, Outcome::None),
         Row::RecentlyPlayed => (View::RecentlyPlayed, Outcome::None),
         Row::Books => (View::Books, Outcome::None),
+        Row::BookList(list) => (View::BookList(list), Outcome::None),
+        Row::Authors => (View::Authors, Outcome::None),
+        Row::Author(a) => (View::Author(a), Outcome::None),
+        // The latest book plays on, as Audiobooks held does from the Music menu.
+        Row::Continue => match books::latest(cx.lib, cx.shelf) {
+            Some(book) => (View::NowPlaying, Outcome::PlayBook { book, over: false }),
+            None => return Outcome::None,
+        },
         // A book plays on where it was left.
         Row::Book(book) => (View::NowPlaying, Outcome::PlayBook { book, over: false }),
         Row::Artist(a) => (View::Artist(a), Outcome::None),
@@ -184,27 +174,17 @@ pub(crate) fn screen(music: &Music) -> Screen {
     } else if music.library.tracks.is_empty() {
         Screen::message(text::MUSIC, text::NO_MUSIC)
     } else {
-        rows_screen(music, |row| {
-            Legend::List(match row {
-                Some(Row::Track(_)) => Target::Song,
-                Some(Row::Album(_)) => Target::Album,
-                Some(Row::Artist(_)) => Target::Artist,
-                Some(Row::Playlist(_) | Row::RecentlyAdded | Row::RecentlyPlayed) => {
-                    Target::Playlist
-                }
-                Some(Row::Book(_)) => Target::Book,
-                _ => Target::All,
-            })
-        })
+        rows_screen(music)
     }
 }
 
 /// The page the cursor is on, with the hints `legend` gives for its highlighted row. Lists
 /// count their items in the corner; menus do not.
-pub(crate) fn rows_screen(music: &Music, legend: impl FnOnce(Option<Row>) -> Legend) -> Screen {
+pub(crate) fn rows_screen(music: &Music) -> Screen {
     let view = music.browser.view();
-    let page = music.browser.page(&music.context());
-    let legend = legend(page.highlighted);
+    let cx = music.context();
+    let page = music.browser.page(&cx);
+    let legend = super::legend(&music.browser, &cx);
     let count = match (view.is_menu(), page.item) {
         (true, _) => String::new(),
         (false, Some(i)) => text::of(i, page.items),

@@ -4,10 +4,11 @@
 pub(crate) mod chapters;
 pub(crate) mod shelf;
 
-pub use chapters::Chapter;
 pub use shelf::{Bookmark, Place, Shelf};
 
-use crate::library::{BookId, Library};
+use crate::browse::BookList;
+use crate::library::sort::sort_key;
+use crate::library::{ArtistId, BookId, Library};
 
 /// The speeds, as players offer them. X goes round from 0.75, so the slowest, seldom wanted,
 /// is never in its way; the menu's Left reaches it.
@@ -25,6 +26,45 @@ pub(crate) fn rewind(paused: u64) -> f64 {
         300..3600 => 15.0,
         _ => 30.0,
     }
+}
+
+/// The books `list` holds, in its order; the library has them by title.
+pub(crate) fn listed(lib: &Library, shelf: &Shelf, list: BookList) -> Vec<BookId> {
+    let mut books: Vec<BookId> = (0..lib.books.len()).map(BookId).collect();
+    let place = |b| shelf.place(lib, b);
+    match list {
+        BookList::Listening => books.retain(|&b| place(b).when > 0 && !place(b).finished),
+        BookList::Finished => books.retain(|&b| place(b).finished),
+        BookList::All => return books,
+    }
+    books.sort_by_key(|&b| std::cmp::Reverse(place(b).when));
+    books
+}
+
+/// The book listened to last, unless it was finished.
+pub(crate) fn latest(lib: &Library, shelf: &Shelf) -> Option<BookId> {
+    listed(lib, shelf, BookList::Listening).first().copied()
+}
+
+/// Who wrote the books, by name.
+pub(crate) fn authors(lib: &Library) -> Vec<ArtistId> {
+    let mut authors: Vec<ArtistId> = lib
+        .books
+        .iter()
+        .map(|b| lib.albums[b.album].artist)
+        .collect();
+    // By name, and by who for names alike, so each author's books are together to dedup.
+    authors.sort_by_cached_key(|&a| (sort_key(&lib.artists[a].name), a));
+    authors.dedup();
+    authors
+}
+
+/// An author's books, by title.
+pub(crate) fn by(lib: &Library, author: ArtistId) -> Vec<BookId> {
+    (0..lib.books.len())
+        .map(BookId)
+        .filter(|&b| lib.albums[lib.books[b].album].artist == author)
+        .collect()
 }
 
 /// Seconds into `book`, `pos` into its `part`, by its parts' lengths.

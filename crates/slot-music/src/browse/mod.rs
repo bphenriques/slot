@@ -14,6 +14,7 @@ use crate::screens;
 use crate::settings::{Setting, Settings};
 use crate::text::{self, Notice};
 use rows::{label, rows, value, Row, RowText};
+use std::time::Instant;
 
 /// Rows on a menu page (the music main screen, settings), at the quick menu's spacing.
 pub const MENU_ROWS: usize = 7;
@@ -44,8 +45,12 @@ pub enum View {
     RecentlyAdded,
     /// The songs played last, newest first.
     RecentlyPlayed,
-    /// The audiobooks, by title.
+    /// The audiobooks' menu: the book to continue, those being listened to, the authors, all of
+    /// them and those finished, as audiobook players have them.
     Books,
+    BookList(BookList),
+    Authors,
+    Author(ArtistId),
     /// The chapters of the book playing, and a book's bookmarks.
     Chapters,
     Bookmarks(BookId),
@@ -59,12 +64,24 @@ pub enum View {
     SongInfo(TrackId),
 }
 
+/// The audiobooks a list holds.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum BookList {
+    /// Begun and not finished, the latest listened to first.
+    Listening,
+    /// Every one, by title.
+    All,
+    /// Those finished, the latest first.
+    Finished,
+}
+
 impl View {
     /// Menus keep slot's quick-menu size; lists follow List Size.
     pub fn is_menu(self) -> bool {
         matches!(
             self,
             View::Main
+                | View::Books
                 | View::Settings
                 | View::Sound
                 | View::BookSettings
@@ -167,8 +184,6 @@ pub enum Outcome {
     Clear,
     /// Keep the queue as a new playlist.
     SaveQueue,
-    /// Buzz once, as a lock does, at the length set.
-    TestBuzz,
     /// Show a notice in the corner.
     Tell(Notice),
     /// Add this song to Favorites, or take it out.
@@ -226,6 +241,8 @@ pub struct Context<'a> {
     pub last_error: Option<&'a str>,
     /// The queue plays shuffled.
     pub shuffled: bool,
+    /// The moment the keys act at: the frame's, never the clock's.
+    pub now: Instant,
 }
 
 /// The song's lyrics, as their keys need them: how many lines, none without lyrics; which is
@@ -238,8 +255,9 @@ pub struct LyricsAt {
 }
 
 impl<'a> Context<'a> {
-    /// The library with an empty queue and the default settings.
-    pub fn new(lib: &'a Library) -> Context<'a> {
+    /// The library with an empty queue and the default settings, `now`.
+    #[cfg(test)]
+    pub fn new(lib: &'a Library, now: Instant) -> Context<'a> {
         Context {
             lib,
             queue: QueueView::default(),
@@ -252,6 +270,7 @@ impl<'a> Context<'a> {
             recent: &[],
             last_error: None,
             shuffled: false,
+            now,
         }
     }
 }
@@ -317,25 +336,10 @@ impl Browser {
     }
 
     /// How `key` acts here: at once, or waiting to see whether it is held; and whether it
-    /// repeats. START and B do more held: pause, and go all the way back.
+    /// repeats; as the screen's key table says, the one its hints are read from.
     pub fn mode(&self, cx: &Context, key: Key) -> Mode {
-        let moves = matches!(key, Key::Up | Key::Down);
-        match (self.view(), self.row(cx)) {
-            _ if matches!(key, Key::Start | Key::B) => Mode::Hold,
-            _ if self.carry.is_some() && moves => Mode::Repeat,
-            _ if self.carry.is_some() => Mode::Once,
-            (View::NowPlaying, _) if cx.book.is_some() => screens::book::mode(key),
-            (View::NowPlaying, _) => screens::now_playing::mode(key),
-            (View::Lyrics, _) => screens::lyrics::mode(key),
-            (_, Some(Row::Queued(i))) => screens::queue::mode(cx, i, key),
-            (_, Some(Row::Rebuild)) if key == Key::A => Mode::Hold,
-            (View::Main, Some(row)) if key == Key::A && screens::main::hold(cx, row).is_some() => {
-                Mode::Hold
-            }
-            (view, _) if view.is_menu() && moves => Mode::Repeat,
-            (view, Some(row)) if !view.is_menu() => screens::list::mode(cx, view, row, key),
-            _ => Mode::Once,
-        }
+        let legend = screens::legend(self, cx);
+        screens::binds::mode(&screens::binds::binds(legend), key)
     }
 
     /// `key` held, as `mode` says: what it does then, or again as it repeats. A repeat stops at
@@ -494,8 +498,12 @@ impl Browser {
     }
 
     /// The highlighted row.
-    fn row(&self, cx: &Context) -> Option<Row> {
-        rows(cx, self.view()).get(self.at()).copied()
+    /// The row the cursor is on: the last, where the list has grown shorter under it, as every
+    /// read of the cursor has it.
+    pub(crate) fn row(&self, cx: &Context) -> Option<Row> {
+        let rows = rows(cx, self.view());
+        rows.get(self.at().min(rows.len().saturating_sub(1)))
+            .copied()
     }
 
     /// Goes all the way back, to the main screen.

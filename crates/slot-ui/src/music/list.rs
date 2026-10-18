@@ -129,7 +129,6 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
     draw_rules(list, grid, right, theme, out);
     draw_values(list, grid, right, out);
     draw_marks(list, &list.hearts, list.heart, grid, right, theme, out);
-    draw_marks(list, &list.opens, list.arrow, grid, right, theme, out);
 }
 
 /// The highlight, where it is gliding to; lighter when its row is lifted.
@@ -176,11 +175,6 @@ fn draw_values(list: &ListFaces, grid: Grid, right: f32, out: &mut Vec<Draw>) {
             continue;
         };
         let y = grid.row_mid(i, h);
-        // Beside a ›, as iOS has it: "Albums 120 ›".
-        let right = match (list.arrow, list.opens.get(i)) {
-            (Some((_, aw, _)), Some(true)) => right - aw as f32 - CARET_GAP,
-            _ => right,
-        };
         match (list.carets, list.selected == Some(i)) {
             (Some([(lt, lw, lh), (rt, rw, rh)]), true) => {
                 let rx = right - rw as f32;
@@ -195,8 +189,8 @@ fn draw_values(list: &ListFaces, grid: Grid, right: f32, out: &mut Vec<Draw>) {
     }
 }
 
-/// A mark at the right edge of the rows `on` says: a favorite's heart, the › of one that opens
-/// a page. Dim, as values are, and lit on the highlight.
+/// A mark at the right edge of the rows `on` says: a favorite's heart. Dim, as values are, and
+/// lit on the highlight.
 fn draw_marks(
     list: &ListFaces,
     on: &[bool],

@@ -92,7 +92,8 @@ impl Music {
     fn unshow(&mut self) {
         self.browser = Default::default();
         self.pictures = Default::default();
-        self.lyrics = Default::default();
+        self.lyrics.clear();
+        self.lyrics_for = None;
         self.chapters.clear();
         self.generation += 1;
     }

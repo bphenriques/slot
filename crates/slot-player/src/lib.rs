@@ -79,7 +79,7 @@ pub enum Event {
 /// A player running on its own thread: commands in, events out. A player that cannot start, or
 /// that panics, says so with `Gone`, and drops what it is sent.
 pub struct Handle {
-    commands: Sender<Command>,
+    commands: Sender<engine::In>,
     events: Receiver<Event>,
     shared: Arc<engine::Shared>,
 }
@@ -91,6 +91,9 @@ pub struct Status {
     pub state: PlayState,
     pub at: f64,
     pub len: f64,
+    /// Whether the device may still be heard: from the first write until it is let go, its
+    /// last sound faded out. Paused, the state says so at once; this, once it is quiet.
+    pub sounding: bool,
 }
 
 impl Handle {
@@ -98,17 +101,20 @@ impl Handle {
     /// it keeps.
     fn spawn(
         name: &str,
-        player: impl FnOnce(Arc<engine::Shared>, Receiver<Command>, Sender<Event>) + Send + 'static,
+        player: impl FnOnce(Arc<engine::Shared>, Receiver<engine::In>, Sender<engine::In>, Sender<Event>)
+            + Send
+            + 'static,
     ) -> Handle {
         let shared = Arc::new(engine::Shared::default());
         let kept = shared.clone();
         let (commands, command_rx) = mpsc::channel();
+        let back = commands.clone();
         let (event_tx, events) = mpsc::channel();
         let spawned = std::thread::Builder::new()
             .name(name.into())
             .spawn(move || {
                 let told = event_tx.clone();
-                let run = std::panic::AssertUnwindSafe(|| player(kept, command_rx, event_tx));
+                let run = std::panic::AssertUnwindSafe(|| player(kept, command_rx, back, event_tx));
                 if std::panic::catch_unwind(run).is_err() {
                     let _ = told.send(Event::Gone);
                 }
@@ -125,8 +131,8 @@ impl Handle {
 
     /// slot's own player, on `output`.
     pub fn on(output: impl Output) -> Handle {
-        Handle::spawn("slot-player", move |shared, commands, events| {
-            engine::run(output, shared, &commands, &events)
+        Handle::spawn("slot-player", move |shared, commands, back, events| {
+            engine::run(output, shared, &commands, back, &events)
         })
     }
 
@@ -134,8 +140,8 @@ impl Handle {
     pub fn slot() -> Handle {
         Handle::spawn(
             "slot-player",
-            |shared, commands, events| match alsa::Alsa::load() {
-                Ok(alsa) => engine::run(alsa, shared, &commands, &events),
+            |shared, commands, back, events| match alsa::Alsa::load() {
+                Ok(alsa) => engine::run(alsa, shared, &commands, back, &events),
                 Err(why) => {
                     eprintln!("slot: player: {why}");
                     let _ = events.send(Event::Gone);
@@ -145,7 +151,7 @@ impl Handle {
     }
 
     pub fn send(&self, command: Command) {
-        let _ = self.commands.send(command);
+        let _ = self.commands.send(engine::In::Command(command));
     }
 
     /// The player as it is now.
@@ -160,5 +166,13 @@ impl Handle {
     /// The next event, waiting up to `timeout` for one: for tests.
     pub fn wait(&self, timeout: std::time::Duration) -> Option<Event> {
         self.events.recv_timeout(timeout).ok()
+    }
+}
+
+/// Let go, the player stops: its threads end, the device with them. The writer holds an end of
+/// the engine's inbox too, so the inbox closing is not enough to say so.
+impl Drop for Handle {
+    fn drop(&mut self) {
+        let _ = self.commands.send(engine::In::Quit);
     }
 }

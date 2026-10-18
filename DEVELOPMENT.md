@@ -12,7 +12,7 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 | Where | What |
 |---|---|
 | `crates/slot-music` | The player's behaviour, no drawing, tested without a device: `music/` (`Music`: the state and its shell, by concern: `act`, `loading`, `art`, `books`, `lyrics`, `pocket`, `worker`), `library/` (scan, tags, cache, pictures, playlists), `playback/` (player, queue, fades, Recently Played), `books/`, `browse/` (views, keys, rows), `screens/` (each screen as data), `lyrics.rs`, `settings.rs`, `text.rs`. |
-| `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (rodio decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA). |
+| `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (rodio decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
 | `crates/slot-player/soundtouch` | SoundTouch 2.3.2 sources (LGPL-2.1), built by `build.rs` with `cc`. |
 | `crates/slot-music/src/store` | Everything kept on the card: one writer, each file's format (`Kept`). |
 | `crates/slot-ui/src/music` | The kit that draws: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour). |
@@ -26,9 +26,12 @@ Upstream files touched: `crates/slot/src/app.rs`, `session.rs`, `crates/slot-ui/
 
 - NixOS/Nix: `nix-shell` gives `task`, `rustup`, rsync and the rest (`shell.nix`); the toolchain
   is pinned in `rust-toolchain.toml`. Run cargo through it: `nix-shell --run "cargo ..."`.
-- Device builds run in an arm64 `rust:1-bullseye` container (Docker, plus aarch64 binfmt
-  emulation on an x86_64 host; see the top of `shell.nix`). It has g++, which SoundTouch needs;
-  it has no libclang or ALSA headers, which is why nothing here uses bindgen or links ALSA.
+- Device builds are cross-compiled on an x86_64 host with `cargo zigbuild` for the device's
+  glibc (2.31, bullseye's), zig compiling SoundTouch's C++ and linking its runtime in: about a
+  minute, where compiling in an emulated arm64 container took seven or more. On an arm64 Linux box
+  they build natively. The container (`rust:1-bullseye`, Docker with aarch64 binfmt) remains for
+  the cores and for running the device binary once to lay out the card. Nothing here uses bindgen
+  or links ALSA at build time; ALSA is loaded when it runs.
 
 ## Build, test, lint
 
@@ -74,7 +77,7 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
   while held (the corner ring shows the hold). START menus hold only what no button does.
   Update `music/CONTROLS.md` with any key change.
 - Comments and docs in the existing voice: plain sentences saying what something is for.
-- Tests for behaviour (`crates/slot-music/tests/music/`, a module an area, `crates/slot-player/tests/player.rs`,
+- Tests for behaviour (`crates/slot-music/src/tests/`, a module an area; the music as a whole in `src/music/tests.rs`, `crates/slot-player/tests/player.rs`,
   which plays WAVs made in the test into a `Capture` output). Timing tests keep wide margins.
 - Performance: the device is a battery handheld (H700, Cortex-A53). Nothing polls while idle;
   work only while playing; measure before and after (see Status).
@@ -111,3 +114,8 @@ Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; Bluetooth 
 
 Ideas, if wanted: Bluetooth output choice; equalizer presets; crossfade only between albums. Each fits as a stage in
 `slot-player/src/track.rs` or `engine.rs`, behind a setting on the Sound page.
+
+A screensaver, from Now Playing with SELECT held (its tap opens the queue; the hold is free): blank
+first, which is the lid closed without closing it (the backlight off and nothing drawn, as
+`App::resting` already does), so the keys under the lid act as they do there; a visualisation later,
+which would cost the drawing the blank saves, so worth it only measured.

@@ -76,10 +76,6 @@ impl Store {
         }
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     /// A file's text, from the card's root; empty when there is none.
     pub fn read(&self, file: impl AsRef<Path>) -> String {
         std::fs::read_to_string(self.root.join(file)).unwrap_or_default()
@@ -97,10 +93,6 @@ impl Store {
 
     pub fn load<T: Kept>(&self, lib: &Library) -> T {
         T::decode(&self.read(T::FILE), self.card(lib))
-    }
-
-    pub fn save<T: Kept>(&self, value: &T, lib: &Library) {
-        self.write(T::FILE, value.encode(self.card(lib)));
     }
 
     pub fn card<'a>(&'a self, lib: &'a Library) -> Card<'a> {

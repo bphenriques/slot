@@ -19,8 +19,9 @@
 //! - **Corner**: short news, kept within 18 characters: a count, "Queue +1", "Hold A".
 //! - **Hints**: what each button does here and now; they follow the row and the state ("Play"
 //!   or "Pause"). A button that does more held says so: "Play, Hold Next".
-//! - **Ring**: in the corner while a key is held to act, filling until it does; let go
-//!   before it closes and nothing happens. Tinted on Now Playing, as its bar is.
+//! - **Ring**: around the held key's cap in the hints while it is held to act, filling until it
+//!   does; in the corner for a hold no hint names (the pocket combo). Let go before it closes
+//!   and nothing happens. Tinted on Now Playing, as its bar is.
 //! - **Text view**: paragraphs to read, wrapped and centred, the one in focus held in the middle;
 //!   followed lines lit, the rest dim (lyrics).
 //! - **Motion**: everything that moves eases the one way `tween` says, over its durations; a
@@ -45,13 +46,14 @@ use slot_power::Battery;
 
 use slot::{
     centred_hints, cluster_width, draw_gauge, draw_printed, push, Canvas, Draw, Printed, TexId,
-    GAUGE_H, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H, QUICK_EDGE,
+    CAP, GAUGE_H, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H, PLATE_H, QUICK_EDGE,
 };
 
 pub use face::{
-    marquee_offset, music_caret_face, music_heart_face, music_hint_face, music_letter_face,
-    music_line_face, music_moon_face, music_paragraph_face, music_ring_face, music_row_face,
-    music_row_heart_face, music_status_face, music_window, Ink, LineInk, MUSIC_STATUS,
+    marquee_offset, music_cap_ring_face, music_caret_face, music_heart_face, music_hint_face,
+    music_letter_face, music_line_face, music_moon_face, music_paragraph_face, music_ring_face,
+    music_row_face, music_row_heart_face, music_status_face, music_window, Ink, LineInk,
+    MUSIC_STATUS,
 };
 pub use list::{music_action_px, music_row_px};
 pub use text_view::TextFaces;
@@ -72,7 +74,9 @@ const SMALL_H: u32 = 26;
 const STATUS_PX: f32 = 26.0;
 
 // Layout.
-const TITLE_Y: f32 = 20.0;
+/// The header sits in the middle of the band slot's volume and status use at the top, as slot's
+/// own top row does, so the volume shows over it whole rather than across it.
+const TITLE_Y: f32 = (PLATE_H - SMALL_H as f32) / 2.0;
 const ROWS_Y: f32 = 60.0;
 const BAR_INSET: f32 = 4.0;
 /// The room a row's heart takes from its text.
@@ -133,8 +137,9 @@ pub struct MusicFaces {
     pub theme: MusicTheme,
     /// The letter a list just jumped to, large in the middle.
     pub letter: Option<MusicFace>,
-    /// The ring a key held to act fills, in the corner in place of its news.
-    pub ring: Option<MusicFace>,
+    /// The ring a key held to act fills: around its hint's key cap, the hint the legend's
+    /// `Some`; else in the corner, in place of its news.
+    pub ring: Option<(MusicFace, Option<usize>)>,
 }
 
 impl Default for MusicFaces {
@@ -192,9 +197,6 @@ pub struct ListFaces {
     /// The rows that are favorites, and the heart drawn at their right.
     pub hearts: Vec<bool>,
     pub heart: Option<MusicFace>,
-    /// The rows that open a page, and the › drawn at their right.
-    pub opens: Vec<bool>,
-    pub arrow: Option<MusicFace>,
 }
 
 /// The track playing: its three lines, picture, state symbols, bar, place and time.
@@ -279,7 +281,11 @@ pub fn draw_music(faces: &MusicFaces, out: &mut Vec<Draw>) {
     }
     // A key held to act shows its ring in place of the corner's news.
     let right = canvas.w - QUICK_EDGE + pad;
-    match (faces.ring, faces.corner) {
+    let corner_ring = faces
+        .ring
+        .filter(|(_, hint)| hint.is_none())
+        .map(|(face, _)| face);
+    match (corner_ring, faces.corner) {
         (Some((tex, w, h)), _) => {
             let y = TITLE_Y + (SMALL_H - h) as f32 / 2.0;
             push(out, tex, right - pad - w as f32, y, w, h);
@@ -300,8 +306,17 @@ pub fn draw_music(faces: &MusicFaces, out: &mut Vec<Draw>) {
         shift_and_fade(&mut out[body..], dx, (2.0 * m.enter).min(1.0));
     }
     draw_letter(faces, out);
-    for (tex, w, x) in centred_hints(canvas, &faces.legend, LEGEND_GAP) {
+    let hints = centred_hints(canvas, &faces.legend, LEGEND_GAP);
+    for &(tex, w, x) in &hints {
         push(out, tex, x, LEGEND_Y, w, HINT_H);
+    }
+    // A held key's ring, around its cap, which sits at its hint's left.
+    if let Some(((tex, w, h), Some(i))) = faces.ring {
+        if let Some(&(_, _, x)) = hints.get(i) {
+            let gap = face::CAP_RING_GAP as f32;
+            let y = LEGEND_Y + (HINT_H - CAP) as f32 / 2.0 - gap;
+            push(out, tex, x - gap, y, w, h);
+        }
     }
 }
 

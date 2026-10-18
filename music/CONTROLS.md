@@ -1,8 +1,9 @@
 # Music controls
 
 The hints at the bottom of each screen show what the buttons do there. A button that does
-something else when held shows it in brackets, "Play (Next)": while it is held, a ring fills in
-the top right corner; let go before the ring closes and nothing happens. This page also lists what the hints leave out.
+something else when held shows it in brackets, "Play (Next)": while it is held, a ring fills
+around that button in the hints (in the top right corner for the pocket combo, which has no
+hint); let go before the ring closes and nothing happens. This page also lists what the hints leave out.
 
 ## Everywhere in Music
 
@@ -10,7 +11,7 @@ the top right corner; let go before the ring closes and nothing happens. This pa
 |---|---|---|
 | B | Back a screen (lists and Now Playing leave it out of their hints). | Back to the Music menu. |
 | START | The menu for what is shown, where it has one: Now Playing, a song, a book. | Pause or play; away from Now Playing, the corner says which. |
-| SELECT | Now Playing, and from there the Queue, opened at the song playing with those played above it, faint, as Apple Music has it (a book's chapters). | |
+| SELECT | Now Playing, and from there the Queue, opened at the song playing with those played above it, faint, as Apple Music has it (a book's chapters). It acts as it is let go, so a shoulder pressed with it is a skip instead. | |
 | SELECT + L1 / R1 | Previous / next song. | |
 | MENU | Back to slot. | |
 
@@ -31,6 +32,11 @@ the top right corner; let go before the ring closes and nothing happens. This pa
 | Left / Right | A page back / on. | Keep turning. |
 | L1 / R1 | The previous / next letter, shown large for a moment. | Keep jumping. |
 
+On Artists, Albums and Songs the letter also shows while moving fast: a page at a time, or with
+Up or Down held; once shown, it follows each step. Names sort as players have them: a leading
+"The" does not count (The Beatles are under B), and those that begin with a digit or a symbol
+come first, together, under #.
+
 ## Playlists
 
 Playlists are `.m3u` files in `Music/Playlists`, read with the library; Favorites is one,
@@ -50,8 +56,8 @@ kept in `Config/music-recent.m3u8`) and Recently Added (albums, newest first).
 | A | Pause or play. | |
 | X | The lyrics, full screen; the hint shows only when the song has some. | |
 | Y | Add the song to Favorites, or take it out. | |
-| Up | Repeat: Off, All, One, round again (a symbol shows which). | |
-| Down | Shuffle the queue, or put it back in order. | |
+| Up | Repeat: Off, All, One, round again (a symbol shows which, and the corner says it). | |
+| Down | Shuffle the queue, or put it back in order (the corner says Shuffle On or Off). | |
 | Left / Right | Previous / next song. | Seek back / on. |
 | L1 / R1 | Previous / next song. Previous starts the song over after its first 3 seconds. Paused, the song skipped to waits, paused. | Seek back / on. |
 | L2 / R2 | Seek back / on 10 seconds, as they are let go. | Keep seeking. |
@@ -85,8 +91,10 @@ Put books in `Audiobooks/` on the card, next to `Music/`: a folder per book (its
 order, each a chapter), or a single `.m4b` (its own chapters). A folder named
 `Author - Title` names a book whose tags do not. Books stay out of Artists, Albums and Songs.
 
-Audiobooks lists the book you are listening to first, then those not begun, then those
-finished, with how far into each you are. Each book keeps its place, speed and bookmarks in
+Audiobooks is a menu, as audiobook players have it: Continue (plays on the book listened to
+last), In Progress (those begun, the latest first), Authors (each with their books), All Books
+(by title) and, once there are any, Finished. Lists say how far into each book you are; in a
+list, A plays a book on, Y lists its bookmarks and START has its menu (Start Over, Finished). Each book keeps its place, speed and bookmarks in
 `Config/audiobooks.txt`. An `.m4b`'s chapters are read from it, as are an MP3's ID3 chapters; a book of
 other files has a chapter a file. Now Playing shows the chapter on the bar, and under the picture the speed, how far
 through the whole book you are and the time it has left. Playing on after a pause steps
@@ -113,22 +121,24 @@ when the book ends, or when you play music.
 
 ## Pocket mode
 
-L1 + R1 or L2 + R2 together, unless Pocket Lock in Music Settings is Off, work
-with the screen on or off. Tapped, they play or pause; held until the corner ring closes, they
+Any two of L1, R1, L2 and R2 held together (a side's pair squeezed with one finger, or one on
+each side), unless Pocket Lock in Music Settings is Off, work on Now Playing
+and with the screen off; on lists the shoulders stay the letter jump. Tapped, they play or pause (locked, nothing: a squeeze in a pocket changes
+nothing); held until the corner ring closes, they
 lock the music's other keys, so nothing changes in a pocket, or unlock them; turning the screen
 on (opening the lid) unlocks them too. A lock buzzes once and an unlock
-twice (Pocket Vibration) and the corner says Locked or Unlocked. On their own, the shoulders and
+twice, 120 ms each (Pocket Vibration), and the corner says Locked or Unlocked. On their own, the shoulders and
 triggers act as they are let go, so the first of the two pressed does nothing.
 
 ## Screen off
 
-With `screen_off = play`, the shoulders and triggers still work with the lid closed, as on
-Now Playing; play and pause are the pocket combo's (tapped):
+With `screen_off = play`, the shoulders and triggers still work with the lid closed. A is under
+the lid, so a trigger plays and pauses in its place, as a headphone's button does:
 
 | Button | Tapped | Held |
 |---|---|---|
 | L1 / R1 | Previous / next song; in an audiobook, the chapter. | Seek back / on. |
-| L2 / R2 | Seek back / on 10 seconds; in an audiobook, jump as far as Jump Length. | Seek back / on. |
+| L2 / R2 | Play / pause, as it is let go. | |
 
 Paused or stopped, slot powers off after its screen-off time.
 
@@ -138,6 +148,4 @@ Theme follows slot's Appearance (Slot), or keeps the music screens Dark or Light
 
 Hold A on Rebuild Library to read every song again. Update Library reads only what changed.
 
-Last in Settings, a Debug page holds what helps say how the device does: Test Vibration (A buzzes
-once, as a lock does), Vibration Length (120, 250, 400 or 600 ms a buzz, for the pocket lock
-too; `buzz` in `music.txt`), Performance Log (while on, a line every 10 seconds in `Logs/music-perf.log` on the card: frames a second, how long the music's frame, its screen and its drawing take, each thread's share of the processor and the memory held, and what was shown; send it over to say how the device does) and Last Error (why the sound last failed: a file, or the device).
+Last in Settings, a Debug page holds what helps say how the device does: Performance Log (while on, a line every 10 seconds in `Logs/music-perf.log` on the card: frames a second, how long the music's frame, its screen and its drawing take, each thread's share of the processor and the memory held, and what was shown; send it over to say how the device does) and Last Error (why the sound last failed: a file, or the device).

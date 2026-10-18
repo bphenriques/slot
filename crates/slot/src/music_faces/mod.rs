@@ -10,10 +10,11 @@ use slot_gfx::{Compositor, TexId};
 use slot_input::Millis;
 use slot_music::{text, Body, Legend, RowIcon, RowText};
 use slot_ui::{
-    marquee_offset, music_caret_face, music_heart_face, music_hint_face, music_letter_face,
-    music_line_face, music_moon_face, music_paragraph_face, music_ring_face, music_row_face,
-    music_row_heart_face, music_status_face, music_tint_ink, music_title_w, music_window,
-    BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme, UndoFace, MUSIC_STATUS,
+    marquee_offset, music_cap_ring_face, music_caret_face, music_heart_face, music_hint_face,
+    music_letter_face, music_line_face, music_moon_face, music_paragraph_face, music_ring_face,
+    music_row_face, music_row_heart_face, music_status_face, music_tint_ink, music_title_w,
+    music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme, UndoFace,
+    MUSIC_STATUS,
 };
 
 use crate::app::App;
@@ -21,6 +22,10 @@ use motion::Motion;
 
 /// How many steps a hold's ring fills in, each drawn once a colour.
 const RING_STEPS: f32 = 40.0;
+
+/// A held key's ring as drawn: how far round, in what ink, around which hint's cap (the
+/// arrows' for `Some(None)`), or in the corner.
+type Ring = (u8, [u8; 3], Option<Option<&'static str>>);
 
 /// What a face is drawn from: a line in one style, or a list row at a size.
 #[derive(Clone, PartialEq)]
@@ -259,10 +264,13 @@ pub struct MusicText {
     art_was: Option<now_playing::Picture>,
     /// The hearts list rows show, for the page size it was drawn at.
     row_heart: Styled<(bool, usize)>,
-    /// The letter a list jumped to, and the ring a held key fills, by how far.
+    /// The letter a list jumped to, and the ring a held key fills, by how far, around which
+    /// hint's cap (the arrows' for `Some(None)`), or in the corner.
     letter: Styled<char>,
-    ring: Styled<(u8, [u8; 3])>,
+    ring: Styled<Ring>,
     scroll: Scroll,
+    /// Up Next's own, so a new next track scrolls from its start, not partway through.
+    next_scroll: Scroll,
     motion: Motion,
 }
 
@@ -326,7 +334,8 @@ impl MusicText {
                 0,
                 Spec::small(screen.title),
                 title_w,
-                None,
+                // Too long for the header, it scrolls, as a highlighted row does.
+                Some(self.motion.up_for(now)),
             ),
         };
         let corner = self.header.sync(
@@ -338,19 +347,28 @@ impl MusicText {
             None,
         );
         let legend = self.legend(compositor, screen.legend);
-        // A key held to act fills a ring in the corner; Dynamic Color tints it on Now Playing,
-        // as it does the bar.
+        // A key held to act fills a ring around its hint's cap, or in the corner where it has
+        // none; Dynamic Color tints it on Now Playing, as it does the bar.
         let ink = match (&screen.body, &self.art) {
             (Body::NowPlaying(np), Some(art)) if np.color => music_tint_ink(art.tint, &theme),
             _ => theme.lit,
         };
-        let ring = screen.hold.and_then(|(_, done)| {
-            let step = (done * RING_STEPS).round() as u8;
-            let draw = |&(step, ink): &(u8, [u8; 3]), t: &MusicTheme| {
-                vec![music_ring_face(step as f32 / RING_STEPS, ink, t)]
+        let ring = screen.hold.and_then(|hold| {
+            let step = (hold.done * RING_STEPS).round() as u8;
+            let hints = text::legend(screen.legend);
+            let cap = hold.hint.and_then(|i| hints.get(i));
+            let cap = cap.map(|h| (h.key != text::ARROWS).then_some(h.key));
+            let draw = |&(step, ink, cap): &Ring, t: &MusicTheme| {
+                let done = step as f32 / RING_STEPS;
+                vec![match cap {
+                    Some(key) => music_cap_ring_face(key, done, ink, t),
+                    None => music_ring_face(done, ink, t),
+                }]
             };
-            let faces = self.ring.sync(compositor, (step, ink), theme, draw);
-            faces.first().copied()
+            let faces = self.ring.sync(compositor, (step, ink, cap), theme, draw);
+            faces
+                .first()
+                .map(|&face| (face, hold.hint.filter(|_| cap.is_some())))
         });
         let letter = screen.letter.and_then(|c| {
             let draw = |&c: &char, t: &MusicTheme| music_letter_face(c, t).into_iter().collect();
@@ -388,7 +406,7 @@ impl MusicText {
 }
 
 /// A legend's hints in `theme`, worded by `slot_music::text`. They hold still while a key is
-/// held: the ring in the corner shows the hold.
+/// held: the ring around the key's cap shows the hold.
 fn hint_faces(legend: Legend, theme: &MusicTheme) -> impl Iterator<Item = UndoFace> + '_ {
     text::legend(legend).into_iter().map(move |hint| {
         let key = (hint.key != text::ARROWS).then_some(hint.key);
@@ -399,6 +417,22 @@ fn hint_faces(legend: Legend, theme: &MusicTheme) -> impl Iterator<Item = UndoFa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_scrolls_from_its_start_when_its_text_changes_and_on_while_it_stands() {
+        let mut scroll = Scroll::default();
+        assert_eq!(scroll.ms((None, "Up Next: One".into()), 1000), 0);
+        assert_eq!(
+            scroll.ms((None, "Up Next: One".into()), 4000),
+            3000,
+            "on while it stands"
+        );
+        assert_eq!(
+            scroll.ms((None, "Up Next: Two".into()), 4500),
+            0,
+            "a new one from its start"
+        );
+    }
     use slot_ui::{Canvas, LEGEND_GAP};
 
     #[test]

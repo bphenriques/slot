@@ -9,7 +9,7 @@ fn music_settings_flip_with_left_and_right() {
     press(&mut b, &lib, &TO_SETTINGS);
     assert_eq!(b.view(), View::Settings);
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
-    let shown = |page: &slot_music::Page| -> Vec<(String, Option<String>)> {
+    let shown = |page: &crate::Page| -> Vec<(String, Option<String>)> {
         let rows = page.rows.iter().map(|r| r.text.clone());
         rows.zip(page.values.iter().cloned()).collect()
     };
@@ -52,7 +52,7 @@ fn music_settings_flip_with_left_and_right() {
     assert_eq!(sound.view(), View::Settings, "B back to the rest");
     assert_eq!(
         press(&mut b, &lib, &[Key::Right]),
-        Outcome::Change(slot_music::Setting::ScreenOff, 1)
+        Outcome::Change(crate::Setting::ScreenOff, 1)
     );
     press(&mut b, &lib, &[Key::B]);
     assert_eq!(b.view(), View::Main);
@@ -64,7 +64,7 @@ fn settings_are_kept_on_the_card_but_the_sleep_timer_is_not() {
     let store = Store::open(d.path());
     assert_eq!(store.settings(), Settings::default());
     let s = Settings {
-        repeat: slot_music::Repeat::One,
+        repeat: crate::Repeat::One,
         clock: true,
         up_next: false,
         color: false,
@@ -74,12 +74,12 @@ fn settings_are_kept_on_the_card_but_the_sleep_timer_is_not() {
     store.save_settings(&s, &Settings::default());
     store.flush();
     assert_eq!(store.settings(), s);
-    assert_eq!(slot_music::Repeat::One.next(), slot_music::Repeat::Off);
+    assert_eq!(crate::Repeat::One.next(), crate::Repeat::Off);
 }
 
 #[test]
 fn a_goes_round_the_choices_while_left_and_right_stop_at_the_ends() {
-    use slot_music::cycle;
+    use crate::cycle;
     let order = [1, 2, 3];
     assert_eq!(cycle(&order, 3, 0), 1);
     assert_eq!(cycle(&order, 1, -1), 1);

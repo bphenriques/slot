@@ -4,10 +4,11 @@
 use std::time::Duration;
 
 use crate::browse::rows::{Info, Row};
-use crate::browse::View;
+use crate::browse::{BookList, Key, View};
 use crate::playback::fade::Sleep;
 use crate::playback::player::Repeat;
-use crate::screens::{Legend, MainHold, Target};
+use crate::screens::binds::binds;
+use crate::screens::Legend;
 use crate::settings::{ListSize, Setting, Settings, Theme};
 
 pub const MUSIC: &str = "Music";
@@ -52,6 +53,8 @@ pub fn title(view: View) -> Option<&'static str> {
         View::Albums => "Albums",
         View::Tracks => "Songs",
         View::Books => BOOKS,
+        View::BookList(list) => book_list(list),
+        View::Authors => AUTHORS,
         View::Chapters => CHAPTERS,
         View::Bookmarks(_) => BOOKMARKS,
         View::Playlists => "Playlists",
@@ -61,7 +64,7 @@ pub fn title(view: View) -> Option<&'static str> {
         View::QueueMenu => QUEUE,
         View::SongInfo(_) => "Song Info",
         View::NowPlaying => NOW_PLAYING,
-        View::Artist(_) | View::Album(_) | View::Playlist(_) => return None,
+        View::Artist(_) | View::Album(_) | View::Playlist(_) | View::Author(_) => return None,
     })
 }
 
@@ -81,9 +84,11 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         Row::Rescan => "Update Library",
         Row::Rebuild => "Rebuild Library",
         Row::Debug => DEBUG,
-        Row::TestBuzz => "Test Vibration",
         Row::LastError => "Last Error",
         Row::Books => BOOKS,
+        Row::Continue => CONTINUE,
+        Row::BookList(list) => book_list(list),
+        Row::Authors => AUTHORS,
         Row::StartOver => "Start Over",
         Row::Chapters => CHAPTERS,
         Row::Bookmarks => BOOKMARKS,
@@ -102,7 +107,6 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             Setting::SkipSilence => "Skip Silence",
             Setting::Pocket => "Pocket Lock",
             Setting::PocketBuzz => "Pocket Vibration",
-            Setting::BuzzLength => "Vibration Length",
             Setting::PerfLog => "Performance Log",
             Setting::Boost => "Volume Boost",
             Setting::Leveling => "Volume Leveling",
@@ -121,6 +125,7 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         // Named by the library, or by whether the song playing is a favorite.
         Row::Artist(_)
         | Row::Album(_)
+        | Row::Author(_)
         | Row::Track(_)
         | Row::Queued(_)
         | Row::Info(_)
@@ -176,7 +181,6 @@ pub fn setting(setting: Setting, settings: &Settings, sleep: Option<Sleep>, book
         Setting::Mono => on_off(settings.mono),
         Setting::SkipSilence => on_off(settings.skip_silence),
         Setting::PocketBuzz => on_off(settings.pocket_buzz),
-        Setting::BuzzLength => format!("{} ms", settings.buzz),
         Setting::PerfLog => on_off(settings.perf),
         Setting::Pocket => on_off(settings.pocket),
         Setting::Crossfade => match settings.crossfade {
@@ -204,6 +208,9 @@ pub fn setting(setting: Setting, settings: &Settings, sleep: Option<Sleep>, book
     }
 }
 
+/// The words before a name that it is not sorted by, as players have them: The Beatles under B.
+pub const ARTICLES: &[&str] = &["The"];
+
 /// What a short notice in the corner says.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Notice {
@@ -226,6 +233,9 @@ pub enum Notice {
     NoSound,
     /// The queue was kept as a playlist.
     Saved,
+    /// Up or Down on Now Playing stepped the repeat round, or shuffled the queue or put it back.
+    Repeat(Repeat),
+    Shuffle(bool),
 }
 
 /// Short, as the corner is: where songs went, and how many.
@@ -242,6 +252,10 @@ pub fn notice(notice: &Notice) -> String {
         Notice::Bookmarked => "Bookmarked".into(),
         Notice::NoSound => "No sound".into(),
         Notice::Saved => "Saved".into(),
+        Notice::Repeat(Repeat::Off) => "Repeat Off".into(),
+        Notice::Repeat(Repeat::All) => "Repeat All".into(),
+        Notice::Repeat(Repeat::One) => "Repeat One".into(),
+        Notice::Shuffle(on) => format!("Shuffle {}", on_off(*on)),
         Notice::Speed(x) => format!("Speed {}", speed(f32::from(*x) / 100.0)),
     }
 }
@@ -322,6 +336,11 @@ pub fn speed(x: f32) -> String {
 
 /// Before the album's or artist's name on a menu row that goes there, set dim.
 pub const GO_TO: &str = "Go to";
+/// The audiobooks' menu: the latest book plays on, and the lists it opens.
+pub const CONTINUE: &str = "Continue";
+const IN_PROGRESS: &str = "In Progress";
+const AUTHORS: &str = "Authors";
+const ALL_BOOKS: &str = "All Books";
 
 /// The library being read, and how far, once the songs are counted.
 pub fn reading(done: usize, of: usize) -> String {
@@ -347,28 +366,36 @@ pub fn optimizing(done: usize, of: usize) -> String {
 /// Marks the hint drawn as Left and Right arrows rather than a button name.
 pub const ARROWS: &str = "LEFT RIGHT";
 
+/// The cap a key's hint shows it on; none for a key no hint names.
+pub(crate) fn cap(key: Key) -> Option<&'static str> {
+    Some(match key {
+        Key::A => "A",
+        Key::B => "B",
+        Key::X => "X",
+        Key::Y => "Y",
+        Key::L1 => "L1",
+        Key::R1 => "R1",
+        Key::L2 => "L2",
+        Key::R2 => "R2",
+        Key::Start => "START",
+        Key::Select => "SELECT",
+        Key::Left | Key::Right => ARROWS,
+        _ => return None,
+    })
+}
+
+/// Which of `legend`'s hints is `key`'s, if it has one.
+pub fn hint_of(legend: Legend, key: Key) -> Option<usize> {
+    let cap = cap(key)?;
+    self::legend(legend).iter().position(|h| h.key == cap)
+}
+
 /// A button hint: the button, what a tap does, and what holding it does.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Hint {
     pub key: &'static str,
     pub tap: &'static str,
     pub held: Option<&'static str>,
-}
-
-const fn tap(key: &'static str, tap: &'static str) -> Hint {
-    Hint {
-        key,
-        tap,
-        held: None,
-    }
-}
-
-const fn hold(key: &'static str, tap: &'static str, held: &'static str) -> Hint {
-    Hint {
-        key,
-        tap,
-        held: Some(held),
-    }
 }
 
 impl Hint {
@@ -381,90 +408,122 @@ impl Hint {
     }
 }
 
-/// A screen's button hints.
+/// A word a hint says, named for the screens' key tables, which hold no words of their own.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub(crate) enum Word {
+    Back,
+    Open,
+    Shuffle,
+    Resume,
+    Playing,
+    Play,
+    Pause,
+    Next,
+    PlayNext,
+    PlayLine,
+    Bookmarks,
+    Bookmark,
+    List,
+    Menu,
+    AddToQueue,
+    Favorite,
+    Restart,
+    Remove,
+    Move,
+    Cancel,
+    Drop,
+    Lyrics,
+    Queue,
+    Close,
+    /// How far an audiobook jumps, in seconds.
+    Jump(u32),
+    Speed,
+    Change,
+    HoldToRebuild,
+}
+
+fn word(word: Word) -> &'static str {
+    match word {
+        Word::Back => "Back",
+        Word::Open => "Open",
+        Word::Shuffle => "Shuffle",
+        Word::Resume => "Resume",
+        Word::Playing => "Playing",
+        Word::Play => "Play",
+        Word::Pause => "Pause",
+        Word::Next => "Next",
+        Word::PlayNext => "Play Next",
+        Word::PlayLine => "Play Line",
+        Word::Bookmarks => BOOKMARKS,
+        Word::Bookmark => "Bookmark",
+        Word::List => "List",
+        Word::Menu => "Menu",
+        Word::AddToQueue => "Add to Queue",
+        Word::Favorite => "Favorite",
+        Word::Restart => "Restart",
+        Word::Remove => "Remove",
+        Word::Move => "Move",
+        Word::Cancel => "Cancel",
+        Word::Drop => "Drop",
+        Word::Lyrics => LYRICS,
+        Word::Queue => QUEUE,
+        Word::Close => "Close",
+        Word::Jump(10) => "10 s",
+        Word::Jump(15) => "15 s",
+        Word::Jump(_) => "30 s",
+        Word::Speed => "Speed",
+        Word::Change => "Change",
+        Word::HoldToRebuild => "Hold to Rebuild",
+    }
+}
+
+/// A screen's button hints, as its key table has them, in its words.
 pub fn legend(legend: Legend) -> Vec<Hint> {
-    let pick = |on: bool, yes, no| if on { yes } else { no };
-    // Labels hold still as the state changes, which the symbols show: a heart, shuffle.
-    match legend {
-        // SELECT goes to what plays, so it shows only when something does. A held on a list
-        // shuffles it all; on Audiobooks, plays on the latest book.
-        Legend::Main {
-            playing,
-            hold: held,
-        } => {
-            let open = match held {
-                Some(MainHold::Shuffle) => hold("A", "Open", "Shuffle"),
-                Some(MainHold::Resume) => hold("A", "Open", "Resume"),
-                None => tap("A", "Open"),
-            };
-            let mut hints = vec![tap("B", "Back"), open];
-            hints.extend(playing.then_some(tap("SELECT", "Playing")));
-            hints
-        }
-        // B and SELECT go unsaid (the Music menu shows SELECT). A also puts the row's songs
-        // next when held, X adds them to the queue, and Y puts a song in Favorites or takes it out.
-        // A song's START menu goes unsaid: it only goes to its album or artist, or its info.
-        Legend::List(Target::Book) => {
-            vec![tap("A", "Play"), tap("Y", BOOKMARKS), tap("START", "Menu")]
-        }
-        Legend::List(target) => {
-            let open = match target {
-                Target::Song | Target::All => "Play",
-                _ => "Open",
-            };
-            let mut hints = vec![hold("A", open, "Next"), tap("X", "Add to Queue")];
-            hints.extend((target == Target::Song).then(|| tap("Y", "Favorite")));
-            hints
-        }
-        // A held puts the track next, but the one playing is already there. START saves or clears
-        // it all.
-        Legend::Queue { restart } => vec![
-            match restart {
-                true => tap("A", "Restart"),
-                false => hold("A", "Play", "Next"),
-            },
-            tap("X", "Remove"),
-            hold("Y", "Favorite", "Move"),
-            tap("START", "Menu"),
-        ],
-        Legend::Carry => vec![tap("B", "Cancel"), tap("Y", "Drop"), tap("R1", "Play Next")],
-        // X shows only where there are lyrics, as Apple Music dims its button.
-        Legend::NowPlaying { playing, lyrics } => {
-            let mut hints = vec![tap("A", pick(playing, "Pause", "Play"))];
-            hints.extend(lyrics.then(|| tap("X", LYRICS)));
-            hints.extend([tap("Y", "Favorite"), tap("SELECT", QUEUE)]);
-            hints
-        }
-        // Scrolled to a line of timed lyrics, A plays from it.
-        Legend::Lyrics { playing, line } => {
-            let a = match line {
-                true => "Play Line",
-                false => pick(playing, "Pause", "Play"),
-            };
-            vec![tap("A", a), tap("X", "Close")]
-        }
-        // Left and Right jump, as the arrows say; X steps the speed, which START's menu sets
-        // too; Y marks the moment, or held lists the marks. SELECT's chapters are on that menu as
-        // well.
-        Legend::Book { playing, jump } => vec![
-            tap("A", pick(playing, "Pause", "Play")),
-            tap(
-                ARROWS,
-                match jump {
-                    10 => "10 s",
-                    15 => "15 s",
-                    _ => "30 s",
-                },
-            ),
-            tap("X", "Speed"),
-            hold("Y", "Bookmark", "List"),
-        ],
-        Legend::Chapters => vec![tap("B", "Back"), tap("A", "Play")],
-        Legend::Bookmarks => vec![tap("B", "Back"), tap("A", "Play"), tap("X", "Remove")],
-        Legend::Settings => vec![tap("B", "Back"), tap(ARROWS, "Change")],
-        Legend::Menu => vec![tap("B", "Back"), tap("A", "Open"), tap(ARROWS, "Change")],
-        Legend::Hold => vec![tap("B", "Back"), tap("A", "Hold to Rebuild")],
-        Legend::Test => vec![tap("B", "Back"), tap("A", "Test")],
-        Legend::Back => vec![tap("B", "Back")],
+    binds(legend)
+        .into_iter()
+        .filter_map(|bind| {
+            let (tap, held) = bind.hint?;
+            Some(Hint {
+                key: cap(bind.key)?,
+                tap: word(tap),
+                held: held.map(word),
+            })
+        })
+        .collect()
+}
+
+/// A list of audiobooks, by what it holds.
+fn book_list(list: BookList) -> &'static str {
+    match list {
+        BookList::Listening => IN_PROGRESS,
+        BookList::All => ALL_BOOKS,
+        BookList::Finished => FINISHED,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screens::{MainHold, Target};
+
+    #[test]
+    fn a_held_key_s_ring_goes_round_its_own_hint_or_in_the_corner_without_one() {
+        let main = Legend::Main {
+            playing: true,
+            hold: Some(MainHold::Shuffle),
+        };
+        let hints = legend(main);
+        let a = hint_of(main, Key::A).unwrap();
+        assert_eq!(hints[a].key, "A", "A held, round A");
+        assert_eq!(
+            hint_of(main, Key::Pocket),
+            None,
+            "the pocket combo has no hint"
+        );
+        assert_eq!(
+            hint_of(Legend::List(Target::Song), Key::Start),
+            None,
+            "nor START here"
+        );
     }
 }

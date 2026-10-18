@@ -98,6 +98,24 @@ pub fn raw_level(volume: u8) -> c_long {
     }
 }
 
+/// What the codec's volume is to do, as music plays at one, or has let it go.
+#[derive(Debug, PartialEq)]
+enum Change {
+    /// Set to music's, the level before kept the first time.
+    Music(u8),
+    /// Back to the level before music.
+    Restore,
+}
+
+/// The change from `applied`, what music last set, to `wanted`: none while it stands.
+fn change(applied: Option<u8>, wanted: Option<u8>) -> Option<Change> {
+    match (applied, wanted) {
+        (was, Some(v)) if was != Some(v) => Some(Change::Music(v)),
+        (Some(_), None) => Some(Change::Restore),
+        _ => None,
+    }
+}
+
 /// While music plays, the codec follows slot's volume; afterwards it is restored.
 #[derive(Default)]
 pub struct LineOut {
@@ -110,8 +128,8 @@ pub struct LineOut {
 impl LineOut {
     /// `Some(volume)` while music plays, `None` once slot has the sound back.
     pub fn follow(&mut self, volume: Option<u8>) {
-        match volume {
-            Some(v) if self.applied != Some(v) => {
+        match change(self.applied, volume) {
+            Some(Change::Music(v)) => {
                 self.open();
                 let Some(ctl) = &self.ctl else {
                     return;
@@ -124,13 +142,13 @@ impl LineOut {
                 }
                 self.applied = Some(v);
             }
-            None if self.applied.is_some() => {
+            Some(Change::Restore) => {
                 if let (Some(raw), Some(ctl)) = (self.saved.take(), &self.ctl) {
                     ctl.write(raw);
                 }
                 self.applied = None;
             }
-            _ => {}
+            None => {}
         }
     }
 
@@ -147,6 +165,27 @@ impl LineOut {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_codec_follows_music_while_it_plays_then_goes_back_once() {
+        assert_eq!(
+            change(None, Some(50)),
+            Some(Change::Music(50)),
+            "music starts"
+        );
+        assert_eq!(change(Some(50), Some(50)), None, "nothing while it stands");
+        assert_eq!(
+            change(Some(50), Some(60)),
+            Some(Change::Music(60)),
+            "a volume key"
+        );
+        assert_eq!(
+            change(Some(60), None),
+            Some(Change::Restore),
+            "music let it go"
+        );
+        assert_eq!(change(None, None), None, "slot's, and staying so");
+    }
 
     #[test]
     fn volume_maps_to_the_codec_steps_with_zero_a_mute() {

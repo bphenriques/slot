@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use slot_store::is_hidden;
@@ -20,11 +20,30 @@ const HEADER: &str = "#SLOT-LIBRARY 4";
 const MAX_DEPTH: usize = 8;
 
 /// How far a scan has got: files walked, of those the cache knows; then songs read, of those to
-/// read.
+/// read. The two are one value, so a reader never sees one from before the other.
 #[derive(Default)]
-pub struct Progress {
-    pub done: AtomicUsize,
-    pub of: AtomicUsize,
+pub struct Progress(Mutex<(usize, usize)>);
+
+impl Progress {
+    /// So far, and of how many.
+    pub fn get(&self) -> (usize, usize) {
+        *self.lock()
+    }
+
+    /// None done yet, of `of`.
+    fn start(&self, of: usize) {
+        *self.lock() = (0, of);
+    }
+
+    fn step(&self) {
+        self.lock().0 += 1;
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, (usize, usize)> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// The library as the cache last had it, without looking at the card's folders; none without a
@@ -39,7 +58,7 @@ pub fn cached(root: &Path) -> Option<Library> {
 pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
     // A full scan reads every song again, but keeps when each came into the library.
     let mut cached = read_cache(root);
-    progress.of.store(cached.len(), Ordering::Relaxed);
+    progress.start(cached.len());
     let mut files = Vec::new();
     let books = root.join(BOOKS_DIR);
     walk(&root.join(MUSIC_DIR), 0, &mut files, progress);
@@ -51,8 +70,7 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
                 .is_some_and(|r| (r.modified, r.size) == (modified, size))
     };
     let to_read = files.iter().filter(|(p, m, s)| !fresh(p, *m, *s)).count();
-    progress.done.store(0, Ordering::Relaxed);
-    progress.of.store(to_read, Ordering::Relaxed);
+    progress.start(to_read);
     let now = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -65,7 +83,7 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
                 Some(r) if !full && (r.modified, r.size) == (modified, size) => r,
                 _ => {
                     read += 1;
-                    progress.done.fetch_add(1, Ordering::Relaxed);
+                    progress.step();
                     Record {
                         // A book's parts are timed, for how far into it the listener is.
                         tags: tags::read(&path, path.starts_with(&books)),
@@ -119,7 +137,7 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, u64, u64)>, progress: 
                 .ok()
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
             out.push((path, modified.map_or(0, |d| d.as_secs()), meta.len()));
-            progress.done.fetch_add(1, Ordering::Relaxed);
+            progress.step();
         }
     }
 }

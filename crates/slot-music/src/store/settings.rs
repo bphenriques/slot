@@ -5,7 +5,7 @@ use slot_store::ini;
 
 use super::Store;
 use crate::playback::player::Repeat;
-use crate::settings::{ListSize, Settings, Theme, BOOSTS, BUZZES, FADES, JUMPS};
+use crate::settings::{ListSize, Settings, Theme, BOOSTS, FADES, JUMPS};
 
 pub const SETTINGS_FILE: &str = "Config/music.txt";
 
@@ -15,6 +15,7 @@ impl Store {
     }
 
     /// Writes what differs from `was`.
+    #[cfg(test)]
     pub fn save_settings(&self, now: &Settings, was: &Settings) {
         for (key, value) in changes(now, was) {
             self.set(SETTINGS_FILE, key, value);
@@ -73,10 +74,6 @@ impl Settings {
             pocket: !is("pocket", "off"),
             pocket_buzz: !is("pocket_buzz", "off"),
             perf: is("perf", "on"),
-            buzz: get("buzz")
-                .and_then(|v| v.parse().ok())
-                .filter(|b| BUZZES.contains(b))
-                .unwrap_or(250),
         }
     }
 
@@ -85,7 +82,6 @@ impl Settings {
         let pick = |on: bool, yes: &'static str, no: &'static str| if on { yes } else { no };
         let jump = self.jump.to_string();
         let (crossfade, boost) = (self.crossfade.to_string(), self.boost.to_string());
-        let buzz = self.buzz.to_string();
         let entries = [
             ("repeat", self.repeat.key()),
             ("screen_off", pick(self.play_screen_off, "play", "pause")),
@@ -102,7 +98,6 @@ impl Settings {
             ("boost", boost.as_str()),
             ("pocket", pick(self.pocket, "on", "off")),
             ("pocket_buzz", pick(self.pocket_buzz, "on", "off")),
-            ("buzz", buzz.as_str()),
             ("perf", pick(self.perf, "on", "off")),
         ];
         entries.map(|(key, value)| (key, value.to_string())).into()

@@ -7,6 +7,8 @@
 mod act;
 mod art;
 mod books;
+mod controller;
+mod engine;
 mod input;
 mod loading;
 mod lyrics;
@@ -24,7 +26,9 @@ use std::time::Instant;
 use crate::books::chapters::Chapter;
 use crate::browse::keys::Keys;
 use crate::browse::{Browser, Context, Key};
+use crate::library::TrackId;
 use crate::library::{scan, Library};
+use crate::lyrics::Lyrics;
 use crate::playback::player::Player;
 use crate::playback::recent::Recent;
 use read_ahead::ReadAhead;
@@ -36,6 +40,9 @@ use crate::store::{Card, Kept, Store};
 use crate::text::Notice;
 use art::Pictures;
 use books::Books;
+use controller::Controller;
+pub use controller::{Button, Input};
+use engine::{Engine, Start};
 use loading::{spawn_scan, Found, Scan};
 use pocket::PocketLock;
 use slot_player::{Command, Event, Handle, PlayState};
@@ -65,11 +72,34 @@ enum Msg {
     Worker(u32, Done),
 }
 
+/// The outside as the state sees it, read once as something comes in: the moment, for what is
+/// timed; the seconds since 1970, for what is kept; and a number new each time, for a shuffle.
+#[derive(Copy, Clone)]
+pub(crate) struct Now {
+    pub(crate) at: Instant,
+    pub(crate) wall: u64,
+    pub(crate) seed: u64,
+}
+
+/// The system's time.
+pub(crate) fn system_now() -> Now {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Now {
+        at: Instant::now(),
+        wall: since.as_secs(),
+        seed: (since.as_nanos() as u64).max(1),
+    }
+}
+
 /// The world outside the state: the player's thread, the card and the worker.
 struct Shell {
-    engine: Handle,
+    engine: Box<dyn Engine>,
+    /// Where the time comes from: the system, or a test's own.
+    clock: Box<dyn Fn() -> Now>,
     /// Starts a player: the device's, or one a test gives.
-    start: fn() -> Handle,
+    start: Start,
     store: Store,
     worker: Worker,
     /// The performance log, while it runs.
@@ -94,13 +124,22 @@ pub struct Music {
     pub(crate) gone: bool,
     /// Bumped by a rescan; the worker's results from before are dropped.
     generation: u32,
+    /// The time, as it was when something last came in.
+    pub(crate) now: Now,
     pub(crate) notice: Option<(Notice, Instant)>,
     /// The letter a list last jumped to, shown large for a moment.
     pub(crate) letter: Option<(char, Instant)>,
     /// The key down: tapped, held or repeating.
     pub(crate) keys: Keys<Key>,
+    /// The buttons down, read into keys.
+    controller: Controller,
+    /// When the last button came, for the performance log's trace of them.
+    last_input: Option<Instant>,
     pub(crate) pocket: PocketLock,
-    pub(crate) lyrics: lyrics::SongLyrics,
+    /// The lyrics of the song playing and the next, read ahead; and the song the lyrics were
+    /// last shown for, to start a new one's from the top.
+    lyrics: ReadAhead<Option<Lyrics>>,
+    lyrics_for: Option<TrackId>,
     /// The chapters of the book's part playing and the next, read ahead.
     chapters: ReadAhead<Vec<Chapter>>,
     /// The songs played last.
@@ -114,11 +153,18 @@ pub struct Music {
 impl Music {
     /// `art_px` is the size album pictures are shrunk to.
     pub fn spawn(root: &Path, art_px: u32) -> Music {
-        Music::with_player(root, art_px, Handle::slot)
+        let start: Start = Box::new(|| Box::new(Handle::slot()));
+        Music::with(root, art_px, start, Box::new(system_now))
     }
 
-    /// As `spawn`, playing through what `start` starts.
-    pub(crate) fn with_player(root: &Path, art_px: u32, start: fn() -> Handle) -> Music {
+    /// As `spawn`, playing through what `start` starts, its time from `clock`.
+    pub(crate) fn with(
+        root: &Path,
+        art_px: u32,
+        start: Start,
+        clock: Box<dyn Fn() -> Now>,
+    ) -> Music {
+        let now = clock();
         let engine = start();
         let store = Store::open(root);
         let settings = store.settings();
@@ -151,6 +197,7 @@ impl Music {
             shell: Shell {
                 engine,
                 start,
+                clock,
                 store,
                 worker: Worker::spawn(art_px),
                 perf: settings.perf.then(|| perf::PerfLog::start(root)),
@@ -162,12 +209,16 @@ impl Music {
             settings,
             gone: false,
             generation: 0,
+            now,
             notice: None,
             letter: None,
             keys: Keys::default(),
+            controller: Controller::default(),
+            last_input: None,
             pocket: PocketLock::default(),
-            lyrics: Default::default(),
-            chapters: ReadAhead::new(2),
+            chapters: ReadAhead::default(),
+            lyrics: ReadAhead::default(),
+            lyrics_for: None,
             recent: Recent::default(),
             last_error: None,
             dark: false,
@@ -177,10 +228,20 @@ impl Music {
     /// Once a frame: what came in, then what plays on of itself. Idle, with nothing playing,
     /// fading, timed or held, only the pictures go on.
     pub fn poll(&mut self, game: bool) {
+        // The frame's own time, for the perf log; the state's, read once.
         let began = Instant::now();
+        self.stamp();
+        let (status, inbox) = (self.shell.engine.status(), self.inbox());
+        self.frame(status, inbox, game);
+        self.run();
+        self.note_frame(began);
+    }
+
+    /// A frame of the state, given what came in: the player as it is now, and the messages.
+    /// It asks the world only by `Effect`, which `poll` then carries out.
+    fn frame(&mut self, status: slot_player::Status, inbox: Vec<Msg>, game: bool) {
         // Where the player is, read rather than told.
-        self.player.observe(self.shell.engine.status());
-        let inbox = self.inbox();
+        self.player.observe(status, self.now.at);
         let quiet = inbox.is_empty() && self.idle();
         for msg in inbox {
             self.update(msg);
@@ -203,8 +264,6 @@ impl Music {
         if !self.dark {
             self.show_art(game);
         }
-        self.run();
-        self.note_frame(began);
     }
 
     /// While the performance log runs: how long this frame took, and what was shown.
@@ -213,11 +272,17 @@ impl Music {
             return;
         };
         perf.stats.poll.add(began.elapsed());
+        // The song playing by its file, to tell which a cost went with.
+        let song = self
+            .player
+            .current()
+            .and_then(|t| self.library.tracks[t].path.file_name());
         let what = format!(
-            "{:?} {:?}{}",
+            "{:?} {:?}{} {}",
             self.browser.view(),
             self.player.state(),
-            if self.dark { " dark" } else { "" }
+            if self.dark { " dark" } else { "" },
+            song.map(|f| f.to_string_lossy()).unwrap_or_default()
         );
         *perf
             .stats
@@ -242,7 +307,13 @@ impl Music {
 
     /// What came in since the last frame.
     fn inbox(&mut self) -> Vec<Msg> {
-        let mut inbox: Vec<Msg> = self.shell.engine.events().map(Msg::Player).collect();
+        let mut inbox: Vec<Msg> = self
+            .shell
+            .engine
+            .events()
+            .into_iter()
+            .map(Msg::Player)
+            .collect();
         while let Some(rx) = &self.scan.rx {
             match rx.try_recv() {
                 Ok(found) => inbox.push(Msg::Library(found)),
@@ -259,7 +330,7 @@ impl Music {
     fn idle(&self) -> bool {
         self.player.state() != PlayState::Playing
             && self.transport.fade.is_none()
-            && self.transport.sleep.left().is_none()
+            && self.transport.sleep.left(self.now.at).is_none()
             && !self.keys.held()
             && !self.pocket.buzzing()
     }
@@ -273,6 +344,7 @@ impl Music {
                     self.chapters.put(track, chapters);
                     self.read_chapters();
                 }
+                Done::Lyrics(track, lyrics) => self.lyrics.put(track, lyrics),
                 done => self.on_art(done),
             },
             Msg::Worker(..) => {}
@@ -315,6 +387,15 @@ impl Music {
             match effect {
                 Effect::Player(command) => {
                     eprintln!("slot: music: {command:?}");
+                    if let (
+                        Some(perf),
+                        Command::Play { .. } | Command::Cue { .. } | Command::Next(Some(_)),
+                    ) = (&shell.perf, &command)
+                    {
+                        perf.stats
+                            .opened
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                     shell.engine.send(command);
                 }
                 Effect::Restart => shell.engine = (shell.start)(),
@@ -355,7 +436,7 @@ impl Music {
 
     /// Shows `notice` in the corner for a moment. Nothing for the player.
     fn tell(&mut self, notice: Notice) -> Option<Command> {
-        self.notice = Some((notice, Instant::now()));
+        self.notice = Some((notice, self.now.at));
         None
     }
 
@@ -392,7 +473,7 @@ impl Music {
             lib: &self.library,
             queue: self.player.queue(),
             settings: self.settings,
-            sleep: self.transport.sleep.left(),
+            sleep: self.transport.sleep.left(self.now.at),
             shelf: &self.books.shelf,
             book: self.book().map(|(b, _)| b),
             back: self.books.back.map(|s| s.pos),
@@ -400,330 +481,20 @@ impl Music {
             recent: &self.recent.tracks,
             last_error: self.last_error.as_deref(),
             shuffled: self.player.shuffled(),
+            now: self.now.at,
         }
+    }
+
+    /// Reads the time, as something comes in: the only place the state learns it.
+    pub(crate) fn stamp(&mut self) {
+        self.now = (self.shell.clock)();
     }
 
     /// Songs the scan has gone through, of those it found.
     pub(crate) fn reading(&self) -> (usize, usize) {
-        use std::sync::atomic::Ordering::Relaxed;
-        (
-            self.scan.progress.done.load(Relaxed),
-            self.scan.progress.of.load(Relaxed),
-        )
+        self.scan.progress.get()
     }
-}
-
-pub(crate) fn seed() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(1, |d| d.as_nanos() as u64)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::library::AlbumId;
-    use crate::library::BookId;
-    use crate::playback::fade::Fade;
-    use crate::playback::fade::Fading;
-    use crate::playback::queue::Queue;
-    use slot_player::Status;
-    use std::time::Duration;
-
-    /// Each buzz, as the settings have it by default.
-    const BUZZ: Duration = Duration::from_millis(250);
-
-    /// An output that plays nothing, so no test touches a sound device.
-    struct Silent;
-
-    impl slot_player::Output for Silent {
-        fn write(&mut self, _: &[f32]) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn delay(&mut self) -> u64 {
-            0
-        }
-
-        fn flush(&mut self) {}
-
-        fn release(&mut self) {}
-    }
-
-    fn music(root: &Path) -> Music {
-        Music::with_player(root, 64, || Handle::on(Silent))
-    }
-
-    #[test]
-    fn a_book_the_sleep_timer_stops_goes_back_two_minutes() {
-        let d = tempfile::tempdir().unwrap();
-        let book = d.path().join("Audiobooks/Kipling - Just So/01 whale.mp3");
-        std::fs::create_dir_all(book.parent().unwrap()).unwrap();
-        std::fs::write(&book, b"").unwrap();
-        let mut music = music(d.path());
-        music.library = Library::scan(d.path());
-        let parts = music.library.albums[music.library.books[0].album]
-            .tracks
-            .clone();
-        music
-            .player
-            .play(&music.library, Queue::new(parts, 0, None));
-        music.player.observe(Status {
-            state: PlayState::Playing,
-            at: 300.0,
-            len: 600.0,
-        });
-        music.transport.fade = Some(Fade::new(1.0, Fading::Asleep, Duration::ZERO));
-        music.tick();
-        assert_eq!(music.player.time().0, 180.0);
-        assert!(music.transport.fade.is_none(), "once");
-    }
-
-    #[test]
-    fn a_book_playing_through_update_library_plays_on_as_music_does() {
-        let d = tempfile::tempdir().unwrap();
-        for f in [
-            "Audiobooks/Kipling - Just So/01 whale.mp3",
-            "Music/X/A/01 one.mp3",
-        ] {
-            let path = d.path().join(f);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, b"").unwrap();
-        }
-        let mut music = music(d.path());
-        music.on_found(Found::Fresh(Library::scan(d.path()), Vec::new()));
-        let play = music.play_book(BookId(0), false);
-        music.send(play);
-        music.player.observe(Status {
-            state: PlayState::Playing,
-            at: 1.0,
-            len: 60.0,
-        });
-        music.run();
-        music.rescan(false);
-        music.on_found(Found::Fresh(Library::scan(d.path()), Vec::new()));
-        assert!(music.book().is_some(), "the book is back");
-        assert_eq!(music.player.state(), PlayState::Playing, "and plays on");
-        let stops = music
-            .out
-            .iter()
-            .any(|e| matches!(e, Effect::Player(Command::Stop)));
-        assert!(!stops, "the player is not stopped");
-    }
-
-    #[test]
-    fn each_part_of_a_book_has_its_chapters_asked_for_once_however_it_is_reached() {
-        let d = tempfile::tempdir().unwrap();
-        for part in ["01 one.m4b", "02 two.m4b"] {
-            let path = d.path().join("Audiobooks/Wilde - Tales").join(part);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, b"").unwrap();
-        }
-        let mut music = music(d.path());
-        music.on_found(Found::Fresh(Library::scan(d.path()), Vec::new()));
-        let play = music.play_book(BookId(0), false);
-        music.send(play);
-        let asked = |music: &Music| {
-            let jobs = music.out.iter().filter_map(|e| match e {
-                Effect::Work(_, Job::Chapters { track, .. }) => Some(*track),
-                _ => None,
-            });
-            jobs.collect::<Vec<_>>()
-        };
-        music.read_chapters();
-        music.read_chapters();
-        let parts = music.library.albums[music.library.books[0].album]
-            .tracks
-            .clone();
-        assert_eq!(
-            asked(&music),
-            parts,
-            "this part's and the next's, read ahead, once"
-        );
-        // On into the next part as the first runs out, as a gapless book goes.
-        music.player.on(
-            &music.library,
-            Event::End(music.library.tracks[parts[0]].path.clone()),
-        );
-        music.read_chapters();
-        assert_eq!(asked(&music), parts, "the next part's already asked");
-        let chapters = vec![Chapter {
-            start: 0.0,
-            title: "One".into(),
-        }];
-        music.player.set_chapters(parts[1], chapters);
-        assert_eq!(music.player.chapters(), 1, "there as the part plays");
-    }
-
-    #[test]
-    fn a_song_s_lyrics_are_read_as_it_shows_once_and_the_hint_follows() {
-        let d = tempfile::tempdir().unwrap();
-        for song in ["01 one.mp3", "02 two.mp3"] {
-            let path = d.path().join("Music/X/A").join(song);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, b"").unwrap();
-        }
-        let lrc = d.path().join("Music/X/A/01 one.lrc");
-        std::fs::write(&lrc, "[00:01.00]Hello").unwrap();
-        let mut music = music(d.path());
-        music.on_found(Found::Fresh(Library::scan(d.path()), Vec::new()));
-        let tracks = music.library.albums[AlbumId(0)].tracks.clone();
-        let play = music
-            .player
-            .play(&music.library, Queue::new(tracks, 0, None));
-        music.send(play);
-        music.browser.push(crate::browse::View::NowPlaying, 0);
-        music.read_lyrics();
-        assert!(
-            music.lyrics_now().is_some(),
-            "read at once, beside the song"
-        );
-        std::fs::remove_file(&lrc).unwrap();
-        music.read_lyrics();
-        assert!(music.lyrics_now().is_some(), "once a song: not read again");
-        music.player.skip(&music.library, 1);
-        music.read_lyrics();
-        assert!(music.lyrics_now().is_none(), "the next has none");
-    }
-
-    #[test]
-    fn a_player_started_again_is_one_the_shell_was_given() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static STARTS: AtomicUsize = AtomicUsize::new(0);
-        fn counted() -> Handle {
-            STARTS.fetch_add(1, Ordering::Relaxed);
-            Handle::on(Silent)
-        }
-        let d = tempfile::tempdir().unwrap();
-        let mut music = Music::with_player(d.path(), 64, counted);
-        music.gone = true;
-        music.send(Some(Command::Resume));
-        music.run();
-        assert_eq!(
-            STARTS.load(Ordering::Relaxed),
-            2,
-            "the first, then one more like it"
-        );
-    }
-
-    #[test]
-    fn with_the_screen_off_no_lyrics_or_pictures_are_read() {
-        let d = tempfile::tempdir().unwrap();
-        let song = d.path().join("Music/X/A/01 one.mp3");
-        std::fs::create_dir_all(song.parent().unwrap()).unwrap();
-        std::fs::write(&song, b"").unwrap();
-        let mut music = music(d.path());
-        music.on_found(Found::Fresh(Library::scan(d.path()), vec![AlbumId(0)]));
-        let tracks = music.library.albums[AlbumId(0)].tracks.clone();
-        let play = music
-            .player
-            .play(&music.library, Queue::new(tracks, 0, None));
-        music.send(play);
-        music.browser.push(crate::browse::View::NowPlaying, 0);
-        music.set_dark(true);
-        music.out.clear();
-        music.poll(false);
-        let work = music.out.iter().any(|e| matches!(e, Effect::Work(..)));
-        assert!(!work, "nothing read for a screen that is off");
-    }
-
-    #[test]
-    fn the_performance_log_runs_only_while_it_is_on() {
-        let d = tempfile::tempdir().unwrap();
-        let mut music = music(d.path());
-        assert!(music.shell.perf.is_none(), "off by default: nothing kept");
-        music.out.push(Effect::PerfLog(true));
-        music.run();
-        assert!(music.shell.perf.is_some());
-        music.poll(false);
-        let kept = &music.shell.perf.as_ref().unwrap().stats;
-        assert!(!kept.what.lock().unwrap().is_empty(), "the frame noted");
-        music.out.push(Effect::PerfLog(false));
-        music.run();
-        assert!(music.shell.perf.is_none());
-    }
-
-    #[test]
-    fn a_player_gone_is_started_again_to_play() {
-        let d = tempfile::tempdir().unwrap();
-        let mut music = music(d.path());
-        music.send(Some(Command::Resume));
-        let restarts = |m: &Music| m.out.iter().any(|e| matches!(e, Effect::Restart));
-        assert!(
-            !restarts(&music),
-            "up from the start, before it first answers"
-        );
-        music.out.clear();
-        music.gone = true;
-        music.send(Some(Command::Pause));
-        assert!(!music.out.iter().any(|e| matches!(e, Effect::Restart)));
-        music.send(Some(Command::Resume));
-        assert!(music.out.iter().any(|e| matches!(e, Effect::Restart)));
-        assert!(!music.gone, "started again");
-    }
-
-    #[test]
-    fn what_the_state_asks_waits_for_the_shell_and_nothing_is_asked_twice() {
-        let d = tempfile::tempdir().unwrap();
-        let mut music = music(d.path());
-        music.tell_sound();
-        let told = music.out.len();
-        assert!(told > 0, "the sound, once");
-        music.tell_sound();
-        assert_eq!(music.out.len(), told, "not again while it stands");
-        music.run();
-        assert!(music.out.is_empty(), "carried out");
-    }
-
-    /// A held pocket combo, waited out as the frame loop would.
-    fn hold_combo(music: &mut Music, first: Key, second: Key) {
-        music.press(first);
-        music.press(second);
-        std::thread::sleep(Duration::from_millis(600));
-        music.poll(false);
-        music.release(Some(second));
-        music.release(Some(first));
-    }
-
-    #[test]
-    fn the_pocket_combo_held_locks_the_keys_with_a_buzz_and_held_again_unlocks_them() {
-        let d = tempfile::tempdir().unwrap();
-        let mut music = music(d.path());
-        hold_combo(&mut music, Key::R1, Key::L1);
-        assert!(music.pocket.locked, "either order");
-        assert_eq!(music.rumble(), Some(u16::MAX), "a buzz says so");
-        assert_eq!(music.rumble(), None, "told once");
-        assert_eq!(
-            music.screen().corner,
-            "Locked",
-            "and the corner, while it lasts"
-        );
-        assert!(!music.press(Key::B), "locked, the keys do nothing");
-        music.release(Some(Key::B));
-        std::thread::sleep(BUZZ);
-        assert_eq!(music.rumble(), Some(0), "then the motor stops");
-        std::thread::sleep(BUZZ);
-        assert_eq!(music.rumble(), None, "once, to lock");
-        hold_combo(&mut music, Key::L2, Key::R2);
-        assert!(!music.pocket.locked, "either combo unlocks");
-        // Twice, to unlock.
-        let mut pattern = Vec::new();
-        for _ in 0..16 {
-            pattern.extend(music.rumble());
-            std::thread::sleep(BUZZ / 3);
-        }
-        assert_eq!(pattern, [u16::MAX, 0, u16::MAX, 0], "twice, to unlock");
-        // A lock lasts only as long as the screen is off.
-        hold_combo(&mut music, Key::L1, Key::R1);
-        music.set_dark(true);
-        music.set_dark(false);
-        assert!(!music.pocket.locked, "the lid opened unlocks");
-        // The screen going off forgets the keys held: one alone is no combo after.
-        music.press(Key::L1);
-        music.set_dark(true);
-        music.press(Key::R1);
-        std::thread::sleep(Duration::from_millis(600));
-        music.poll(false);
-        assert!(!music.pocket.locked);
-    }
-}
+mod tests;

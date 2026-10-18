@@ -3,8 +3,7 @@
 //! SELECT opens the queue. The back buttons carry the transport: L1 and R1 change track, as
 //! Left and Right do, and L2 and R2 seek. An audiobook has its own, in `book`.
 
-use super::{Body, Legend, NowPlayingBody, Screen, Status};
-use crate::browse::keys::Mode;
+use super::{Body, NowPlayingBody, Screen, Status};
 use crate::browse::{Browser, Context, Key, Outcome, View};
 use crate::settings::Setting;
 use crate::{text, Music};
@@ -12,15 +11,6 @@ use slot_player::PlayState;
 
 /// Seconds a seek moves.
 pub(crate) const SEEK_S: i32 = 10;
-
-/// Left and Right, L1 and R1, and L2 and R2 each act tapped, as they let go, and seek held, on
-/// and on: alike, and so the first of a pocket combo does nothing.
-pub(crate) fn mode(key: Key) -> Mode {
-    match key {
-        Key::Left | Key::Right | Key::L1 | Key::R1 | Key::L2 | Key::R2 => Mode::HoldRepeat,
-        _ => Mode::Once,
-    }
-}
 
 /// Held, the back keys seek back, the on keys on.
 pub(crate) fn held(key: Key) -> Outcome {
@@ -92,7 +82,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
             repeat: player.repeat(),
             shuffled: player.shuffled(),
             favorite: lib.is_favorite(track),
-            sleeping: music.transport.sleep.left().is_some(),
+            sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
         progress: (len > 0.0).then(|| (bar / len).clamp(0.0, 1.0) as f32),
         marks: Vec::new(),
@@ -106,10 +96,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
     };
     Screen::new(
         text::NOW_PLAYING,
-        Legend::NowPlaying {
-            playing,
-            lyrics: music.lyrics_now().is_some(),
-        },
+        super::legend(&music.browser, &music.context()),
         Body::NowPlaying(body),
     )
 }

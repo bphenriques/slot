@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use slot_gfx::{Canvas, Layout, OUT_H, OUT_W};
 use slot_input::{Action, Btn, MENU_DOUBLE_TAP_MS, MUTE_CHORD_MS};
-use slot_music::Music;
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
@@ -16,9 +15,9 @@ use slot_ui::{
     board_from, board_x, board_zoom, draw_empty_slot, draw_footer, draw_ground, draw_slot_name,
     draw_sticker, ease, footer_ink, grown, lid_at, lid_from, lift_of, on_board, repeat_gap,
     shelf_cart_at, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis,
-    MusicFaces, Placed, Polaroids, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf,
-    SlotChrome, TexId, Toast, BOARD_W, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, FOOTER_Y, HINT_EDGE,
-    HINT_H, HOP_LIFT, REPEAT_DELAY_MS, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W,
+    Placed, Polaroids, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome,
+    TexId, Toast, BOARD_W, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, FOOTER_Y, HINT_EDGE, HINT_H,
+    HOP_LIFT, REPEAT_DELAY_MS, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W,
     TURN_PAD,
 };
 
@@ -409,8 +408,8 @@ pub struct App {
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
     state_writer: crate::state_writer::StateWriter,
-    music: Option<Music>,
-    music_faces: MusicFaces,
+    music: Option<slot_music::Music>,
+    music_faces: slot_ui::MusicFaces,
     music_on_wake: bool,
 }
 
@@ -557,7 +556,7 @@ impl App {
             last_led: None,
             powering_off: false,
             music: None,
-            music_faces: MusicFaces::default(),
+            music_faces: slot_ui::MusicFaces::default(),
             music_on_wake: false,
         }
     }
@@ -569,7 +568,7 @@ impl App {
         crate::boot_time::mark("scan");
         let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
-        app.music = Some(Music::spawn(root, slot_ui::ART_BOX));
+        app.music = Some(slot_music::Music::spawn(root, slot_ui::ART_BOX));
         app.state = read_slot_state(root);
         app.radio.ask(RadioJob::Home(app.state.home_wifi_enabled));
         app.restock_recents();
@@ -1803,9 +1802,7 @@ impl App {
 
     pub fn poweroff(&mut self) {
         self.settle_saves();
-        if let Some(music) = &mut self.music {
-            music.flush();
-        }
+        self.flush_music();
         if let Some(power) = &mut self.power {
             power.poweroff();
         }
@@ -1933,7 +1930,6 @@ impl App {
             }
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::Music => self.music_input(action),
-            Phase::Doze { .. } => self.music_dark_input(action),
             _ => {}
         }
     }
@@ -3000,21 +2996,7 @@ impl App {
                 draw_sticker(self.canvas(), self.sticker_face, out);
                 return;
             }
-            Phase::Music => {
-                slot_ui::draw_music(&self.music_faces, out);
-                if self.music_faces.clock {
-                    let (battery, percent) = (self.battery, self.battery_percent);
-                    let (bolt, clock) = (self.bolt, self.shelf_clock);
-                    slot_ui::draw_music_clock(
-                        &self.music_faces,
-                        battery,
-                        percent,
-                        bolt,
-                        clock,
-                        out,
-                    );
-                }
-            }
+            Phase::Music => self.draw_music(out),
             Phase::Inserting { cart, resumed, .. } => {
                 if !resumed {
                     self.draw_background(out);

@@ -19,12 +19,12 @@ pub struct ChapterAt<'a> {
 const ASKED_FOR: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// A place the music asked the player for: where, the length to show meanwhile, the length the
-/// player had then, and when.
+/// player had then, and since when: the first frame after, so asking needs no clock.
 struct Asked {
     at: f64,
     len: f64,
     heard_len: f64,
-    since: std::time::Instant,
+    since: Option<std::time::Instant>,
 }
 
 /// Tracks the player failed on in a row before the queue stops rather than skipping on.
@@ -172,6 +172,8 @@ impl Player {
     }
 
     /// Whether a restored queue waits to be resumed.
+    // Kept as one of the player's primitives, as the owner chose, though only the tests ask.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn resumable(&self) -> bool {
         self.resume_at.is_some()
     }
@@ -205,13 +207,14 @@ impl Player {
         }
     }
 
-    /// The player as it is now, read each frame. What it was told stands until it is there:
+    /// The player as it is `now`, read each frame. What it was told stands until it is there:
     /// near the place asked, a new file open, or a moment gone by.
-    pub fn observe(&mut self, status: Status) {
-        if let Some(asked) = &self.asked {
+    pub fn observe(&mut self, status: Status, now: std::time::Instant) {
+        if let Some(asked) = &mut self.asked {
+            let since = *asked.since.get_or_insert(now);
             let there = (status.at - asked.at).abs() < 1.0
                 || status.len != asked.heard_len
-                || asked.since.elapsed() >= ASKED_FOR;
+                || now.saturating_duration_since(since) >= ASKED_FOR;
             if there {
                 self.asked = None;
             }
@@ -236,7 +239,7 @@ impl Player {
             at,
             len,
             heard_len: self.heard.len,
-            since: std::time::Instant::now(),
+            since: None,
         });
     }
 
@@ -251,10 +254,10 @@ impl Player {
         self.state == PlayState::Playing
     }
 
-    /// Whether the player may still be sounding, until it confirms a stop or pause. The codec keeps
-    /// the music's level until then.
+    /// Whether the player may still be sounding: until the device has faded out and been let
+    /// go, not only told to pause. The codec keeps the music's level until then.
     pub fn audible(&self) -> bool {
-        self.owns_audio() || self.heard.state == PlayState::Playing
+        self.owns_audio() || self.heard.sounding
     }
 
     pub fn speed(&self) -> f32 {
@@ -380,6 +383,8 @@ impl Player {
         })
     }
 
+    /// Stops, the queue kept: a primitive kept as the owner chose, though only the tests ask.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn stop(&mut self) -> Option<Command> {
         self.queue = Queue::default();
         self.resume_at = None;

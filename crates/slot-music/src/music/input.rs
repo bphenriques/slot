@@ -1,19 +1,50 @@
-//! Keys as they go down and up: the pocket combo first, then the key as the screen shown, or
-//! the dark, has it act.
+//! The controller's buttons as they go down and up: read into keys, the pocket combo and
+//! SELECT's skips among them, then each key acting as the screen shown, or the dark, has it.
 
+use super::controller::{Input, Read};
 use super::Music;
 use crate::browse::keys::Mode;
-use crate::browse::Key;
+use crate::browse::{Key, View};
 use crate::screens;
 
 impl Music {
-    /// `key` went down; true when it leaves the music screen. Some keys wait to see whether
-    /// they are held, and some repeat.
-    pub fn press(&mut self, key: Key) -> bool {
-        // The second key of the pocket combo makes the two one, the first's doing forgotten.
-        if self.pocket.press(self.settings.pocket, key) {
+    /// A button went down or up; true when it leaves the music screen. Some keys wait to see
+    /// whether they are held, some act as they are let go, and some repeat.
+    pub fn input(&mut self, input: Input) -> bool {
+        self.stamp();
+        // The pocket combo is for a pocket: Now Playing, or the lid closed; elsewhere the
+        // shoulders are a list's.
+        let pocket = self.settings.pocket && (self.dark || self.browser.view() == View::NowPlaying);
+        let read = self.controller.read(input, pocket);
+        // With the performance log on, each button as it came and as it was read, to see the
+        // device's own order and timing.
+        if self.shell.perf.is_some() {
+            let gap = self
+                .last_input
+                .map(|at| self.now.at.saturating_duration_since(at));
+            eprintln!("slot: music: {input:?} read as {read:?}, {gap:?} after the last");
+        }
+        self.last_input = Some(self.now.at);
+        let leaves = match read {
+            Some(Read::Press(key)) => self.press(key),
+            Some(Read::Release(key)) => self.release(key),
+            None => false,
+        };
+        self.run();
+        leaves
+    }
+
+    /// Every button let go, as the music screen is left: none of them does anything more.
+    pub fn let_go(&mut self) {
+        self.controller.forget();
+        self.keys.cancel();
+    }
+
+    fn press(&mut self, key: Key) -> bool {
+        // The second of the pocket combo makes the two one, the first's doing forgotten.
+        if key == Key::Pocket {
             self.keys.cancel();
-            self.keys.press(Key::Pocket, Mode::Hold);
+            self.keys.press(Key::Pocket, Mode::Hold, self.now.at);
             return false;
         }
         // Locked, only the combo acts.
@@ -21,46 +52,34 @@ impl Music {
             return false;
         }
         let mode = match self.dark {
-            true => screens::dark::mode(key),
+            true => screens::binds::mode(&screens::binds::dark(), key),
             false => self.browser.mode(&self.context(), key),
         };
-        let leaves = self
-            .keys
-            .press(key, mode)
-            .is_some_and(|press| self.act(press));
-        self.run();
-        leaves
+        self.keys
+            .press(key, mode, self.now.at)
+            .is_some_and(|press| self.act(press))
     }
 
-    /// `key` went up, or with `None`, every key, as the music screen is left; true when a tap
-    /// leaves the music screen.
-    pub fn release(&mut self, key: Option<Key>) -> bool {
-        let Some(key) = key else {
-            self.pocket.forget();
-            self.keys.cancel();
-            return false;
-        };
-        self.pocket.release(key);
-        // Either key of the combo let go ends it, tapped if it was not held.
+    /// Either key of the combo let go ends it, tapped if it was not held.
+    fn release(&mut self, key: Key) -> bool {
         let press = self
             .keys
             .release(Key::Pocket)
             .or_else(|| self.keys.release(key));
-        let leaves = press.is_some_and(|press| self.act(press));
-        self.run();
-        leaves
+        press.is_some_and(|press| self.act(press))
     }
 
     /// How strong the motor should be, when that changes.
     pub fn rumble(&mut self) -> Option<u16> {
-        self.pocket.rumble()
+        self.stamp();
+        self.pocket.rumble(self.now.at)
     }
 
     /// The screen went off or on: off, only the shoulders act, as a closed lid leaves them.
     pub fn set_dark(&mut self, dark: bool) {
+        self.stamp();
         self.dark = dark;
-        self.keys.cancel();
-        self.pocket.forget();
+        self.let_go();
         // A lock is for the pocket: the lid opened, the keys are back.
         if !dark {
             self.pocket.locked = false;

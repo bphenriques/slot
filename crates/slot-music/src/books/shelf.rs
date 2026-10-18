@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::library::{BookId, Library};
 
@@ -78,6 +78,7 @@ impl Shelf {
     }
 
     /// An empty shelf: for screens shown without a card.
+    #[cfg(test)]
     pub fn none() -> &'static Shelf {
         static NONE: Shelf = Shelf::new();
         &NONE
@@ -141,21 +142,17 @@ impl Shelf {
 
     /// Whether the shelf changed and is due a write: at once, or, while a book plays `on`, now
     /// and then.
-    pub fn due(&mut self, on: bool) -> bool {
-        let due = !on || self.written.is_none_or(|at| at.elapsed() >= EVERY);
+    pub fn due(&mut self, on: bool, now: Instant) -> bool {
+        let due = !on
+            || self
+                .written
+                .is_none_or(|at| now.saturating_duration_since(at) >= EVERY);
         if !self.dirty || !due {
             return false;
         }
-        (self.dirty, self.written) = (false, Some(Instant::now()));
+        (self.dirty, self.written) = (false, Some(now));
         true
     }
-}
-
-/// Seconds since 1970, for when a book was last listened to.
-pub fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]
@@ -164,15 +161,21 @@ mod tests {
 
     #[test]
     fn a_book_playing_is_written_down_each_minute_and_a_pause_at_once() {
+        let t0 = Instant::now();
         let mut shelf = Shelf::new();
         shelf.dirty = true;
-        assert!(shelf.due(true), "the first time, at once");
+        assert!(shelf.due(true, t0), "the first time, at once");
         shelf.dirty = true;
-        assert!(!shelf.due(true), "then not within the minute");
-        shelf.written = Instant::now().checked_sub(EVERY);
-        assert!(shelf.due(true), "a minute on");
+        assert!(
+            !shelf.due(true, t0 + EVERY / 2),
+            "then not within the minute"
+        );
+        assert!(shelf.due(true, t0 + EVERY), "a minute on");
         shelf.dirty = true;
-        assert!(shelf.due(false), "paused, at once");
-        assert!(!shelf.due(false), "nothing changed, nothing to write");
+        assert!(shelf.due(false, t0 + EVERY), "paused, at once");
+        assert!(
+            !shelf.due(false, t0 + EVERY),
+            "nothing changed, nothing to write"
+        );
     }
 }

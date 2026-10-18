@@ -5,23 +5,14 @@
 //! and Y marks the moment, or held lists the bookmarks. SELECT lists the chapters; START's menu
 //! has them, the bookmarks, the speed and the sleep timer.
 
-use super::{list, now_playing, Body, Legend, NowPlayingBody, Screen, Status};
+use super::{list, now_playing, Body, NowPlayingBody, Screen, Status};
 use crate::books;
-use crate::browse::keys::Mode;
 use crate::browse::rows::Row;
 use crate::browse::{Browser, Context, Key, Outcome, View};
 use crate::library::{BookId, TrackId};
 use crate::playback::player::Repeat;
 use crate::{text, Music};
 use slot_player::PlayState;
-
-/// As music's: Left and Right step tapped and seek held. Y waits to see whether it is held.
-pub(crate) fn mode(key: Key) -> Mode {
-    match key {
-        Key::Y => Mode::Hold,
-        key => now_playing::mode(key),
-    }
-}
 
 /// Left and Right held seek; Y held lists the bookmarks, as it adds one tapped.
 pub(crate) fn held(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
@@ -114,7 +105,7 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
             repeat: Repeat::Off,
             shuffled: false,
             favorite: false,
-            sleeping: music.transport.sleep.left().is_some(),
+            sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
         progress: (end > start).then(|| ((pos - start) / (end - start)).clamp(0.0, 1.0) as f32),
         marks,
@@ -129,10 +120,7 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
     };
     Screen::new(
         text::NOW_PLAYING,
-        Legend::Book {
-            playing,
-            jump: music.settings.jump,
-        },
+        super::legend(&music.browser, &music.context()),
         Body::NowPlaying(body),
     )
 }
@@ -142,9 +130,9 @@ pub(crate) fn list(music: &Music) -> Screen {
     match music.browser.view() {
         View::Bookmarks(book) => match music.books.shelf.bookmarks(&music.library, book) {
             [] => Screen::message(text::BOOKMARKS, text::NO_BOOKMARKS),
-            _ => list::rows_screen(music, |_| Legend::Bookmarks),
+            _ => list::rows_screen(music),
         },
         _ if music.book().is_none() => Screen::message(text::NOW_PLAYING, text::NOTHING_PLAYING),
-        _ => list::rows_screen(music, |_| Legend::Chapters),
+        _ => list::rows_screen(music),
     }
 }

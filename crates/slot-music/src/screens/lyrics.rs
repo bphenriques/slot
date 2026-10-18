@@ -5,25 +5,15 @@
 
 use std::time::{Duration, Instant};
 
-use super::{now_playing, Body, Legend, Screen, TextBody};
-use crate::browse::keys::Mode;
+use super::{now_playing, Body, Screen, TextBody};
 use crate::browse::{Browser, Context, Key, LyricsAt, Outcome};
 
 use crate::{text, Music};
-use slot_player::PlayState;
 
 /// How long lyrics scrolled by hand stay where they were left before they follow the song.
 const FOLLOW_AFTER: Duration = Duration::from_secs(4);
 
 /// Up and Down scroll, on and on held; the rest act as on Now Playing.
-pub(crate) fn mode(key: Key) -> Mode {
-    match key {
-        Key::Up | Key::Down => Mode::Repeat,
-        Key::X => Mode::Once,
-        key => now_playing::mode(key),
-    }
-}
-
 pub(crate) fn held(key: Key) -> Outcome {
     now_playing::held(key)
 }
@@ -35,7 +25,7 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
             Outcome::None
         }
         // Scrolled to a line of timed lyrics, A plays from it, as Apple Music and Spotify do.
-        Key::A if cx.lyrics.timed && !following(b) => {
+        Key::A if cx.lyrics.timed && !following(b, cx.now) => {
             b.scrolled = None;
             Outcome::FromLine(b.at())
         }
@@ -45,7 +35,7 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
                 return Outcome::None;
             }
             // From the line in the middle: the one sung, unless scrolled to another.
-            let from = match following(b) {
+            let from = match following(b, cx.now) {
                 true => sung.unwrap_or(0),
                 false => b.at(),
             };
@@ -54,16 +44,17 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
                 _ => (from + 1).min(lines - 1),
             };
             b.set_at(to);
-            b.scrolled = Some(Instant::now());
+            b.scrolled = Some(cx.now);
             Outcome::None
         }
         key => now_playing::press(b, cx, key),
     }
 }
 
-/// Whether the lyrics follow the song: not scrolled by hand a moment ago.
-fn following(b: &Browser) -> bool {
-    b.scrolled.is_none_or(|at| at.elapsed() >= FOLLOW_AFTER)
+/// Whether the lyrics follow the song `now`: not scrolled by hand a moment ago.
+pub(crate) fn following(b: &Browser, now: Instant) -> bool {
+    b.scrolled
+        .is_none_or(|at| now.saturating_duration_since(at) >= FOLLOW_AFTER)
 }
 
 pub(crate) fn screen(music: &Music) -> Screen {
@@ -75,7 +66,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
         return Screen::message(&title, text::NO_LYRICS);
     };
     let LyricsAt { sung, .. } = music.lyrics_at();
-    let focus = match following(&music.browser) && lyrics.timed() {
+    let focus = match following(&music.browser, music.now.at) && lyrics.timed() {
         true => sung.unwrap_or(0),
         false => music.browser.at(),
     };
@@ -85,7 +76,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
         lit: lyrics.timed().then_some(sung),
         focus,
     };
-    let playing = music.player.state() == PlayState::Playing;
-    let line = lyrics.timed() && !following(&music.browser);
-    Screen::new(title, Legend::Lyrics { playing, line }, Body::Text(body))
+    let legend = super::legend(&music.browser, &music.context());
+    Screen::new(title, legend, Body::Text(body))
 }

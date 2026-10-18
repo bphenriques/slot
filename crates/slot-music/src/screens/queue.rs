@@ -3,9 +3,7 @@
 //! or takes it out, as in every list, and held lifts it to carry with Up and Down, as a long press
 //! drags a row on a phone, until Y puts it down (R1 puts it next, B back).
 
-use super::{list, Body, Legend, Screen};
-use crate::browse::keys::Mode;
-use crate::browse::rows::Row;
+use super::{list, Body, Screen};
 use crate::browse::{Browser, Context, Key, Outcome, QueueView};
 use crate::{text, Music};
 
@@ -15,15 +13,6 @@ const RUN: usize = 20;
 
 /// A and Y wait to see whether they are held; A not on the track playing, which it starts over
 /// at once. X repeats, as the moving keys do.
-pub(crate) fn mode(cx: &Context, i: usize, key: Key) -> Mode {
-    match key {
-        Key::A if i == cx.queue.at => Mode::Once,
-        Key::A | Key::Y => Mode::Hold,
-        key if key == Key::X || list::repeats(key) => Mode::Repeat,
-        _ => Mode::Once,
-    }
-}
-
 /// The keys a queued track takes tapped; the rest move through the list.
 pub(crate) fn press(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Option<Outcome> {
     match key {
@@ -94,15 +83,11 @@ pub(crate) fn screen(music: &Music) -> Screen {
         return Screen::message(text::QUEUE, text::QUEUE_EMPTY);
     }
     // A on the track playing starts it over, and says so.
-    let at = music.player.queue().at;
-    let mut screen = list::rows_screen(music, |row| match row {
-        Some(Row::Queued(i)) => Legend::Queue { restart: i == at },
-        _ => Legend::Back,
-    });
-    // The carried track's highlight is lifted, with the hints for putting it down.
+    let _at = music.player.queue().at;
+    let mut screen = list::rows_screen(music);
+    // The carried track's highlight is lifted; its legend says how to put it down.
     if let (Some(_), Body::List(list)) = (music.browser.carry, &mut screen.body) {
         list.lifted = true;
-        screen.legend = Legend::Carry;
     }
     screen
 }

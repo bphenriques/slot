@@ -1,5 +1,5 @@
 //! The worker: one thread, at low priority, for what reads or writes the card slowly and would
-//! hold up a frame: album pictures and a book's chapters. Each job carries the
+//! hold up a frame: album pictures, a song's lyrics and a book's chapters. Each job carries the
 //! library's generation, so what comes back from before a rescan is dropped.
 
 use std::collections::VecDeque;
@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use crate::books::chapters::{self, Chapter};
 use crate::library::covers::{self, Art, Make};
 use crate::library::{AlbumId, TrackId};
+use crate::lyrics::{self, Lyrics};
 
 pub(crate) enum Job {
     /// Make an album's label.
@@ -17,6 +18,8 @@ pub(crate) enum Job {
     Load { album: AlbumId, label: PathBuf },
     /// Read a book's part's chapters, an MP4's own or an MP3's.
     Chapters { track: TrackId, path: PathBuf },
+    /// Read a song's lyrics, from an `.lrc` beside it or its tags.
+    Lyrics { track: TrackId, path: PathBuf },
 }
 
 pub(crate) enum Done {
@@ -24,6 +27,8 @@ pub(crate) enum Done {
     /// An album's picture, or none: it has no picture, or no label yet.
     Loaded(AlbumId, Option<Art>),
     Chapters(TrackId, Vec<Chapter>),
+    /// A song's lyrics, or none: it has none.
+    Lyrics(TrackId, Option<Lyrics>),
 }
 
 pub(crate) struct Worker {
@@ -106,6 +111,7 @@ fn work(job: Job, px: u32) -> Done {
         }
         Job::Load { album, label } => Done::Loaded(album, covers::load(album, &label, px)),
         Job::Chapters { track, path } => Done::Chapters(track, chapters::read(&path)),
+        Job::Lyrics { track, path } => Done::Lyrics(track, lyrics::read(&path)),
     }
 }
 

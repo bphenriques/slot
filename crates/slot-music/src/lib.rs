@@ -1,43 +1,46 @@
-//! slot's music and audiobook player: everything it does, and every screen as data, with no
-//! drawing. `Music` is what slot holds; the rest is what it is made of.
+//! The music and audiobook player's behaviour, without drawing: what slot sees of it is its face,
+//! `Music`. Buttons go in as `Input`; each frame a `Screen` comes out, plain data the kit draws,
+//! with the album picture (`Art`) and how strong the motor should be. All else is the crate's own.
 
-pub mod books;
+mod books;
 mod browse;
 mod library;
-pub mod lyrics;
+mod lyrics;
 mod music;
 mod playback;
 mod screens;
 mod settings;
-pub mod store;
+mod store;
 pub mod text;
 
-pub use books::Chapter;
-pub use browse::keys::{Mode, Press};
-pub use browse::rows::{rows, Info, Row, RowIcon, RowText};
-pub use browse::{
-    per_page, Browser, Context, Key, LyricsAt, Outcome, Page, QueueView, Shuffle, View, MENU_ROWS,
-};
+pub use browse::rows::{RowIcon, RowText};
 pub use library::covers::Art;
-pub use library::playlists::Playlist;
-pub use library::scan::{cached as cached_library, scan as scan_library, Progress, CACHE_FILE};
-pub use library::tags::Tags;
-pub use library::{
-    track_number, track_title, Album, AlbumId, Artist, ArtistId, Book, BookId, Library, Record,
-    Track, TrackId, BOOKS_DIR, MUSIC_DIR,
-};
-pub use music::Music;
-pub use playback::player::{ChapterAt, Player, Repeat};
-pub use playback::queue::Queue;
-pub use playback::recent::Recent;
+pub use library::AlbumId;
+pub use music::{Button, Input, Music};
+pub use playback::player::Repeat;
 pub use screens::{
-    Body, Legend, ListBody, MainHold, NowPlayingBody, Screen, Status, Target, TextBody,
+    Body, Hold, Legend, ListBody, MainHold, NowPlayingBody, Screen, Status, Target, TextBody,
 };
-pub use settings::{cycle, ListSize, Setting, Settings, Theme};
-pub use slot_player::{Command, Event, Handle, PlayState, Status as PlayerStatus};
+pub use settings::Theme;
 
-/// Lowers this thread's priority (Linux niceness is per thread), so the player and the UI go
-/// first.
+// What the tests of the parts reach for, from the crate's root.
+#[cfg(test)]
+pub(crate) use {
+    browse::keys::Mode,
+    browse::rows::{rows, Row},
+    browse::{BookList, Browser, Context, Key, LyricsAt, Outcome, Page, QueueView, Shuffle, View},
+    library::scan::{cached as cached_library, scan as scan_library, Progress, CACHE_FILE},
+    library::tags::Tags,
+    library::{track_number, track_title, BookId, Library, Record, TrackId},
+    playback::player::Player,
+    playback::queue::Queue,
+    settings::{cycle, ListSize, Setting, Settings},
+    slot_player::{Command, Event, PlayState, Status as PlayerStatus},
+};
+
+#[cfg(test)]
+mod tests;
+
 pub(crate) fn background() {
     #[cfg(target_os = "linux")]
     unsafe {

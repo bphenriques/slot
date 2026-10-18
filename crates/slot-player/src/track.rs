@@ -1,5 +1,6 @@
-//! A file as the writer reads it: decoded, brought to the device's stereo at 48 kHz with a
-//! resampler as fine as a 64-tap sinc filter, and played at its speed, its pitch kept.
+//! A file as the writer reads it: decoded, brought to the device's stereo at the rate it plays
+//! at (its own, unless the device will not take it), with a resampler as fine as a 64-tap sinc
+//! filter where that is another, and played at its speed, its pitch kept.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -10,23 +11,23 @@ use rodio::{Decoder, Source};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
 
-use crate::engine::{CHANNELS, RATE};
+use crate::engine::CHANNELS;
 use crate::level::{Gains, Leveling};
 use crate::stretch::Stretch;
 
 /// Frames decoded at a time.
 const BLOCK: usize = 1024;
 /// Below this a frame is silent, about -50 dB; past this much of it in a row, a pause in a
-/// book, the rest is skipped when asked.
+/// book (a quarter of a second), the rest is skipped when asked.
 const SILENT: f32 = 0.003;
-const PAUSE_KEPT: usize = RATE as usize / 4;
 const STEREO: usize = CHANNELS as usize;
 
 pub struct Track {
     decoder: Decoder<BufReader<File>>,
     /// The file's channels, of which the first two are played; a mono file on both sides.
     channels: usize,
-    /// For a file not at the device's rate.
+    /// The rate it plays at, and the resampler for a file not at it.
+    rate: u32,
     resampler: Option<Fft<f32>>,
     /// How fast it plays, and the stretch that does it for a speed other than 1.
     speed: f32,
@@ -54,13 +55,14 @@ pub struct Track {
 }
 
 impl Track {
-    /// `path` from `at` seconds in, at `speed`, leveled as asked; and how long it is, 0 when that
-    /// is not known.
+    /// `path` from `at` seconds in, at `speed`, leveled as asked, played at the rate `rate` gives
+    /// for the file's own; and how long it is, 0 when that is not known.
     pub fn open(
         path: &Path,
         at: f64,
         speed: f32,
         leveling: Leveling,
+        rate: impl FnOnce(u32) -> u32,
     ) -> Result<(Track, f64), String> {
         let file = File::open(path).map_err(|e| e.to_string())?;
         let mut decoder = Decoder::try_from(file).map_err(|e| e.to_string())?;
@@ -68,16 +70,18 @@ impl Track {
         if at > 0.0 {
             decoder.try_seek(secs(at)).map_err(|e| e.to_string())?;
         }
-        let rate = decoder.sample_rate().get();
-        let resampler = match rate == RATE {
+        let own = decoder.sample_rate().get();
+        let rate = rate(own);
+        let resampler = match own == rate {
             true => None,
-            false => Some(resampler(rate)?),
+            false => Some(resampler(own, rate)?),
         };
         // Its tags are read only when leveled: most play as recorded.
         let gains = (leveling != Leveling::Off).then(|| Gains::read(path));
         let mut track = Track {
             channels: usize::from(decoder.channels().get()),
             decoder,
+            rate,
             resampler,
             speed,
             stretch: None,
@@ -107,6 +111,11 @@ impl Track {
         Ok(())
     }
 
+    /// The rate it plays at, frames a second.
+    pub fn rate(&self) -> u32 {
+        self.rate
+    }
+
     pub fn set_skip_silence(&mut self, on: bool) {
         self.skip_silence = on;
     }
@@ -119,7 +128,7 @@ impl Track {
     /// Seconds of the file left to play, as heard at its speed; none when its length is not
     /// known.
     pub fn left(&self) -> Option<f64> {
-        let at = self.from + self.played as f64 * f64::from(self.speed) / f64::from(RATE);
+        let at = self.from + self.played as f64 * f64::from(self.speed) / f64::from(self.rate);
         (self.len > 0.0).then(|| (self.len - at).max(0.0) / f64::from(self.speed))
     }
 
@@ -141,7 +150,7 @@ impl Track {
         if let Some(r) = &mut self.resampler {
             r.reset();
         }
-        self.stretch = (self.speed != 1.0).then(|| Stretch::new(RATE, CHANNELS, self.speed));
+        self.stretch = (self.speed != 1.0).then(|| Stretch::new(self.rate, CHANNELS, self.speed));
         self.ready.clear();
         self.at = 0;
         self.ended = false;
@@ -198,13 +207,15 @@ impl Track {
         !self.ready.is_empty()
     }
 
-    /// Drops from `ready` what goes on past [`PAUSE_KEPT`] of silence, counting it as played.
+    /// Drops from `ready` what goes on past a quarter of a second of silence, counting it as
+    /// played.
     fn skip_pauses(&mut self, ready: &mut Vec<f32>) {
+        let pause_kept = self.rate as usize / 4;
         let mut kept = 0;
         for i in (0..ready.len()).step_by(STEREO) {
             let silent = ready[i].abs() < SILENT && ready[i + 1].abs() < SILENT;
             self.quiet = if silent { self.quiet + 1 } else { 0 };
-            if self.quiet > PAUSE_KEPT {
+            if self.quiet > pause_kept {
                 self.skipped += 1;
                 self.played += 1;
                 continue;
@@ -234,11 +245,11 @@ impl Track {
     }
 }
 
-/// A resampler from `rate` to the device's: FFT-based, as fine as a 64-tap sinc filter for
+/// A resampler from `rate` to `to`: FFT-based, as fine as a 64-tap sinc filter for
 /// the one ratio a file has, at a fraction of the work. Its blocks are a whole number of the
 /// ratio's input steps (147 frames from 44.1 kHz), or it converts at a ratio a little off.
-fn resampler(rate: u32) -> Result<Fft<f32>, String> {
-    let (rate, to) = (rate as usize, RATE as usize);
+fn resampler(rate: u32, to: u32) -> Result<Fft<f32>, String> {
+    let (rate, to) = (rate as usize, to as usize);
     let step = rate / gcd(rate, to);
     let block = BLOCK.div_ceil(step) * step;
     Fft::new(rate, to, block, STEREO, FixedSync::Input).map_err(|e| e.to_string())

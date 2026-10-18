@@ -32,7 +32,6 @@ pub(super) fn faces(
     let action_px = music_action_px(body.menu, body.per_page) as u32;
     let width = music_text_width(false, canvas);
     let hearts: Vec<bool> = body.rows.iter().map(|r| r.favorite).collect();
-    let opens: Vec<bool> = body.rows.iter().map(|r| r.opens).collect();
     let head = body.rows.iter().take_while(|r| r.action).count();
     let value_w = music_title_w(false, canvas);
     let mut values = Vec::with_capacity(body.values.len());
@@ -58,10 +57,10 @@ pub(super) fn faces(
             (true, true) => Ink::Dim,
             (false, _) => Ink::Lit,
         };
-        // Text stops short of its heart or ›, and of its value: a long chapter of its length.
+        // Text stops short of its heart, and of its value: a long chapter of its length.
         let value = values.get(i).copied().flatten().filter(|v| v.1 > 0);
         let value = value.map_or(0, |(_, w, _)| w + VALUE_GAP);
-        let marked = u32::from(row.favorite || row.opens);
+        let marked = u32::from(row.favorite);
         let width = width - marked * MUSIC_HEART_ROOM - value;
         let spec = Spec::Row { text: row, ink, px };
         let scroll = (body.readonly || i == selected).then_some(scroll);
@@ -88,9 +87,6 @@ pub(super) fn faces(
         lifted: body.lifted,
         hearts,
         heart,
-        // The settings' right caret, dim: a page opens on the right.
-        arrow: opens.contains(&true).then_some(glyphs.carets[1]),
-        opens,
     }
 }
 

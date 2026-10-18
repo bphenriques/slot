@@ -64,8 +64,11 @@ pub(super) fn faces(
         half,
         None,
     );
+    // Up Next scrolls on a clock of its own: a new next track, as a shuffle deals one, starts
+    // from its beginning rather than wherever the title has got to.
     let next = body.next.and_then(|next| {
         let wide = music_text_width(false, canvas);
+        let scroll = Some(text.next_scroll.ms((None, next.clone()), now));
         text.lines
             .sync(compositor, text.theme, 5, Spec::small(next), wide, scroll)
     });

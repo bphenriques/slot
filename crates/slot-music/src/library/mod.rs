@@ -6,12 +6,13 @@
 pub mod covers;
 pub mod playlists;
 pub mod scan;
+pub mod sort;
 pub mod tags;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use slot_store::sort_key;
+use crate::library::sort::sort_key;
 
 use crate::library::playlists::Playlist;
 
@@ -201,6 +202,7 @@ impl Library {
     }
 
     /// Reads the card afresh, every song's tags and none from the cache.
+    #[cfg(test)]
     pub fn scan(root: &Path) -> Library {
         crate::library::scan::scan(root, true, &crate::library::scan::Progress::default()).0
     }
@@ -357,11 +359,6 @@ impl Library {
                 secs: secs.sum(),
             });
         }
-    }
-
-    /// The book track `t` is a part of, if any.
-    pub fn book_of(&self, t: TrackId) -> Option<&Book> {
-        self.books.get(self.tracks.get(t.0)?.book?.0)
     }
 
     /// Every song, artist by artist, as Artists plays them; a book's parts are not songs.

@@ -70,13 +70,13 @@ pub use link_art::{
     NET_W, NET_X, NET_Y, PLUG_H, PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
 };
 pub use music::{
-    draw_music, draw_music_clock, marquee_offset, music_action_px, music_caret_face, music_eased,
-    music_heart_face, music_hint_face, music_letter_face, music_line_face, music_moon_face,
-    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_row_px,
-    music_status_face, music_text_width, music_tint, music_tint_ink, music_title_w, music_window,
-    BodyFaces, Ink, LineInk, ListFaces, MusicFace, MusicFaces, MusicMotion, MusicTheme, MusicTint,
-    MusicTween, NowPlayingFaces, TextFaces, ART_BOX, MUSIC_ART_MS, MUSIC_GLIDE_MS,
-    MUSIC_HEART_ROOM, MUSIC_SLIDE_MS, MUSIC_STATUS,
+    draw_music, draw_music_clock, marquee_offset, music_action_px, music_cap_ring_face,
+    music_caret_face, music_eased, music_heart_face, music_hint_face, music_letter_face,
+    music_line_face, music_moon_face, music_paragraph_face, music_ring_face, music_row_face,
+    music_row_heart_face, music_row_px, music_status_face, music_text_width, music_tint,
+    music_tint_ink, music_title_w, music_window, BodyFaces, Ink, LineInk, ListFaces, MusicFace,
+    MusicFaces, MusicMotion, MusicTheme, MusicTint, MusicTween, NowPlayingFaces, TextFaces,
+    ART_BOX, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_HEART_ROOM, MUSIC_SLIDE_MS, MUSIC_STATUS,
 };
 pub use plate::{
     arrows_hint_coloured, arrows_hint_face, arrows_hint_width, cap_width, centred_hints,

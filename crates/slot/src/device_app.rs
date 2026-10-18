@@ -90,6 +90,7 @@ pub fn run() {
     let mut pacer = FramePacer::new(Instant::now());
     let (mut frames, mut steps) = (0u32, 0u32);
     let mut said = Instant::now();
+    let mut rested = false;
     loop {
         let deadline = pacer.deadline(frontend.frame_clock(), Instant::now());
         if let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -110,6 +111,11 @@ pub fn run() {
             if !pacer.stepped(frontend.frame_clock(), Instant::now()) || !completed {
                 break;
             }
+        }
+        // The lid closed, once its black frame is up nothing more is drawn until it opens.
+        let resting = frontend.app().resting();
+        if std::mem::replace(&mut rested, resting) && resting {
+            continue;
         }
         frontend.render(&mut compositor, window);
         let swap = Instant::now();

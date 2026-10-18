@@ -3,7 +3,7 @@
 
 use super::slot::{
     arrows_hint_coloured, arrows_hint_width, blit, cap_width, draw_centred, fit, hint_coloured,
-    hint_width, label_font, line_width, render_svg, symbols_font, UndoFace, MENU_H, MENU_PAD,
+    hint_width, label_font, line_width, render_svg, symbols_font, UndoFace, CAP, MENU_H, MENU_PAD,
     MENU_PX,
 };
 use super::{
@@ -221,6 +221,43 @@ pub fn music_ring_face(done: f32, ink: [u8; 3], theme: &MusicTheme) -> UndoFace 
     }
 }
 
+/// How far a hint's ring sits outside its key cap, and how round its corners are.
+pub(super) const CAP_RING_GAP: u32 = 4;
+const CAP_RING_RADIUS: f32 = 8.0;
+
+/// The ring that fills around a hint's key cap as the key is held, round from the top: a
+/// rounded outline just outside the cap (`key`'s, or the arrows' for `None`), its track `faint`,
+/// the part held `done` (0 to 1) in `ink`.
+pub fn music_cap_ring_face(
+    key: Option<&str>,
+    done: f32,
+    ink: [u8; 3],
+    theme: &MusicTheme,
+) -> UndoFace {
+    let caps = match key {
+        Some(key) => cap_width(key),
+        None => arrows_hint_width("") - (hint_width("A", "") - cap_width("A")),
+    };
+    let (w, h) = (caps + 2 * CAP_RING_GAP, CAP + 2 * CAP_RING_GAP);
+    let (hw, hh) = (w as f32 / 2.0, h as f32 / 2.0);
+    let r = CAP_RING_RADIUS.min(hh);
+    let mut rgba = vec![0; (w * h * 4) as usize];
+    for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+        let (x, y) = (
+            (i as u32 % w) as f32 + 0.5 - hw,
+            (i as u32 / w) as f32 + 0.5 - hh,
+        );
+        // How far outside the rounded outline's edge, negative within.
+        let (qx, qy) = (x.abs() - (hw - 0.5) + r, y.abs() - (hh - 0.5) + r);
+        let edge = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r;
+        let cover = (0.5 - edge).min(edge + RING_STROKE + 0.5).clamp(0.0, 1.0);
+        let turn = ((x / hw).atan2(-y / hh) / std::f32::consts::TAU).rem_euclid(1.0);
+        px[..3].copy_from_slice(if turn <= done { &ink } else { &theme.faint });
+        px[3] = (cover * 255.0).round() as u8;
+    }
+    UndoFace { rgba, w, h }
+}
+
 /// A button hint in the theme: slot's, with its key caps filled in `lit` and lettered in the
 /// ground, so they read on a light screen too. `None` is the Left and Right arrows.
 pub fn music_hint_face(key: Option<&str>, label: &str, theme: &MusicTheme) -> UndoFace {
@@ -350,6 +387,23 @@ fn padded(parts: &[UndoFace]) -> UndoFace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cap_s_ring_sits_just_outside_it_and_fills_from_the_top() {
+        let theme = MusicTheme::dark();
+        let ink = [0xff, 0, 0];
+        let ring = music_cap_ring_face(Some("START"), 0.1, ink, &theme);
+        let gap = 2 * CAP_RING_GAP;
+        assert_eq!((ring.w, ring.h), (cap_width("START") + gap, CAP + gap));
+        let px = |x: u32, y: u32| &ring.rgba[((y * ring.w + x) * 4) as usize..][..4];
+        assert_eq!(px(ring.w / 2 + 1, 1)[..3], ink, "begun at the top");
+        assert_eq!(px(ring.w / 2 - 2, 1)[..3], theme.faint, "and not yet round");
+        assert_eq!(
+            px(ring.w / 2, ring.h / 2)[3],
+            0,
+            "the cap itself left clear"
+        );
+    }
 
     #[test]
     fn the_heart_and_moon_are_drawn_as_tall_as_the_state_symbols() {

@@ -37,6 +37,11 @@ impl Motion {
         self.shown = None;
     }
 
+    /// How long the screen shown has been up, for a title too long for the header to scroll.
+    pub fn up_for(&self, now: Millis) -> Millis {
+        now.saturating_sub(self.entered.since)
+    }
+
     /// A screen is shown. A new one slides in: deeper from the right, back from the left.
     pub fn show(&mut self, screen: &Screen, now: Millis) {
         let key = (screen.title.clone(), screen.depth);

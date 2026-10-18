@@ -203,7 +203,9 @@ impl Session {
         let mut actions = Vec::new();
         let latched = self.gestures.ff_latched();
         for ev in events {
-            actions.extend(self.gestures.feed(ev, now));
+            if !self.app.music_button(ev) {
+                actions.extend(self.gestures.feed(ev, now));
+            }
         }
         actions.extend(self.gestures.tick(now));
         if !latched && self.app.in_game_menu().is_some() {
