@@ -121,14 +121,13 @@ when the book ends, or when you play music.
 
 ## Pocket mode
 
-Any two of L1, R1, L2 and R2 held together (a side's pair squeezed with one finger, or one on
-each side), unless Pocket Lock in Music Settings is Off, work on Now Playing
-and with the screen off; on lists the shoulders stay the letter jump. Tapped, they play or pause (locked, nothing: a squeeze in a pocket changes
-nothing); held until the corner ring closes, they
-lock the music's other keys, so nothing changes in a pocket, or unlock them; turning the screen
-on (opening the lid) unlocks them too. A lock buzzes once and an unlock
-twice, 120 ms each (Pocket Vibration), and the corner says Locked or Unlocked. On their own, the shoulders and
-triggers act as they are let go, so the first of the two pressed does nothing.
+Any two of L1, R1, L2 and R2 held together until the corner ring closes (a side's pair squeezed
+with one finger, or one on each side), on Now Playing or with the screen off, lock the music's
+other keys, so nothing changes in a pocket, or unlock them; turning the screen on (opening the
+lid) unlocks them too. Pocket Lock in Music Settings turns it off; on lists the shoulders stay the
+letter jump. A lock buzzes once and an unlock twice, 120 ms each (Pocket Vibration), and the
+corner says Locked or Unlocked. Tapped together, they do nothing; on their own, the shoulders and
+triggers act as they are let go, so the first of the two pressed does nothing either.
 
 ## Screen off
 
@@ -137,8 +136,8 @@ the lid, so a trigger plays and pauses in its place, as a headphone's button doe
 
 | Button | Tapped | Held |
 |---|---|---|
-| L1 / R1 | Previous / next song; in an audiobook, the chapter. | Seek back / on. |
-| L2 / R2 | Play / pause, as it is let go. | |
+| L1 / R1 | Previous / next song; in an audiobook, jump back / on as far as Jump Length, to hear again what was missed. | Seek back / on. |
+| L2 / R2 | Play / pause, as it is let go. | In an audiobook, a bookmark here, a buzz to say so. |
 
 Paused or stopped, slot powers off after its screen-off time.
 

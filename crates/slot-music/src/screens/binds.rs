@@ -53,7 +53,7 @@ fn acting(bind: Bind, mode: Mode) -> Bind {
 /// Up and Down, and in a list Left and Right and the shoulders: they move, again and again.
 const MOVES: [Key; 2] = [Key::Up, Key::Down];
 const PAGES: [Key; 4] = [Key::Left, Key::Right, Key::L1, Key::R1];
-/// The back keys on Now Playing: tapped, they skip or jump; held, they seek.
+/// The back keys on Now Playing and the lyrics: tapped, they skip or jump; held, they seek.
 const BACK_KEYS: [Key; 6] = [Key::Left, Key::Right, Key::L1, Key::R1, Key::L2, Key::R2];
 
 /// The keys of `legend`'s screen, hinted ones in the order their hints show.
@@ -157,10 +157,7 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
             };
             let mut binds = vec![tap(Key::A, a), tap(Key::X, Word::Close)];
             binds.extend(repeat(&MOVES));
-            binds.extend(
-                [Key::Left, Key::Right, Key::L1, Key::R1, Key::L2, Key::R2]
-                    .map(|k| quiet(k, Mode::HoldRepeat)),
-            );
+            binds.extend(BACK_KEYS.map(|k| quiet(k, Mode::HoldRepeat)));
             binds
         }
         // Left and Right jump, as the arrows say; X steps the speed, which START's menu sets
@@ -236,14 +233,15 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
 }
 
 /// With the lid closed, the keys it leaves: the shoulders, which seek held, and the triggers,
-/// which play or pause as they are let go, so either may yet be one of the two that lock; the
-/// rest do nothing, and nothing is hinted.
-pub(crate) fn dark() -> Vec<Bind> {
+/// which play or pause as they are let go, so either may yet be one of the two that lock; in a
+/// `book`, held, they mark the moment. The rest do nothing, and nothing is hinted.
+pub(crate) fn dark(book: bool) -> Vec<Bind> {
+    let trigger = if book { Mode::Hold } else { Mode::Release };
     vec![
         quiet(Key::L1, Mode::HoldRepeat),
         quiet(Key::R1, Mode::HoldRepeat),
-        quiet(Key::L2, Mode::Release),
-        quiet(Key::R2, Mode::Release),
+        quiet(Key::L2, trigger),
+        quiet(Key::R2, trigger),
     ]
 }
 
@@ -266,7 +264,8 @@ mod tests {
             .into_iter()
             .map(|legend| (format!("{legend:?}"), binds(legend)))
             .collect();
-        all.push(("the lid closed".into(), dark()));
+        all.push(("the lid closed".into(), dark(false)));
+        all.push(("the lid closed on a book".into(), dark(true)));
         all
     }
 
@@ -284,7 +283,11 @@ mod tests {
     fn a_hint_says_a_hold_only_of_a_key_that_holds_and_a_key_that_holds_says_so() {
         // Held anywhere, as CONTROLS.md has it: B goes home, START pauses or plays.
         let everywhere = [Key::B, Key::Start];
-        for (name, binds) in tables() {
+        // With the lid closed nothing is seen, so nothing is hinted; CONTROLS.md says it.
+        let lit = tables()
+            .into_iter()
+            .filter(|(name, _)| !name.starts_with("the lid"));
+        for (name, binds) in lit {
             for bind in binds {
                 let holds = matches!(bind.mode, Mode::Hold | Mode::HoldRepeat);
                 let said = bind.hint.and_then(|(_, held)| held);

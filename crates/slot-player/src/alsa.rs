@@ -30,6 +30,10 @@ const FADE: usize = RATE as usize / 100;
 const FADE_OUT: usize = RATE as usize * 3 / 100;
 /// How much of what was written is kept, to fade out from: all the device can hold.
 const KEPT: usize = RATE as usize / 2 * CHANNELS as usize;
+/// How long a paused device goes on silence before it is let go. The RG SP's speaker
+/// amplifier switches off with the device, heard as a click however quietly the sound ended; kept
+/// a while, a pause and play again within it is never heard so.
+const KEPT_PAUSED: std::time::Duration = std::time::Duration::from_secs(3);
 /// How much silence a paused device is given at a time: 50 ms, so playing on waits no longer.
 const IDLE: usize = RATE as usize / 20;
 
@@ -343,6 +347,10 @@ impl Output for Alsa {
             unsafe { (self.prepare)(pcm) };
             self.fade_in = FADE;
         }
+    }
+
+    fn kept_paused(&self) -> std::time::Duration {
+        KEPT_PAUSED
     }
 
     fn hush(&mut self) {

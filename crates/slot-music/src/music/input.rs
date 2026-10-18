@@ -52,7 +52,10 @@ impl Music {
             return false;
         }
         let mode = match self.dark {
-            true => screens::binds::mode(&screens::binds::dark(), key),
+            true => {
+                let book = self.context().book.is_some();
+                screens::binds::mode(&screens::binds::dark(book), key)
+            }
             false => self.browser.mode(&self.context(), key),
         };
         self.keys

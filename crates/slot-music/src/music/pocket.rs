@@ -1,6 +1,6 @@
-//! The pocket combo, which the controller reads (two shoulders or two triggers together): tapped,
-//! play or pause; held, lock the music's other keys, so nothing changes in a pocket; the motor buzzes once to say a
-//! lock and twice an unlock, as phones and earbuds do.
+//! The pocket combo, which the controller reads (any two of the shoulders and triggers together):
+//! held, it locks the music's other keys, so nothing changes in a pocket; the motor buzzes once to
+//! say a lock and twice an unlock, as phones and earbuds do, and once for a bookmark made unseen.
 
 use std::time::{Duration, Instant};
 
@@ -20,8 +20,13 @@ impl PocketLock {
     /// unlock.
     pub fn toggle(&mut self, buzz: bool, now: Instant) {
         self.locked ^= true;
+        self.buzz(buzz, if self.locked { 1 } else { 2 }, now);
+    }
+
+    /// Buzzes `times` from `now`, when `buzz`: to say what was done unseen.
+    pub fn buzz(&mut self, buzz: bool, times: u32, now: Instant) {
         if buzz {
-            self.buzz = Some((now, if self.locked { 1 } else { 2 }));
+            self.buzz = Some((now, times));
         }
     }
 

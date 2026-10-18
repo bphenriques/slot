@@ -244,6 +244,10 @@ impl Output for Told {
         self.tell("flush");
     }
 
+    fn kept_paused(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+
     fn hush(&mut self) {
         self.tell("hush");
     }

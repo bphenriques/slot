@@ -31,9 +31,7 @@ pub const CHANNELS: u16 = 2;
 const CHUNK: usize = 4096;
 /// How long the device is kept after the last sound, for a file that follows to go on in.
 const RELEASE_AFTER: Duration = Duration::from_millis(500);
-/// How long a paused device goes on silence before it is let go, so a pause is not heard as the
-/// speaker's amplifier switching off; and how often it is given more meanwhile.
-const KEEP_PAUSED: Duration = Duration::from_secs(3);
+/// How often a paused device kept on silence is given more.
 const HUSH_STEP: Duration = Duration::from_millis(25);
 /// Room left at the top, as players leave it, for a resampled peak to go over the samples': 2 dB.
 const HEADROOM: f32 = 0.794_328;
@@ -49,8 +47,13 @@ pub trait Output: Send + 'static {
     fn delay(&mut self) -> u64;
     /// Drops what is still to be heard: a pause or a skip is heard at once.
     fn flush(&mut self);
-    /// Paused: fades out what is still to be heard and goes on silence, the device kept, until
-    /// the next write or [`Output::release`]. A device with nothing to keep flushes.
+    /// How long the device is kept on silence after a pause before it is let go: none, unless
+    /// letting it go is heard.
+    fn kept_paused(&self) -> Duration {
+        Duration::ZERO
+    }
+    /// Paused, where the device is kept: fades out what is still to be heard and goes on
+    /// silence until the next write or [`Output::release`].
     fn hush(&mut self) {
         self.flush();
     }
@@ -571,12 +574,15 @@ impl<O: Output> Writer<O> {
         (self.sounding, self.queued, self.sampled, self.hushed) = (false, 0, None, None);
     }
 
-    /// Paused: what was to be heard fades out, and the device, if open, goes on silence a while.
+    /// Paused: what was to be heard fades out, and the device, if open and one to keep, goes on
+    /// silence a while; else it is let go.
     fn hush(&mut self) {
-        if self.sounding {
-            self.output.hush();
-            self.hushed = Some(Instant::now() + KEEP_PAUSED);
+        let keep = self.output.kept_paused();
+        if !self.sounding || keep.is_zero() {
+            return self.release();
         }
+        self.output.hush();
+        self.hushed = Some(Instant::now() + keep);
         (self.queued, self.sampled) = (0, None);
     }
 

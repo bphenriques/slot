@@ -19,8 +19,9 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 | `crates/slot/src/music_faces`, `crates/slot/src/app/music.rs` | The frontend glue: textures, animation (`motion.rs`), input routing. |
 | `music/` | `CONTROLS.md` (every button, keep it current), `music.txt.example`. |
 
-Upstream files touched: `crates/slot/src/app.rs`, `session.rs`, `crates/slot-ui/src/lib.rs`,
-`quick_menu.rs`, `taskfile.yml`, `README.md`, `RELEASE_NOTES.md`. Keep those diffs small.
+Upstream files touched: `task footprint` lists them, as changed from upstream's. Keep those
+diffs small. `crates/slot/src/audio/line_out.rs` is ours, new beside upstream's sound: the codec's
+level following music's fades.
 
 ## Set up
 
@@ -83,7 +84,7 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
   work only while playing; measure before and after (see Status).
 - Editing with scripts: no Python on the host; with perl, `\|` in a `|`-delimited regex is an
   alternation (use `~`), `'` comes out literally from heredoc variables (fix with
-  `sed -i "s/\\\'/'/g"`), and check a temp file with `test -s` before copying it over.
+  `sed -i "s/\'/'/g"`), and check a temp file with `test -s` before copying it over.
 
 ## Git
 
@@ -92,20 +93,36 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 - Never push or tag without an explicit go. The version is `v1.7.0-bphenriques.1`.
 - `stash@{0}` is old music work from before the v1.7.0 merge; drop it once happy.
 
+## Device quirks
+
+What the RG SP (H700, BaseOS) does that another device may not, each met where it is, named
+there, and found from the logs on the card rather than guessed. None is a build setting: the
+device build is plain release, and these are the hardware's and BaseOS's.
+
+| Quirk | Seen as | Met in |
+|---|---|---|
+| The speaker's amplifier switches off with the sound device, heard as a click however quietly the sound ends. | A click on every pause, the fade-out logged clean each time. | `slot-player/src/alsa.rs`, `KEPT_PAUSED`: a pause keeps the device on silence 3 s. |
+| BaseOS has no mixer: one opener of the codec at a time. | slot's own sound busy while music plays, and the other way round. | Music owns the device while it plays and lets it go after (`MIXER.md` for the plan beyond). |
+| The device takes 44.1 kHz as well as 48 kHz. | "sound at 44100 Hz" in `slot.log`. | `Output::set_rate`: a file plays at its own rate, resampled only when refused. |
+| The place the device says it is at moves in steps, behind what it is reading. | A click when all it held was taken back. | `alsa.rs`, `taken_back`: 50 ms is left to play out. |
+| The codec's level is `lineout volume` on `hw:0`, 0 to 31 at 1.5 dB a step, as plorpOS found. | Music played straight to the codec, at slot's volume. | `slot/src/audio/line_out.rs`, followed through music's fades. |
+| Two shoulders squeezed together come in as one moment, in either order. | The button trace with the performance log on. | `music/controller.rs`: any two of them are the pocket combo. |
+
+A device after this one gets its own row, and its own answer where the row says.
+
 ## Status and what is left
 
-Everything below the last commit (`cb2326e`) is uncommitted: the music overhaul, audiobooks,
-`slot-player`. Next steps, in order:
+Everything is committed up to `acbac22`. Measured on the device (`Logs/music-perf.log`): playing
+a 44.1 kHz file the player is ~4% of a core; with the lid closed, ~7% playing and ~2% paused;
+Now Playing lit, ~22% (the frame ~9%, the GPU driver ~8%). Next, in order:
 
-1. On the device: speaker, Bluetooth headphones, a game while paused (the
-   device hand-over: BaseOS has no mixer, one opener at a time), a gapless album, Volume
-   Leveling, Mono, a book at 1.5x, seeking in an `.m4b`, a damaged file.
-2. Measure CPU on the device (`top` while playing; Muse, the player before, was ~1% of a core). On
-   the laptop: decode 1090x real time, decode + resample 669x, at 1.5x 432x.
-3. Then commit (per the rule above). Muse is gone; a card from before keeps an unused
-   `System/muse/` and `System/muse.sh`, safe to delete.
-4. Release notes and licences: SoundTouch's is in `licenses/`; list rodio, symphonia, rubato
+1. Draw only what changed: the lit screens are most of the cost, and are drawn whole each frame.
+2. Phase 2, the mixer (`music/MIXER.md`).
+3. Release notes and licences: SoundTouch's is in `licenses/`; list rodio, symphonia, rubato
    and lofty with the other third-party crates.
+
+A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to
+delete.
 
 Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; Bluetooth output is whatever ALSA's
 `default` is (no device choice yet); the old keys in the card's `music.txt` (`skip`, `rows`,

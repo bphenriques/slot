@@ -18,15 +18,10 @@ impl Music {
     /// A key tapped or held: what it does on the screen shown. True when it leaves the music
     /// screen.
     pub(crate) fn act(&mut self, press: Press<Key>) -> bool {
-        // The pocket combo: tapped, play or pause, unless locked, when nothing may change in a
-        // pocket; held, lock or unlock.
+        // The pocket combo held locks or unlocks; tapped, it does nothing, as a key alone plays or
+        // pauses.
         match press {
-            Press::Tap(Key::Pocket) if self.pocket.locked => return false,
-            Press::Tap(Key::Pocket) => {
-                let toggle = self.toggle();
-                self.send(toggle);
-                return false;
-            }
+            Press::Tap(Key::Pocket) => return false,
             Press::Held(Key::Pocket) => {
                 self.pocket.toggle(self.settings.pocket_buzz, self.now.at);
                 self.tell(Notice::Locked(self.pocket.locked));
@@ -39,7 +34,10 @@ impl Music {
         let outcome = {
             let cx = self.context();
             match (self.dark, press) {
-                (true, press) => screens::dark::act(press),
+                (true, press) => {
+                    let jump = cx.book.map(|_| cx.settings.jump as i32);
+                    screens::dark::act(press, jump)
+                }
                 (false, Press::Tap(key)) => browser.press(&cx, key),
                 (false, Press::Held(key)) => browser.held(&cx, key),
             }
@@ -75,7 +73,13 @@ impl Music {
             }
             Outcome::Speed(by) => self.step_speed(by),
             Outcome::Chapter(i) => self.go_chapter(i),
-            Outcome::Bookmark => self.add_bookmark(),
+            // Marked with the lid closed, a buzz says so, as nothing is seen.
+            Outcome::Bookmark => {
+                if self.dark {
+                    self.pocket.buzz(self.settings.pocket_buzz, 1, self.now.at);
+                }
+                self.add_bookmark()
+            }
             Outcome::GoBookmark { book, mark } => self.go_bookmark(book, mark),
             Outcome::RemoveBookmark { book, mark } => {
                 self.remove_bookmark(book, mark);

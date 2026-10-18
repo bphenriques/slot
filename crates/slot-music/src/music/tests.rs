@@ -406,6 +406,31 @@ fn continue_plays_on_the_book_listened_to_last_from_where_it_was() {
 }
 
 #[test]
+fn under_the_lid_a_book_jumps_back_to_hear_again_and_a_trigger_held_marks_the_moment() {
+    let mut rig = Rig::new(&BOOK);
+    rig.play_book();
+    rig.heard(40.0, 60.0);
+    rig.music.set_dark(true);
+    rig.told();
+    rig.keys(&[Button::L1]);
+    let jump = f64::from(rig.music.settings.jump);
+    let told = rig.told();
+    assert!(
+        told.iter()
+            .any(|c| matches!(c, Command::Seek(at) if (*at - (40.0 - jump)).abs() < 0.5)),
+        "back as far as Jump Length: {told:?}"
+    );
+    rig.down(Button::R2);
+    rig.wait(520);
+    let buzz = rig.music.rumble();
+    rig.up(Button::R2);
+    assert_eq!(rig.told(), [], "held, not tapped: it plays on");
+    rig.music.set_dark(false);
+    assert_eq!(rig.now_playing().marks.len(), 1, "marked");
+    assert_eq!(buzz, Some(u16::MAX), "a buzz says so, unseen");
+}
+
+#[test]
 fn a_book_s_now_playing_shows_its_part_place_and_time_left() {
     let mut rig = Rig::new(&BOOK);
     rig.play_book();
@@ -593,7 +618,7 @@ fn under_the_lid_a_trigger_plays_or_pauses_a_shoulder_changes_song_and_locked_ne
 }
 
 #[test]
-fn the_pocket_combo_tapped_plays_or_pauses_and_neither_key_acts_alone() {
+fn the_pocket_combo_tapped_does_nothing_and_neither_key_acts_alone() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
     rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
     assert_eq!(rig.now_playing().place, text::of(1, 2));
@@ -610,10 +635,8 @@ fn the_pocket_combo_tapped_plays_or_pauses_and_neither_key_acts_alone() {
         rig.up(up);
         rig.up(if up == first { second } else { first });
         let told = rig.told();
-        assert!(
-            told == [Command::Pause] || told == [Command::Resume],
-            "{first:?} with {second:?}, dark {dark}: {told:?}"
-        );
+        assert_eq!(told, [], "{first:?} with {second:?}, dark {dark}");
+        assert!(!rig.music.pocket.locked, "a tap is no lock");
     }
     rig.music.set_dark(false);
     assert_eq!(rig.now_playing().place, text::of(1, 2), "no song skipped");
@@ -927,7 +950,7 @@ fn shuffling_keeps_the_song_s_lyrics_and_its_hint_in_the_legend() {
 }
 
 #[test]
-fn the_pocket_combo_as_the_device_logged_it_pauses_with_no_seek_or_skip() {
+fn the_pocket_combo_as_the_device_logged_it_neither_seeks_nor_skips() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
     rig.keys(&[Button::A]);
     assert!(matches!(rig.screen().body, Body::NowPlaying(_)));
@@ -940,7 +963,7 @@ fn the_pocket_combo_as_the_device_logged_it_pauses_with_no_seek_or_skip() {
     rig.up(Button::R2);
     rig.wait(66);
     rig.up(Button::R1);
-    assert_eq!(rig.told(), [Command::Pause], "paused, nothing else");
+    assert_eq!(rig.told(), [], "nothing: a tap of the two is no key's");
 }
 
 #[test]

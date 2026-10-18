@@ -112,7 +112,7 @@ tasks:
       - >-
         git diff --stat upstream/pvaibhav-improvements --
         crates/slot/src crates/slot-input/src crates/slot-ui/src
-        ':!crates/slot/src/music_faces' ':!crates/slot/src/app/music.rs' ':!crates/slot-ui/src/music'
+        ':!crates/slot/src/music_faces' ':!crates/slot/src/app/music.rs' ':!crates/slot-ui/src/music' ':!crates/slot/src/audio/line_out.rs'
 
   test:card:
     desc: Test the scripts slot ships on the card, off-device
