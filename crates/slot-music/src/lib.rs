@@ -4,7 +4,9 @@
 
 mod books;
 mod browse;
+mod integrations;
 mod library;
+mod logging;
 mod lyrics;
 mod music;
 mod playback;
@@ -13,7 +15,7 @@ mod settings;
 mod store;
 pub mod text;
 
-pub use browse::rows::{RowIcon, RowText};
+pub use browse::rows::RowText;
 pub use library::covers::Art;
 pub use library::AlbumId;
 pub use music::{Button, Input, Music};
@@ -43,6 +45,7 @@ mod tests;
 
 pub(crate) fn background() {
     #[cfg(target_os = "linux")]
+    // SAFETY: only sets this thread's priority; it takes no pointers.
     unsafe {
         libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
     }

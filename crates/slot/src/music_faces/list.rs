@@ -5,15 +5,12 @@ use slot_gfx::Compositor;
 use slot_input::Millis;
 use slot_music::{ListBody, RowText};
 use slot_ui::music::{
-    music_action_px, music_row_px, music_text_width, music_title_w, Ink, ListFaces,
-    MUSIC_HEART_ROOM,
+    music_action_px, music_half_w, music_row_ink, music_row_px, music_row_text_w, music_text_width,
+    Ink, ListFaces,
 };
 use slot_ui::Canvas;
 
 use super::{Glyphs, MusicText, Spec};
-
-/// Room left between a row's text and its value.
-const VALUE_GAP: u32 = 20;
 
 pub(super) fn faces(
     text: &mut MusicText,
@@ -34,7 +31,7 @@ pub(super) fn faces(
     let width = music_text_width(false, canvas);
     let hearts: Vec<bool> = body.rows.iter().map(|r| r.favorite).collect();
     let head = body.rows.iter().take_while(|r| r.action).count();
-    let value_w = music_title_w(false, canvas);
+    let value_w = music_half_w(canvas);
     let mut values = Vec::with_capacity(body.values.len());
     for (i, value) in body.values.into_iter().enumerate() {
         // Dim, lit on the highlighted row, as in the quick menu.
@@ -53,16 +50,9 @@ pub(super) fn faces(
         // Action rows are a size down. Faint rows read dim on the highlight; only it scrolls,
         // or every row of a list that only tells.
         let px = if row.action { action_px } else { row_px };
-        let ink = match (row.faint, i == selected) {
-            (true, false) => Ink::Faint,
-            (true, true) => Ink::Dim,
-            (false, _) => Ink::Lit,
-        };
-        // Text stops short of its heart, and of its value: a long chapter of its length.
-        let value = values.get(i).copied().flatten().filter(|v| v.1 > 0);
-        let value = value.map_or(0, |(_, w, _)| w + VALUE_GAP);
-        let marked = u32::from(row.favorite);
-        let width = width - marked * MUSIC_HEART_ROOM - value;
+        let ink = music_row_ink(row.faint, i == selected);
+        let value = values.get(i).copied().flatten().map_or(0, |(_, w, _)| w);
+        let width = music_row_text_w(width, row.favorite, value);
         let spec = Spec::Row { text: row, ink, px };
         let scroll = (body.readonly || i == selected).then_some(scroll);
         rows.push(

@@ -11,13 +11,13 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 
 | Where | What |
 |---|---|
-| `crates/slot-music` | The player's behaviour, no drawing, tested without a device: `music/` (`Music`: the state and its shell, by concern: `act`, `loading`, `art`, `books`, `lyrics`, `pocket`, `worker`), `library/` (scan, tags, cache, pictures, playlists), `playback/` (player, queue, fades, Recently Played), `books/`, `browse/` (views, keys, rows), `screens/` (each screen as data), `lyrics.rs`, `settings.rs`, `text.rs`. |
+| `crates/slot-music` | The player's behaviour, no drawing, tested without a device: `music/` (`Music`: the state and its shell, by concern: `act`, `loading`, `art`, `books`, `lyrics`, `pocket`, `worker`), `library/` (scan, tags, cache, pictures, playlists), `playback/` (player, queue, fades, Recently Played), `books/`, `browse/` (views, keys, rows), `screens/` (each screen as data), `integrations/` (what the player tells programs outside it, each opt-in: the scrobbler log), `logging.rs` (the one logger), `lyrics.rs`, `settings.rs`, `text.rs`. |
 | `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (symphonia decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
 | `crates/slot-player/soundtouch` | SoundTouch 2.3.2 sources (LGPL-2.1), built by `build.rs` with `cc`. |
 | `crates/slot-music/src/store` | Everything kept on the card: one writer, each file's format (`Kept`). |
 | `crates/slot-ui/src/music` | The kit that draws: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour). |
 | `crates/slot/src/music_faces`, `crates/slot/src/app/music.rs` | The frontend glue: textures, animation (`motion.rs`), input routing. |
-| `music/` | `CONTROLS.md` (every button, keep it current), `music.txt.example`. |
+| `music/` | `README.md` (what the screens cannot say: the card's files, how it plays), `music.txt.example`, `music-eq.txt`. |
 
 Upstream files touched: `task footprint` lists them, as changed from upstream's. Keep those
 diffs small. `crates/slot/src/audio/line_out.rs` is ours, new beside upstream's sound: the codec's
@@ -62,8 +62,9 @@ cmp dist-device/System/slot "$C/System/slot" && sync       # verify, then unmoun
 
 To measure on the device: Music › Settings › Debug › Performance Log On, use the player a while
 (screen on and off, playing and paused, a book), then read `Logs/music-perf.log` on the card:
-one line every 10 s with frames a second, the music frame, screen and draw times (average and
-longest, in microseconds), each thread's share of one core, the player's own (decoding, mixing,
+one line every 10 s with frames a second, the music frame, screen, compare (telling whether a
+frame is new) and draw times (average and longest, in microseconds), each thread's share of one
+core, the player's own (decoding, mixing,
 writing, and of the writing, ALSA's library's), the processor's clock (its average over the line
 where the kernel keeps that, and its governor: a share of a core is more work at a slower
 clock), memory, and what was shown, with the song playing.
@@ -75,7 +76,16 @@ time rather than rodio's sample at a time took decoding from 2.95% to 2.08%. FFm
 A53, so symphonia stays. Of the writing (1.0%), ALSA's library took 0.1% and the dither most of
 the rest: one draw a sample for its two uniform values instead of two draws took it to 0.6%, the
 player's thread from 3.4% to 3.0%. The clock was at its lowest, 480 MHz, nearly throughout:
-3% there is about 1% at its 1512 MHz, where Muse's ~1% was likely measured.
+3% there is about 1% at its 1512 MHz, where Muse's ~1% was likely measured. Writing straight
+into ALSA's mapped buffer, as Squeezelite does, rather than through `snd_pcm_writei`, cost more
+here (2026-10-19, the same song, the lid closed): writing 0.90% against 0.64%, ALSA's part 0.19%
+against 0.12%, the player's thread 3.2% against 3.0%, likely as the mapped buffer is uncached and
+the half second kept for a pause's fade is read back out of it; so the write stays as it is.
+
+Logging: `log::warn!` for what went wrong, always written; `log::info!` for what happens, only
+with Debug › Detailed Log on (`log = on`), so a user asked for help turns it on and sends
+`Logs/slot.log`. Nothing prints directly (`rules.rs` holds it so); the launcher keeps the last
+session's log as `slot.log.1`, and the performance log moves to `music-perf.log.1` past 1 MB.
 
 Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 `task log:device`). Player settings live in `Config/music.txt`.
@@ -88,7 +98,8 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 - Logic emits values (`Outcome`, `Notice`, `Legend`); `slot-ui` and the frontend only draw.
 - Buttons: a tap does one thing, a hold another, shown as "Tap (Held)"; hints never change
   while held (the corner ring shows the hold). START menus hold only what no button does.
-  Update `music/CONTROLS.md` with any key change.
+  Put any key change in Settings › Controls (`text.rs`'s `KEYS`); `music/README.md` only says what
+  the screens cannot.
 - Comments and docs in the existing voice: plain sentences saying what something is for.
 - Tests for behaviour (`crates/slot-music/src/tests/`, a module an area; the music as a whole in `src/music/tests.rs`, `crates/slot-player/tests/player.rs`,
   which plays WAVs made in the test into a `Capture` output). Timing tests keep wide margins.
@@ -124,22 +135,23 @@ A device after this one gets its own row, and its own answer where the row says.
 
 ## Status and what is left
 
-Everything is committed up to `acbac22`. Measured on the device (`Logs/music-perf.log`): playing
-a 44.1 kHz file the player is ~4% of a core; with the lid closed, ~7% playing and ~2% paused;
-Now Playing lit, ~22% (the frame ~9%, the GPU driver ~8%). Next, in order:
+Everything is committed up to `570cfd0`. Measured on the device (`Logs/music-perf.log`, 2026-10-19,
+the clock mostly at 480 MHz): playing, the player's thread is ~3% of a core (decoding 2.1%, mixing
+0.3%, writing 0.6%); with the lid closed the frame loop wakes ~7 times a second and is ~0.4%; Now
+Playing lit with a title scrolling, the music screen is drawn only on the frames that change (~23
+a second), the frame loop ~5%. Next, in order:
 
-1. Draw only what changed: the lit screens are most of the cost, and are drawn whole each frame.
-2. Phase 2, the mixer (`music/MIXER.md`).
-3. Release notes and licences: SoundTouch's is in `licenses/`; list symphonia, rubato
+1. Phase 2, the mixer (`music/MIXER.md`).
+2. Release notes and licences: SoundTouch's is in `licenses/`; list symphonia, rubato
    and lofty with the other third-party crates.
 
 A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to
 delete.
 
-Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; Bluetooth output is whatever ALSA's
-`default` is (no device choice yet); the old keys in the card's `music.txt` (`skip`, `rows`,
+Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; a chained Ogg (streams joined in one file, as some radio rips are) plays only its first; Opus and WMA are not listed, as symphonia has no decoder for them; Bluetooth output is whatever ALSA's
+`default` is (no device choice yet); the old keys in the card's `music.txt` (`clock`, `skip`, `rows`,
 `fade`, `animations`) are ignored; its `player` key is ignored now. Playlist editing is out of scope (see
-`music/CONTROLS.md`).
+`music/README.md`).
 
 Ideas, if wanted: Bluetooth output choice; equalizer presets; crossfade only between albums. Each fits as a stage in
 `slot-player/src/track.rs` or `engine.rs`, behind a setting on the Sound page.

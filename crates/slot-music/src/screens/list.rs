@@ -18,11 +18,14 @@ pub(crate) fn held(cx: &Context, view: View, row: Row, key: Key) -> Outcome {
     }
 }
 
-/// Up and Down go round; Left and Right turn a page; the shoulders jump a letter; A opens or
-/// plays; X adds the row's songs to the end of the queue; Y puts a song in Favorites or takes
-/// it out.
+/// Up and Down go round; Left and Right turn a page; the shoulders jump a letter, or, where
+/// there are no letters to jump by, skip the song, as Now Playing's do; A opens or plays; X adds
+/// the row's songs to the end of the queue; Y puts a song in Favorites or takes it out.
 pub(crate) fn press(b: &mut Browser, cx: &Context, rows: &[Row], at: usize, key: Key) -> Outcome {
     let (n, view) = (rows.len(), b.view());
+    if matches!(key, Key::L1 | Key::R1) && !by_letter(view) {
+        return Outcome::Skip(if key == Key::R1 { 1 } else { -1 });
+    }
     // The queue has no letters to jump to: its shoulders turn pages too.
     let key = match (view, key) {
         (View::Queue, Key::L1) => Key::Left,
@@ -36,7 +39,14 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, rows: &[Row], at: usize, key:
         Key::Right => (at + per_page(view, &cx.settings)).min(n - 1),
         Key::L1 => rows::letter(cx.lib, rows, at, false),
         Key::R1 => rows::letter(cx.lib, rows, at, true),
-        Key::X => return rows::tracks(cx, view, rows[at]).map_or(Outcome::None, Outcome::Enqueue),
+        Key::X => {
+            // A book's chapters, from the list.
+            if let Row::Book(book) = rows[at] {
+                super::book::open_book_chapters(b, cx, book);
+                return Outcome::None;
+            }
+            return rows::tracks(cx, view, rows[at]).map_or(Outcome::None, Outcome::Enqueue);
+        }
         // Y puts a song in Favorites, or takes it out.
         Key::Y => {
             return match rows[at] {
@@ -85,6 +95,9 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         Row::Sound => (View::Sound, Outcome::None),
         Row::BookSettings => (View::BookSettings, Outcome::None),
         Row::Debug => (View::Debug, Outcome::None),
+        Row::Integrations => (View::Integrations, Outcome::None),
+        Row::Controls => (View::Controls, Outcome::None),
+        Row::Help => (View::Help, Outcome::None),
         Row::LastError => return Outcome::None,
         Row::Playlists => (View::Playlists, Outcome::None),
         Row::Playlist(p) => (View::Playlist(p), Outcome::None),
@@ -112,7 +125,8 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         | Row::Finished
         | Row::Chapters
         | Row::Bookmarks
-        | Row::Chapter(_)
+        | Row::BookChapter { .. }
+        | Row::Key { .. }
         | Row::Bookmark(_)
         | Row::Speed
         | Row::Back
@@ -147,12 +161,10 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
             };
             (View::NowPlaying, play)
         }
+        // From this song, the list it is in: the songs Play All plays.
         Row::Track(_) => {
-            let tracks = match view {
-                View::Album(a) => cx.lib.albums[a].tracks.clone(),
-                View::Tracks => cx.lib.tracks_by_title.clone(),
-                View::Playlist(p) => cx.lib.playlists[p].tracks.clone(),
-                _ => return Outcome::None,
+            let Some(tracks) = rows::tracks(cx, view, Row::PlayAll) else {
+                return Outcome::None;
             };
             let play = Outcome::Play {
                 tracks,
@@ -191,9 +203,10 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         (false, None) => page.items.to_string(),
     };
     // A menu on one page is centred on its rows; over pages, on a full page, so it holds still.
-    let per_page = match view.is_menu() && page.pages == 1 {
-        true => page.rows.len(),
-        false => page.per_page,
+    let per_page = if view.is_menu() && page.pages == 1 {
+        page.rows.len()
+    } else {
+        page.per_page
     };
     let list = ListBody {
         rows: page.rows,
@@ -208,7 +221,21 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         readonly: false,
     };
     Screen {
-        corner: music.notice().unwrap_or(count),
+        corner: count,
         ..Screen::new(page.title, legend, Body::List(list))
     }
+}
+
+/// A table to read, as Settings' Controls is: its rows, with no count in the corner.
+pub(crate) fn table(music: &Music) -> Screen {
+    Screen {
+        corner: String::new(),
+        ..rows_screen(music)
+    }
+}
+
+/// Whether the shoulders jump by letter on `view`, or turn its pages: lists of things to pick,
+/// not the menus and pages, whose shoulders skip the song.
+fn by_letter(view: View) -> bool {
+    !view.is_menu() && !matches!(view, View::SongInfo(_) | View::Controls)
 }

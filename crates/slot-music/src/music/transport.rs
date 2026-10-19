@@ -2,6 +2,8 @@
 //! sound told the player for what plays, and Recently Played as songs are heard.
 
 use super::{Effect, Music};
+use crate::integrations::scrobbler;
+use crate::integrations::Listen;
 use crate::playback::fade::{Fade, Fading, SleepTimer, FADE, SLEEP_FADE};
 use crate::playback::recent::Recent;
 use crate::store::Kept;
@@ -14,6 +16,8 @@ pub(super) struct Sound {
     skip_silence: bool,
     boost: u32,
     level: Leveling,
+    mono: bool,
+    eq: usize,
 }
 
 /// The transport's own: a fade running, the sleep timer, and the sound last told the player.
@@ -52,12 +56,11 @@ impl Music {
 
     /// The sleep timer ran out: the music fades out to a pause, or, silent already, pauses.
     fn fall_asleep(&mut self) {
-        match self.player.owns_audio() {
-            true => {
-                let fade = Fade::new(self.volume_scale(), Fading::Asleep, SLEEP_FADE, self.now.at);
-                self.transport.fade = Some(fade);
-            }
-            false => self.pause_now(),
+        if self.player.owns_audio() {
+            let fade = Fade::new(self.volume_scale(), Fading::Asleep, SLEEP_FADE, self.now.at);
+            self.transport.fade = Some(fade);
+        } else {
+            self.pause_now()
         }
     }
 
@@ -112,24 +115,29 @@ impl Music {
         self.keep_queue();
     }
 
-    /// Tells the player the sound for what plays, when it changes: a book is never crossfaded,
-    /// and only a book skips silence and is boosted.
+    /// Tells the player the sound for what plays, when it changes or the player is new: a book is
+    /// never crossfaded, and only a book skips silence and is boosted.
     pub(super) fn tell_sound(&mut self) {
         let s = &self.settings;
         let level = s.level(self.player.shuffled());
-        let sound = match self.book().is_some() {
-            true => Sound {
+        let sound = if self.book().is_some() {
+            Sound {
                 crossfade: 0,
                 skip_silence: s.skip_silence,
                 boost: s.boost,
                 level,
-            },
-            false => Sound {
+                mono: s.mono,
+                eq: s.eq,
+            }
+        } else {
+            Sound {
                 crossfade: s.crossfade,
                 skip_silence: false,
                 boost: 0,
                 level,
-            },
+                mono: s.mono,
+                eq: s.eq,
+            }
         };
         if self.transport.sound == Some(sound) {
             return;
@@ -142,6 +150,8 @@ impl Music {
                 Command::Crossfade(f64::from(sound.crossfade)),
                 Command::SkipSilence(sound.skip_silence),
                 Command::Boost(boost),
+                Command::Mono(sound.mono),
+                Command::Equalizer(self.equalizer.bands(sound.eq)),
             ]
             .map(Effect::Player),
         );
@@ -157,6 +167,24 @@ impl Music {
         if self.recent.hear(t, at, len, playing) {
             let text = self.recent.encode(self.card());
             self.out.push(Effect::Write(Recent::FILE.into(), text));
+        }
+        // Listened to, as Last.fm counts it: told to the scrobbler log, when it is kept.
+        if self.settings.scrobbler && self.scrobbler.hear(t, at, len, playing) {
+            let track = &self.library.tracks[t];
+            let listen = Listen {
+                artist: track.artist.clone(),
+                album: self.library.album_of(t).name.clone(),
+                title: track.title.clone(),
+                number: track.number.clone(),
+                secs: len,
+                began: self.now.wall.saturating_sub(at as u64),
+            };
+            let line = scrobbler::line(&listen);
+            self.out.push(Effect::Append {
+                file: scrobbler::FILE,
+                header: scrobbler::HEADER,
+                line,
+            });
         }
     }
 }

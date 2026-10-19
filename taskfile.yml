@@ -405,6 +405,7 @@ tasks:
       - cp target-device/device/slot {{.OUT}}/System/slot
       - cp target-device/device/slot-services {{.OUT}}/System/
       - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example {{.OUT}}/Config/
+      - cp music/music-eq.txt {{.OUT}}/Config/music-eq.txt.example
       - mkdir {{.OUT}}/System/slot-net
       - cp vendor/slot-net/iw vendor/slot-net/*.so.* {{.OUT}}/System/slot-net/
       - cp -R card/System/* {{.OUT}}/System/
@@ -445,6 +446,7 @@ tasks:
       - for f in card/System/*; do adb push "$f" '{{.SD}}/System/'; done
       - adb push target-device/device/slot-services '{{.SD}}/System/slot-services'
       - adb push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example '{{.SD}}/Config/'
+      - adb push music/music-eq.txt '{{.SD}}/Config/music-eq.txt.example'
       - adb shell mkdir -p '{{.SD}}/System/slot-net'
       - adb push vendor/slot-net/iw vendor/slot-net/*.so.* '{{.SD}}/System/slot-net/'
       - adb push vendor/mgba_libretro.so '{{.SD}}/System/mgba_libretro.so'

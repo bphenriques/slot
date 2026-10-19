@@ -11,9 +11,6 @@ pub struct Settings {
     pub play_screen_off: bool,
     /// The size of library lists and the queue; menus keep slot's size.
     pub list_size: ListSize,
-    /// Show the clock and battery on the music screens (`clock = on`; off by default, and only
-    /// in `music.txt`).
-    pub clock: bool,
     /// Show the next track under Now Playing (`up_next`; only in `music.txt`).
     pub up_next: bool,
     /// Tint Now Playing, its background and progress bar, from the album picture.
@@ -29,6 +26,9 @@ pub struct Settings {
     pub leveling: bool,
     /// Seconds a song's end fades into the next (`crossfade = 0`, 3 or 6); never a book's.
     pub crossfade: u32,
+    /// The equalizer's preset, from 1 as `Config/music-eq.txt` lists them; 0 is off (`eq = <its
+    /// name>`, kept by name, so a preset added or moved in the file stays the one chosen).
+    pub eq: usize,
     /// For books: pauses cut short (`skip_silence = on`), and dB louder (`boost = 0`, 3 or 6).
     pub skip_silence: bool,
     pub boost: u32,
@@ -39,6 +39,12 @@ pub struct Settings {
     pub pocket_buzz: bool,
     /// Whether the performance log runs (`perf = on`), on the Debug page.
     pub perf: bool,
+    /// Whether songs listened to go into `.scrobbler.log` for a Last.fm uploader
+    /// (`scrobbler = on`), on the Integrations page.
+    pub scrobbler: bool,
+    /// Whether `Logs/slot.log` tells what happens as well as what went wrong (`log = on`), on the
+    /// Debug page: for someone asked to send it.
+    pub log: bool,
 }
 
 /// A setting the music screens change. The sleep timer is on Now Playing's menu and never
@@ -50,6 +56,7 @@ pub enum Setting {
     PocketBuzz,
     Jump,
     Mono,
+    Equalizer,
     Crossfade,
     Leveling,
     SkipSilence,
@@ -62,10 +69,12 @@ pub enum Setting {
     Theme,
     /// On the Debug page.
     PerfLog,
+    Log,
+    /// On the Integrations page.
+    Scrobbler,
 }
 
 impl Setting {
-    /// In page order: listening first, then looks.
     /// Music Settings' own: listening, then looks, the Sound and Audiobooks pages between.
     pub const ALL: [Setting; 6] = [
         Setting::ScreenOff,
@@ -78,10 +87,18 @@ impl Setting {
 
     /// The Sound page's, slot's player's alone. Songs always follow on with no gap, as on
     /// Apple Music: nothing is lost by it.
-    pub const SOUND: [Setting; 3] = [Setting::Crossfade, Setting::Leveling, Setting::Mono];
+    pub const SOUND: [Setting; 4] = [
+        Setting::Equalizer,
+        Setting::Crossfade,
+        Setting::Leveling,
+        Setting::Mono,
+    ];
 
     /// The Audiobooks page's: the jump, then what slot's player alone does for a voice.
     pub const BOOKS: [Setting; 3] = [Setting::Jump, Setting::SkipSilence, Setting::Boost];
+
+    /// The Integrations page's: what the player tells programs outside it.
+    pub const INTEGRATIONS: [Setting; 1] = [Setting::Scrobbler];
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -163,7 +180,6 @@ impl Default for Settings {
             repeat: Repeat::Off,
             play_screen_off: false,
             list_size: ListSize::Normal,
-            clock: false,
             up_next: true,
             color: true,
             theme: Theme::Slot,
@@ -171,11 +187,14 @@ impl Default for Settings {
             mono: false,
             leveling: false,
             crossfade: 0,
+            eq: 0,
             skip_silence: false,
             boost: 0,
             pocket: true,
             pocket_buzz: true,
             perf: false,
+            log: false,
+            scrobbler: false,
         }
     }
 }
@@ -204,6 +223,10 @@ impl Settings {
             Setting::Pocket => self.pocket ^= true,
             Setting::PocketBuzz => self.pocket_buzz ^= true,
             Setting::PerfLog => self.perf ^= true,
+            // Stepped by the music, which knows the presets.
+            Setting::Equalizer => {}
+            Setting::Log => self.log ^= true,
+            Setting::Scrobbler => self.scrobbler ^= true,
             Setting::Leveling => self.leveling ^= true,
             Setting::Theme => self.theme = cycle(&Theme::ORDER, self.theme, by),
             Setting::Jump => self.jump = cycle(&JUMPS, self.jump, by),

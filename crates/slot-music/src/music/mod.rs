@@ -31,9 +31,11 @@ use crate::library::{scan, Library};
 use crate::lyrics::Lyrics;
 use crate::playback::player::Player;
 use crate::playback::recent::Recent;
-use read_ahead::ReadAhead;
+pub(crate) use read_ahead::ReadAhead;
 
+use crate::integrations::scrobbler::Scrobbler;
 use crate::settings::{Settings, Theme};
+use crate::store::equalizer::Presets;
 use crate::store::queue::SavedQueue;
 use crate::store::settings::SETTINGS_FILE;
 use crate::store::{Card, Kept, Store};
@@ -59,10 +61,18 @@ pub(crate) enum Effect {
     Write(PathBuf, String),
     /// Set one key of `music.txt`, the rest of it as it was.
     Setting(&'static str, String),
+    /// Add `line` onto the end of `file`, from the card's root, begun with `header` if new.
+    Append {
+        file: &'static str,
+        header: &'static str,
+        line: String,
+    },
     /// Give the worker a job, under the library's generation it was asked in.
     Work(u32, Job),
     /// Start the performance log, or stop it.
     PerfLog(bool),
+    /// Log what happens as well as what went wrong, or only that.
+    Log(bool),
 }
 
 /// What reaches the state from outside between frames.
@@ -144,14 +154,21 @@ pub struct Music {
     chapters: ReadAhead<Vec<Chapter>>,
     /// The songs played last.
     pub(crate) recent: Recent,
+    /// The equalizer's presets, from the card.
+    pub(crate) equalizer: Presets,
+    /// What the scrobbler log was told of the song playing.
+    scrobbler: Scrobbler,
     /// Why the sound last failed, for the Debug page.
     last_error: Option<String>,
     /// The screen is off: only the shoulders act.
     dark: bool,
+    /// The screen blanked by SELECT held, until a button: every key acts, as with it on.
+    blank: bool,
 }
 
 impl Music {
-    /// `art_px` is the size album pictures are shrunk to.
+    /// `art_px` is the size album pictures are shrunk to. Made, and polled, on the frame loop's
+    /// thread, which the worker wakes as it has something to show.
     pub fn spawn(root: &Path, art_px: u32) -> Music {
         let start: Start = Box::new(|| Box::new(Handle::slot()));
         Music::with(root, art_px, start, Box::new(system_now))
@@ -167,14 +184,16 @@ impl Music {
         let now = clock();
         let engine = start();
         let store = Store::open(root);
-        let settings = store.settings();
+        let mut settings = store.settings();
+        crate::logging::start(settings.log);
+        let (equalizer, eq) = store.equalizer();
+        settings.eq = eq;
         let mut player = Player::default();
         player.set_repeat(settings.repeat);
         // Known before the library is read, so the main screen does not change its mind.
         if crate::store::queue::saved(root) {
             player.wait_for_saved();
         }
-        engine.send(Command::Mono(settings.mono));
         let progress = Arc::new(scan::Progress::default());
         Music {
             root: root.to_path_buf(),
@@ -199,7 +218,8 @@ impl Music {
                 start,
                 clock,
                 store,
-                worker: Worker::spawn(art_px),
+                // Made on the frame loop, which rests by parking: the worker wakes it.
+                worker: Worker::spawn(art_px, std::thread::current()),
                 perf: settings.perf.then(|| perf::PerfLog::start(root)),
             },
             pictures: Pictures::default(),
@@ -220,8 +240,11 @@ impl Music {
             lyrics: ReadAhead::default(),
             lyrics_for: None,
             recent: Recent::default(),
+            equalizer,
+            scrobbler: Scrobbler::default(),
             last_error: None,
             dark: false,
+            blank: false,
         }
     }
 
@@ -303,6 +326,14 @@ impl Music {
         }
     }
 
+    /// While the performance log runs: how long the frontend took to tell whether a frame shows
+    /// anything new, building what it would show to compare with the last.
+    pub fn note_compare(&self, took: std::time::Duration) {
+        if let Some(perf) = &self.shell.perf {
+            perf.stats.compare.add(took);
+        }
+    }
+
     /// While the performance log runs: how long building `screen` took.
     pub(crate) fn note_screen(&self, took: std::time::Duration) {
         if let Some(perf) = &self.shell.perf {
@@ -345,10 +376,7 @@ impl Music {
             Msg::Player(event) => self.on_player(event),
             Msg::Library(found) => self.on_found(found),
             Msg::Worker(generation, done) if generation == self.generation => match done {
-                Done::Chapters(track, chapters) => {
-                    self.chapters.put(track, chapters);
-                    self.read_chapters();
-                }
+                Done::Chapters(track, chapters) => self.chapters_read(track, chapters),
                 Done::Lyrics(track, lyrics) => self.lyrics.put(track, lyrics),
                 done => self.on_art(done),
             },
@@ -391,7 +419,7 @@ impl Music {
         for effect in self.out.drain(..) {
             match effect {
                 Effect::Player(command) => {
-                    eprintln!("slot: music: {command:?}");
+                    log::info!("{command:?}");
                     if let (
                         Some(perf),
                         Command::Play { .. } | Command::Cue { .. } | Command::Next(Some(_)),
@@ -406,10 +434,12 @@ impl Music {
                 Effect::Restart => shell.engine = (shell.start)(),
                 Effect::Write(file, text) => shell.store.write(file, text),
                 Effect::Setting(key, value) => shell.store.set(SETTINGS_FILE, key, value),
+                Effect::Append { file, header, line } => shell.store.append(file, header, line),
                 Effect::Work(generation, job) => shell.worker.send(generation, job),
                 Effect::PerfLog(on) => {
                     shell.perf = on.then(|| perf::PerfLog::start(&self.root));
                 }
+                Effect::Log(detailed) => crate::logging::start(detailed),
             }
         }
     }
@@ -438,11 +468,16 @@ impl Music {
             return Some(Duration::ZERO);
         }
         // A millisecond past the step: on it to the last bit, a time may still round short.
-        let steps = (!self.dark)
+        let steps = (!self.dark && !self.blank)
             .then(|| crate::screens::steps_in(self))
             .flatten();
         let after = |s: f64| Duration::try_from_secs_f64(s.max(0.0)).unwrap_or(Duration::MAX);
         steps.map(|s| after(s).saturating_add(STEP_PAST))
+    }
+
+    /// Whether SELECT held blanked the screen: off until a button, which then acts as it would.
+    pub fn blank(&self) -> bool {
+        self.blank
     }
 
     /// Whether music carries on with the screen off (`screen_off = play`).
@@ -455,10 +490,9 @@ impl Music {
         self.settings.theme
     }
 
-    /// Shows `notice` in the corner for a moment. Nothing for the player.
-    fn tell(&mut self, notice: Notice) -> Option<Command> {
+    /// Shows `notice` in the corner for a moment.
+    fn tell(&mut self, notice: Notice) {
         self.notice = Some((notice, self.now.at));
-        None
     }
 
     /// Tells the player `command`. A player gone, its thread failed, is started again to play.
@@ -472,8 +506,6 @@ impl Music {
         );
         if plays && self.gone {
             self.out.push(Effect::Restart);
-            self.out
-                .push(Effect::Player(Command::Mono(self.settings.mono)));
             self.transport.sound = None;
             self.gone = false;
         }
@@ -502,6 +534,8 @@ impl Music {
             recent: &self.recent.tracks,
             last_error: self.last_error.as_deref(),
             shuffled: self.player.shuffled(),
+            chapters: &self.chapters,
+            eq: self.equalizer.name(self.settings.eq),
             now: self.now.at,
         }
     }

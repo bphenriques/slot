@@ -72,7 +72,7 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
             Row::Chapters | Row::Bookmarks => {
                 b.pop();
                 match row {
-                    Row::Chapters => super::book::open_chapters(b, cx),
+                    Row::Chapters => super::book::open_book_chapters(b, cx, book),
                     _ => b.push(View::Bookmarks(book), 0),
                 }
                 return Some(Outcome::None);
@@ -84,10 +84,14 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
         b.pop();
         return Some(outcome);
     }
-    // A book's menu: start it over, or mark it finished or not.
+    // A book's menu: its chapters, start it over, or mark it finished or not.
     if let View::RowMenu(Row::Book(book)) = b.view() {
         b.pop();
         return Some(match row {
+            Row::Chapters => {
+                super::book::open_book_chapters(b, cx, book);
+                Outcome::None
+            }
             Row::Finished => Outcome::Finish(book),
             _ => {
                 b.push(View::NowPlaying, 0);
@@ -137,7 +141,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
         View::PlayingMenu if music.player.current().is_none() => {
             Screen::message(text::NOW_PLAYING, text::NOTHING_PLAYING)
         }
-        // A short list of facts: no count in the corner.
         // Facts to read, not rows to pick: no count, no highlight.
         View::SongInfo(_) => {
             let mut screen = list::rows_screen(music);

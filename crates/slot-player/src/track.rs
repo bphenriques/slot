@@ -66,9 +66,10 @@ impl Track {
         }
         let own = decoder.rate();
         let rate = rate(own);
-        let resampler = match own == rate {
-            true => None,
-            false => Some(resampler(own, rate)?),
+        let resampler = if own == rate {
+            None
+        } else {
+            Some(resampler(own, rate)?)
         };
         // Its tags are read only when leveled: most play as recorded.
         let gains = (leveling != Leveling::Off).then(|| Gains::read(path));

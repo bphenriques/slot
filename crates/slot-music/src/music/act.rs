@@ -12,7 +12,6 @@ use crate::settings::Setting;
 use crate::store::playlists;
 use crate::store::settings::changes;
 use crate::text::{self, Notice};
-use slot_player::Command;
 
 impl Music {
     /// A key tapped or held: what it does on the screen shown. True when it leaves the music
@@ -46,7 +45,7 @@ impl Music {
         self.follow_letter(press);
         if matches!(
             outcome,
-            Outcome::Skip(_) | Outcome::Chapter(_) | Outcome::GoBookmark { .. }
+            Outcome::Skip(_) | Outcome::BookChapter { .. } | Outcome::GoBookmark { .. }
         ) {
             self.remember_place();
         }
@@ -65,14 +64,21 @@ impl Music {
                 }
                 self.toggle()
             }
-            Outcome::Tell(notice) => self.tell(notice),
+            Outcome::Tell(notice) => {
+                self.tell(notice);
+                None
+            }
             Outcome::PlayBook { book, over } => self.play_book(book, over),
             Outcome::Finish(book) => {
                 self.toggle_finished(book);
                 None
             }
             Outcome::Speed(by) => self.step_speed(by),
-            Outcome::Chapter(i) => self.go_chapter(i),
+            Outcome::BookChapter {
+                book,
+                part,
+                chapter,
+            } => self.go_book_chapter(book, part, chapter),
             // Marked with the lid closed, a buzz says so, as nothing is seen.
             Outcome::Bookmark => {
                 if self.dark {
@@ -86,6 +92,10 @@ impl Music {
                 None
             }
             Outcome::Back => self.go_back(),
+            Outcome::Blank => {
+                self.blank = true;
+                None
+            }
             Outcome::Clear => {
                 self.player.edit().clear();
                 None
@@ -95,7 +105,8 @@ impl Music {
                 if let Some(p) = self.library.add_playlist(text::SAVED_QUEUE, tracks) {
                     self.write_playlist(p);
                 }
-                self.tell(Notice::Saved)
+                self.tell(Notice::Saved);
+                None
             }
             // The heart on Now Playing says it.
             Outcome::Favorite(t) => {
@@ -120,10 +131,20 @@ impl Music {
             }
             Outcome::ShuffleQueue => {
                 self.player.edit().toggle_shuffle(self.now.seed);
-                self.tell(Notice::Shuffle(self.player.shuffled()))
+                self.tell(Notice::Shuffle(self.player.shuffled()));
+                None
             }
             Outcome::Change(Setting::SleepTimer, by) => {
                 self.transport.sleep.step(by, self.now.at);
+                None
+            }
+            // Off, then each preset the card's file lists, kept by name.
+            Outcome::Change(Setting::Equalizer, by) => {
+                let order: Vec<usize> = (0..=self.equalizer.len()).collect();
+                let eq = crate::settings::cycle(&order, self.settings.eq, by);
+                self.settings.eq = eq;
+                let name = self.equalizer.name(eq).unwrap_or("off").to_string();
+                self.out.push(Effect::Setting("eq", name));
                 None
             }
             Outcome::Change(setting, by) => {
@@ -142,7 +163,10 @@ impl Music {
                         self.out.push(Effect::PerfLog(self.settings.perf));
                         None
                     }
-                    Setting::Mono => Some(Command::Mono(self.settings.mono)),
+                    Setting::Log => {
+                        self.out.push(Effect::Log(self.settings.log));
+                        None
+                    }
                     _ => None,
                 }
             }
@@ -151,15 +175,24 @@ impl Music {
                 let at = self.lyrics_now().and_then(|l| l.lines.get(i)?.at);
                 at.and_then(|at| self.player.seek_to(at))
             }
-            Outcome::Skip(by) => self.player.skip(&self.library, by),
+            Outcome::Skip(by) => {
+                // Away from Now Playing and the lyrics, the corner says it went on or back.
+                let seen = matches!(self.browser.view(), View::NowPlaying | View::Lyrics);
+                if !seen && !self.dark && self.player.current().is_some() {
+                    self.tell(Notice::Skipped { on: by > 0 });
+                }
+                self.player.skip(&self.library, by)
+            }
             Outcome::Jump(to) => self.player.jump(&self.library, to),
             Outcome::PlayNext(tracks) => {
                 self.music_queue().play_next(&tracks);
-                self.tell(Notice::Next(tracks.len()))
+                self.tell(Notice::Next(tracks.len()));
+                None
             }
             Outcome::Enqueue(tracks) => {
                 self.music_queue().enqueue(&tracks);
-                self.tell(Notice::Added(tracks.len()))
+                self.tell(Notice::Added(tracks.len()));
+                None
             }
             Outcome::Play {
                 tracks,

@@ -8,7 +8,7 @@ use super::slot::{
 };
 use super::{
     MusicTheme, FIT_MIN, LETTER_BOX, LETTER_PX, MARQUEE_BEAT_MS, MARQUEE_REST_MS, MARQUEE_STEP,
-    PART_GAP, RING_PX, RING_STROKE, SECOND_PX, SMALL_H, SMALL_PX, STATUS_PX,
+    NO_ART_PX, PART_GAP, RING_PX, RING_STROKE, SECOND_PX, SMALL_H, SMALL_PX, STATUS_PX,
 };
 
 /// The music screens' inks, as slot's quick menu sets them, and one more; a theme says their
@@ -60,6 +60,13 @@ const HEART: &str = "M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3
     10.91,3.81 12,4.88C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 \
     13.45,20.03L12,21.35Z";
 const MOON: &str = "M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z";
+/// What the square shows with no picture: a note for a song, a book for a book.
+const NOTE: &str =
+    "M12 3V13.55C11.41 13.21 10.73 13 10 13C7.79 13 6 14.79 6 17S7.79 21 10 21 14 19.21 14 \
+    17V7H18V3H12Z";
+const BOOK: &str =
+    "M18,22A2,2 0 0,0 20,20V4C20,2.89 19.1,2 18,2H12V9L9.5,7.5L7,9V2H6A2,2 0 0,0 4,4V20A2,2 \
+    0 0,0 6,22H18Z";
 
 /// A favorite's heart, beside the state symbols.
 pub fn music_heart_face(theme: &MusicTheme) -> UndoFace {
@@ -69,6 +76,12 @@ pub fn music_heart_face(theme: &MusicTheme) -> UndoFace {
 /// The sleep timer's moon, beside the state symbols while it counts down.
 pub fn music_moon_face(theme: &MusicTheme) -> UndoFace {
     icon(MOON, STATUS_PX * 0.85, MENU_H, theme.lit)
+}
+
+/// What Now Playing's square shows with no picture, as players have it: a note, or a `book`.
+pub fn music_no_art_face(book: bool, theme: &MusicTheme) -> UndoFace {
+    let path = if book { BOOK } else { NOTE };
+    icon(path, NO_ART_PX, NO_ART_PX.round() as u32, theme.dim)
 }
 
 /// A favorite's heart at the right of a list row, sized to the row's type.
@@ -311,14 +324,11 @@ pub fn marquee_next(overflow: u32, ms: u64) -> Option<u64> {
     let travel = marquee_travel(overflow);
     let period = 2 * MARQUEE_REST_MS + travel;
     let (t, end) = (ms % period, MARQUEE_REST_MS + travel);
-    let next = match t < end {
-        // The next beat on the way, the last bringing it to its end.
-        true => {
-            MARQUEE_REST_MS
-                + (t.saturating_sub(MARQUEE_REST_MS) / MARQUEE_BEAT_MS + 1) * MARQUEE_BEAT_MS
-        }
-        // At its end, it rests, then starts over.
-        false => period,
+    let next = if t < end {
+        MARQUEE_REST_MS
+            + (t.saturating_sub(MARQUEE_REST_MS) / MARQUEE_BEAT_MS + 1) * MARQUEE_BEAT_MS
+    } else {
+        period
     };
     Some(next - t)
 }
@@ -444,6 +454,17 @@ mod tests {
             assert_eq!(face.h, MENU_H);
             assert!(face.rgba.chunks_exact(4).any(|p| p[3] == 255), "drawn");
         }
+    }
+
+    #[test]
+    fn a_song_with_no_picture_shows_a_note_and_a_book_a_book() {
+        let theme = MusicTheme::dark();
+        let [note, book] = [false, true].map(|book| music_no_art_face(book, &theme));
+        for face in [&note, &book] {
+            assert_eq!((face.w, face.h), (96, 96), "two fifths of the square");
+            assert!(face.rgba.chunks_exact(4).any(|p| p[3] == 255), "drawn");
+        }
+        assert_ne!(note.rgba, book.rgba);
     }
 
     #[test]

@@ -85,9 +85,10 @@ impl Decoder {
     /// Moves to `secs` in, to the sample: to the packet before it, then on through what is
     /// before it there. Past the end is the end.
     pub fn seek(&mut self, secs: f64) -> Result<(), String> {
-        let secs = match self.len > 0.0 {
-            true => secs.min(self.len),
-            false => secs,
+        let secs = if self.len > 0.0 {
+            secs.min(self.len)
+        } else {
+            secs
         };
         let to = SeekTo::Time {
             time: Time::from(secs.max(0.0)),
@@ -268,6 +269,26 @@ mod tests {
                 [(0, right), (1, 1 + right)],
                 "{channels} channels"
             );
+        }
+    }
+
+    #[test]
+    fn every_codec_the_library_s_files_may_hold_decodes() {
+        use symphonia::core::codecs::{
+            CODEC_TYPE_AAC, CODEC_TYPE_ALAC, CODEC_TYPE_FLAC, CODEC_TYPE_MP3, CODEC_TYPE_PCM_S16LE,
+            CODEC_TYPE_VORBIS,
+        };
+        let codecs = symphonia::default::get_codecs();
+        // An .m4a holds AAC or Apple Lossless; an .ogg Vorbis or FLAC.
+        for codec in [
+            CODEC_TYPE_MP3,
+            CODEC_TYPE_AAC,
+            CODEC_TYPE_ALAC,
+            CODEC_TYPE_FLAC,
+            CODEC_TYPE_VORBIS,
+            CODEC_TYPE_PCM_S16LE,
+        ] {
+            assert!(codecs.get_codec(codec).is_some(), "{codec}");
         }
     }
 

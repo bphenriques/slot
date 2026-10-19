@@ -1,0 +1,12 @@
+# The equalizer's presets, as Music Settings > Sound > Equalizer steps through them, in this
+# order. To change them, copy this file to music-eq.txt beside it and edit that one.
+#
+# bands: the centre of each band, in Hz. width: how wide each is (Q; 1 is about an octave).
+# Then a preset a line: its name, and how far up or down each band goes, in dB.
+bands = 60, 230, 910, 3600, 14000
+width = 1.0
+Bass Boost = 6, 4, 0, 0, 0
+Bass Reducer = -6, -4, 0, 0, 0
+Treble Boost = 0, 0, 0, 3, 6
+Vocal = -2, -1, 3, 3, 0
+Loudness = 5, 2, 0, 1, 4

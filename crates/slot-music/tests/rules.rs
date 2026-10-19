@@ -183,7 +183,10 @@ fn the_music_s_state_never_reads_a_clock() {
         // The scan's thread, on the card: when a song came in, and how long the scan took.
         ("library/scan.rs", "let now = std::time::SystemTime::now()"),
         ("music/loading.rs", "let started = Instant::now();"),
-        ("music/loading.rs", "started.elapsed().as_millis()"),
+        (
+            "music/loading.rs",
+            "log::info!(\"library read in {} ms\", started.elapsed().as_millis());",
+        ),
     ];
     // The perf log's thread keeps its own time, apart from the state.
     let found = breaches(&["slot-music/src"], &["music/perf.rs"], clock, &allowed);
@@ -318,7 +321,6 @@ fn the_music_s_face_is_all_slot_sees_of_it() {
         "Music",
         "NowPlayingBody",
         "Repeat",
-        "RowIcon",
         "RowText",
         "Screen",
         "Status",
@@ -330,5 +332,33 @@ fn the_music_s_face_is_all_slot_sees_of_it() {
     assert_eq!(
         exported, face,
         "lib.rs's face: a new name here is a new boundary, said so"
+    );
+}
+
+#[test]
+fn the_log_is_told_one_way() {
+    // `log::warn!` for what went wrong, `log::info!` for what happens, through the one logger.
+    let prints = |line: &str| line.contains("eprintln!") || line.contains("println!");
+    let owners = ["slot-music/src/logging.rs", "slot-player/src/bench.rs"];
+    let dirs = [
+        "slot-music/src",
+        "slot-player/src",
+        "slot-ui/src/music",
+        "slot/src/music_faces",
+    ];
+    let mut found = breaches(&dirs, &owners, prints, &[]);
+    let glue = ["slot/src/app/music.rs", "slot/src/audio/line_out.rs"];
+    for file in glue {
+        let text = std::fs::read_to_string(crates().join(file)).unwrap();
+        found.extend(
+            text.lines()
+                .filter(|l| prints(l))
+                .map(|l| format!("{file}: {l}")),
+        );
+    }
+    assert!(
+        found.is_empty(),
+        "printed, not logged:\n{}",
+        found.join("\n")
     );
 }

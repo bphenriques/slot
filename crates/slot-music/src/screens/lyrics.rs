@@ -36,9 +36,10 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
                 return Outcome::None;
             }
             // From the line in the middle: the one sung, unless scrolled to another.
-            let from = match following(b, cx.now) {
-                true => sung.unwrap_or(0),
-                false => b.at(),
+            let from = if following(b, cx.now) {
+                sung.unwrap_or(0)
+            } else {
+                b.at()
             };
             let to = match key {
                 Key::Up => from.saturating_sub(1),
@@ -79,16 +80,20 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
 
 pub(crate) fn screen(music: &Music) -> Screen {
     let title = match music.player.current() {
-        Some(t) => music.library.tracks[t].title.clone(),
+        Some(t) => {
+            let track = &music.library.tracks[t];
+            text::lyrics_of(&track.title, &track.artist)
+        }
         None => return Screen::message(text::LYRICS, text::NOTHING_PLAYING),
     };
     let Some(lyrics) = music.lyrics_now() else {
         return Screen::message(&title, text::NO_LYRICS);
     };
     let LyricsAt { sung, .. } = music.lyrics_at();
-    let focus = match following(&music.browser, music.now.at) && lyrics.timed() {
-        true => sung.unwrap_or(0),
-        false => music.browser.at(),
+    let focus = if following(&music.browser, music.now.at) && lyrics.timed() {
+        sung.unwrap_or(0)
+    } else {
+        music.browser.at()
     };
     let body = TextBody {
         lines: lyrics.lines.iter().map(|l| l.text.clone()).collect(),

@@ -1014,3 +1014,29 @@ fn of_the_work_writing_the_device_s_own_library_s_is_told_apart() {
     assert_eq!(playing.work.library, LIBRARY, "as the output says");
     handle.send(Command::Stop);
 }
+
+#[test]
+fn the_equalizer_cuts_a_band_after_the_mix_and_none_plays_as_recorded() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav_of(dir.path(), "a.wav", 1.0, 48_000, 2, tone(1000.0, 48_000));
+    // The loudest of the second half of what was heard.
+    let peak = |bands: Vec<slot_player::Band>| {
+        let (handle, capture) = player(None);
+        handle.send(Command::Equalizer(bands));
+        handle.send(play(&path, 0.0));
+        until(&handle, |e| matches!(e, Event::End(_)));
+        let samples = capture.samples.lock().unwrap();
+        let half = &samples[samples.len() / 2..samples.len() - 4000];
+        half.iter().fold(0.0f32, |m, s| m.max(s.abs()))
+    };
+    let flat = peak(Vec::new());
+    assert!((flat - 0.25 * 0.794).abs() < 0.01, "as recorded: {flat}");
+    let cut = slot_player::Band {
+        hz: 1000.0,
+        db: -12.0,
+        q: 1.0,
+    };
+    let less = peak(vec![cut]);
+    let db = 20.0 * (less / flat).log10();
+    assert!((db + 12.0).abs() < 1.0, "12 dB down at the band: {db}");
+}

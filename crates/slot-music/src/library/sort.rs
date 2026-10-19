@@ -27,12 +27,11 @@ fn parts(name: &str) -> Vec<Part> {
             .find(|c: char| c.is_ascii_digit() != digit)
             .unwrap_or(rest.len());
         let (run, after) = rest.split_at(end);
-        parts.push(match digit {
-            // Past what fits, a run of digits sorts as text, still in a fair order.
-            true => run
-                .parse()
-                .map_or_else(|_| Part::Text(run.into()), Part::Number),
-            false => Part::Text(run.into()),
+        parts.push(if digit {
+            run.parse()
+                .map_or_else(|_| Part::Text(run.into()), Part::Number)
+        } else {
+            Part::Text(run.into())
         });
         rest = after;
     }
@@ -42,13 +41,13 @@ fn parts(name: &str) -> Vec<Part> {
 /// The letter a name is listed under, or "#".
 pub fn initial(name: &str) -> char {
     let bare = bare(name);
-    match starts_with_letter(bare) {
-        true => bare
-            .chars()
+    if starts_with_letter(bare) {
+        bare.chars()
             .next()
             .and_then(|c| c.to_uppercase().next())
-            .unwrap_or('#'),
-        false => '#',
+            .unwrap_or('#')
+    } else {
+        '#'
     }
 }
 

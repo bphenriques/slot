@@ -11,14 +11,19 @@ pub(crate) struct ReadAhead<T> {
 
 impl<T> Default for ReadAhead<T> {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> ReadAhead<T> {
+    /// Nothing read nor asked for.
+    pub const fn new() -> Self {
         ReadAhead {
             read: Vec::new(),
             asked: Vec::new(),
         }
     }
-}
 
-impl<T> ReadAhead<T> {
     /// What was read for song `t`, once it was.
     pub fn of(&self, t: TrackId) -> Option<&T> {
         self.read

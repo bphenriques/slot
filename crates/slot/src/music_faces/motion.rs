@@ -73,9 +73,10 @@ impl Motion {
             let was = self.rows.get(self.bar.to as usize);
             self.rides = was.is_some_and(|was| rows.get(selected) == Some(was));
             // On the same screen, rows follow their change; a new one just arrives.
-            match self.entered.since == now {
-                true => self.moved = Vec::new(),
-                false => self.follow(rows, now),
+            if self.entered.since == now {
+                self.moved = Vec::new()
+            } else {
+                self.follow(rows, now)
             }
             self.rows = rows.to_vec();
             self.bar = MusicTween::still(to, now);
@@ -83,9 +84,10 @@ impl Motion {
             self.rides = false;
             self.bar.toward(to, now, MUSIC_GLIDE_MS);
         }
-        let ride = match self.rides {
-            true => self.offsets(now).get(selected).copied().unwrap_or(0.0),
-            false => 0.0,
+        let ride = if self.rides {
+            self.offsets(now).get(selected).copied().unwrap_or(0.0)
+        } else {
+            0.0
         };
         self.bar.at(now, MUSIC_GLIDE_MS) + ride
     }
@@ -117,25 +119,36 @@ impl Motion {
     /// How far each row is from its place, in rows, as it slides there.
     pub fn offsets(&self, now: Millis) -> Vec<f32> {
         let u = self.eased(self.moved_at, now, self.slide);
-        match u < 1.0 {
-            true => self.moved.iter().map(|d| d * (1.0 - u)).collect(),
-            false => Vec::new(),
+        if u < 1.0 {
+            self.moved.iter().map(|d| d * (1.0 - u)).collect()
+        } else {
+            Vec::new()
         }
     }
 
     /// Where the text view's middle is, in lines: it moves smoothly to `to`; on a new screen it
     /// starts there.
     pub fn focus(&mut self, to: f32, now: Millis) -> f32 {
-        match self.entered.since == now {
-            true => self.focus = MusicTween::still(to, now),
-            false => self.focus.toward(to, now, MUSIC_SLIDE_MS),
+        if self.entered.since == now {
+            self.focus = MusicTween::still(to, now)
+        } else {
+            self.focus.toward(to, now, MUSIC_SLIDE_MS)
         }
         self.focus.at(now, MUSIC_SLIDE_MS)
     }
 
-    /// A new album picture is up, to fade in.
-    pub fn new_art(&mut self, now: Millis) {
-        self.art = now;
+    /// A new album picture is up: to `fade` in, or there at once.
+    pub fn new_art(&mut self, now: Millis, fade: bool) {
+        self.art = if fade {
+            now
+        } else {
+            now.saturating_sub(MUSIC_ART_MS)
+        };
+    }
+
+    /// Whether the screen shown is still coming in `now`.
+    pub fn entering(&self, now: Millis) -> bool {
+        self.entered.at(now, MUSIC_SLIDE_MS) < 1.0
     }
 
     /// Whether anything is still on its way `now`: a screen sliding in, the highlight gliding, rows
@@ -184,12 +197,16 @@ mod tests {
         m.bar(&rows(&["a", "c"]), 1, far + 1000);
         assert!(m.moving(far + 1000), "a row taken out, the rest slide up");
         assert!(!m.moving(far + 1000 + MUSIC_SLIDE_MS));
-        m.new_art(far + 2000);
+        m.new_art(far + 2000, true);
         assert!(
             m.moving(far + 2000 + MUSIC_ART_MS / 2),
             "a picture fades in"
         );
         assert!(!m.moving(far + 2000 + MUSIC_ART_MS));
+        // One there at once does not fade, nor keep the frames coming.
+        m.new_art(far + 3000, false);
+        assert_eq!(m.at(far + 3000).art, 1.0);
+        assert!(!m.moving(far + 3000));
     }
 
     #[test]

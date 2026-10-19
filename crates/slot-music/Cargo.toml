@@ -6,11 +6,16 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+log.workspace = true
 slot-player = { path = "../slot-player" }
 slot-store = { path = "../slot-store" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-lofty = "0.25"
+lofty.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints.clippy]
+match_bool = "warn"
+undocumented_unsafe_blocks = "warn"

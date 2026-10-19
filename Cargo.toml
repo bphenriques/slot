@@ -24,6 +24,8 @@ tempfile = "3"
 unicode-normalization = "0.1"
 resvg = { version = "0.48", default-features = false }
 usvg = { version = "0.48", default-features = false }
+log = "0.4"
+lofty = "0.25"
 
 [profile.device]
 inherits = "release"

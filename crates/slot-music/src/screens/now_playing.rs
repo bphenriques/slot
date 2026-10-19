@@ -1,7 +1,6 @@
-//! Now Playing: the track, its album picture, the state symbols and the bar. A pauses, X
-//! shows the lyrics, Down shuffles, Y puts the song in Favorites and Up steps the repeat round, as START's menu does;
-//! SELECT opens the queue. The back buttons carry the transport: L1 and R1 change track, as
-//! Left and Right do, and L2 and R2 seek. An audiobook has its own, in `book`.
+//! Now Playing: the track, its picture, the state symbols and the bar. A pauses, X shows the
+//! lyrics, Y favorites, Up steps the repeat, Down shuffles, SELECT opens the queue; Left, Right,
+//! L1 and R1 change track, held they seek; L2 and R2 seek. A book's is in `book`.
 
 use super::{Body, NowPlayingBody, Screen, Status};
 use crate::browse::{Browser, Context, Key, Outcome, View};
@@ -70,12 +69,11 @@ pub(crate) fn screen(music: &Music) -> Screen {
     }
     let Some(track) = music.player.current() else {
         // The saved queue comes back once the library is read; until then, how far it is.
-        let line = match music.player.queue().waiting {
-            true => {
-                let (done, of) = music.reading();
-                text::reading(done, of)
-            }
-            false => text::NOTHING_PLAYING.into(),
+        let line = if music.player.queue().waiting {
+            let (done, of) = music.reading();
+            text::reading(done, of)
+        } else {
+            text::NOTHING_PLAYING.into()
         };
         return Screen::message(text::NOW_PLAYING, &line);
     };
@@ -85,8 +83,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
     let (lib, player) = (&music.library, &music.player);
     let (at, len) = player.time();
     let (n, of) = player.place();
-    // The bar moves on between the player's reports.
-    let bar = player.time().0;
     let playing = player.state() == PlayState::Playing;
     let body = NowPlayingBody {
         title: lib.tracks[track].title.clone(),
@@ -99,7 +95,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
             favorite: lib.is_favorite(track),
             sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
-        progress: super::fraction(bar, len),
+        progress: super::fraction(at, len),
         marks: Vec::new(),
         place: text::of(n, of),
         time: text::elapsed(at, len),
@@ -108,6 +104,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
             .filter(|_| music.settings.up_next)
             .map(|t| text::up_next(&lib.tracks[t].title, &lib.tracks[t].artist)),
         color: music.settings.color,
+        book: false,
     };
     Screen::new(
         text::NOW_PLAYING,

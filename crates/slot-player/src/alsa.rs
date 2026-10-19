@@ -55,9 +55,10 @@ fn lets_alsa_resample(rate: u32) -> bool {
 /// A device that would not be set up at `rate`: refused at a file's own, which [`RATE`] then
 /// stands in for; failed at [`RATE`], for which there is nothing else.
 fn unopened(rate: u32, why: String) -> Unopened {
-    match lets_alsa_resample(rate) {
-        true => Unopened::Failed(why),
-        false => Unopened::Refused(why),
+    if lets_alsa_resample(rate) {
+        Unopened::Failed(why)
+    } else {
+        Unopened::Refused(why)
     }
 }
 
@@ -68,6 +69,13 @@ fn unopened(rate: u32, why: String) -> Unopened {
 fn taken_back(can: c_long, rate: c_uint) -> c_long {
     let margin = c_long::from(rate) / 20;
     (can - margin).max(0)
+}
+
+/// What to take back to fade out from, of the `can` frames the device holds unplayed, at `rate`:
+/// as [`taken_back`], but no more than the `kept` frames of it still held to fade from, so the
+/// fade starts where the sound was taken back to, never earlier.
+fn faded_back(can: c_long, kept: usize, rate: c_uint) -> c_long {
+    taken_back(can, rate).min(c_long::try_from(kept).unwrap_or(c_long::MAX))
 }
 
 /// How far through a fade of `of` frames frame `i` is, 0 to 1.
@@ -104,11 +112,13 @@ pub struct Alsa {
     _lib: Library,
 }
 
-// The device is only ever used from the writer's thread, which owns it.
+// SAFETY: ALSA's handle may move between threads; it is only ever used from the writer's, which
+// owns it.
 unsafe impl Send for Alsa {}
 
 impl Alsa {
     pub fn load() -> Result<Alsa, String> {
+        // SAFETY: ALSA's library runs nothing of its own as it loads.
         let lib = unsafe { Library::new("libasound.so.2") }
             .or_else(|_| unsafe { Library::new("libasound.so") })
             .map_err(|e| format!("libasound: {e}"))?;
@@ -118,6 +128,8 @@ impl Alsa {
                     .map_err(|e| format!("{}: {e}", $name))?
             };
         }
+        // SAFETY: each symbol is ALSA's function of that name, typed as `alsa/pcm.h` declares
+        // it, and kept no longer than `lib`, which is kept with them.
         unsafe {
             Ok(Alsa {
                 open: get!("snd_pcm_open"),
@@ -147,12 +159,15 @@ impl Alsa {
     }
 
     fn message(&self, err: c_int) -> String {
+        // SAFETY: takes any number, and gives a static string or null.
         let text = unsafe { (self.strerror)(err) };
-        match text.is_null() {
-            true => format!("error {err}"),
-            false => unsafe { CStr::from_ptr(text) }
+        if text.is_null() {
+            format!("error {err}")
+        } else {
+            // SAFETY: not null, a string ALSA keeps for good, ended by a zero.
+            unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
-                .into_owned(),
+                .into_owned()
         }
     }
 
@@ -167,6 +182,7 @@ impl Alsa {
         let given_up = std::time::Instant::now() + BUSY_FOR;
         let mut pcm: Pcm = std::ptr::null_mut();
         let err = loop {
+            // SAFETY: `pcm` is somewhere to write the handle, `DEVICE` a string ended by a zero.
             let err = unsafe { (self.open)(&mut pcm, DEVICE.as_ptr(), STREAM_PLAYBACK, 0) };
             if err != -EBUSY || std::time::Instant::now() >= given_up {
                 break err;
@@ -180,6 +196,7 @@ impl Alsa {
             )));
         }
         let channels = c_uint::from(CHANNELS);
+        // SAFETY: `pcm` is the device just opened.
         let err = unsafe {
             (self.set_params)(
                 pcm,
@@ -192,6 +209,7 @@ impl Alsa {
             )
         };
         if err < 0 {
+            // SAFETY: `pcm` is open, and is not used again.
             unsafe { (self.close)(pcm) };
             let why = format!(
                 "setting up the sound at {} Hz: {}",
@@ -200,7 +218,7 @@ impl Alsa {
             );
             return Err(unopened(self.rate, why));
         }
-        eprintln!("slot: player: sound at {} Hz", self.rate);
+        log::info!("sound at {} Hz", self.rate);
         self.pcm = Some(pcm);
         self.fade_in = FADE;
         Ok(pcm)
@@ -211,9 +229,14 @@ impl Alsa {
     /// Ends the sound where it is heard without a click, and lets the device go quiet: faded out,
     /// played until it is; cut short, dropped.
     fn end(&mut self, pcm: Pcm) {
-        match self.fade_out(pcm) {
-            true => unsafe { (self.drain)(pcm) },
-            false => unsafe { (self.drop)(pcm) },
+        let faded = self.fade_out(pcm);
+        // SAFETY: `pcm` is the device this has open, as everywhere below that takes it.
+        unsafe {
+            if faded {
+                (self.drain)(pcm)
+            } else {
+                (self.drop)(pcm)
+            }
         };
         self.hushed = false;
     }
@@ -223,57 +246,55 @@ impl Alsa {
     /// device cannot take sound back, and it is to be cut short as it is.
     fn fade_out(&mut self, pcm: Pcm) -> bool {
         let channels = usize::from(CHANNELS);
+        // SAFETY: `pcm` is open.
         let can = unsafe { (self.rewindable)(pcm) };
-        let take = taken_back(can, self.rate);
-        let back = match take > 0 {
-            true => unsafe { (self.rewind)(pcm, take as c_ulong) },
-            false => 0,
+        let take = faded_back(can, self.written.len() / channels, self.rate);
+        let back = if take > 0 {
+            // SAFETY: `pcm` is open.
+            unsafe { (self.rewind)(pcm, take as c_ulong) }
+        } else {
+            0
         };
         let back = back.max(0) as usize * channels;
-        let faded = match back > 0 && back <= self.written.len() {
-            true => {
-                let from = self.written.len() - back;
-                let mut fade: Vec<i16> = self
-                    .written
-                    .range(from..)
-                    .take(FADE_OUT * channels)
-                    .copied()
-                    .collect();
-                let frames = fade.len() / channels;
-                for (i, frame) in fade.chunks_exact_mut(channels).enumerate() {
-                    let down = 1.0 - ramp(i, frames);
-                    frame
-                        .iter_mut()
-                        .for_each(|s| *s = (f32::from(*s) * down) as i16);
-                }
-                eprintln!(
-                    "slot: player: faded out, {} of {can} frames taken back",
-                    back / channels
-                );
-                unsafe { (self.writei)(pcm, fade.as_ptr().cast(), frames as c_ulong) };
-                true
+        let faded = if back > 0 && back <= self.written.len() {
+            let from = self.written.len() - back;
+            let mut fade: Vec<i16> = self
+                .written
+                .range(from..)
+                .take(FADE_OUT * channels)
+                .copied()
+                .collect();
+            let frames = fade.len() / channels;
+            for (i, frame) in fade.chunks_exact_mut(channels).enumerate() {
+                let down = 1.0 - ramp(i, frames);
+                frame
+                    .iter_mut()
+                    .for_each(|s| *s = (f32::from(*s) * down) as i16);
             }
+            log::info!("faded out, {} of {can} frames taken back", back / channels);
+            // SAFETY: `pcm` is open; `fade` holds `frames` whole frames, which it only reads.
+            unsafe { (self.writei)(pcm, fade.as_ptr().cast(), frames as c_ulong) };
+            true
+        } else if can >= 0 && self.written.len() >= channels {
             // Little left to play: it plays out, then goes down to nothing from its last.
-            false if can >= 0 && self.written.len() >= channels => {
-                let last: Vec<i16> = self
-                    .written
-                    .range(self.written.len() - channels..)
-                    .copied()
-                    .collect();
-                let mut fade = Vec::with_capacity(FADE_OUT * channels);
-                for i in 0..FADE_OUT {
-                    let down = 1.0 - ramp(i, FADE_OUT);
-                    fade.extend(last.iter().map(|&s| (f32::from(s) * down) as i16));
-                }
-                eprintln!("slot: player: played out, {can} frames left");
-                unsafe { (self.writei)(pcm, fade.as_ptr().cast(), FADE_OUT as c_ulong) };
-                true
+            let last: Vec<i16> = self
+                .written
+                .range(self.written.len() - channels..)
+                .copied()
+                .collect();
+            let mut fade = Vec::with_capacity(FADE_OUT * channels);
+            for i in 0..FADE_OUT {
+                let down = 1.0 - ramp(i, FADE_OUT);
+                fade.extend(last.iter().map(|&s| (f32::from(s) * down) as i16));
             }
+            log::info!("played out, {can} frames left");
+            // SAFETY: `pcm` is open; `fade` holds `FADE_OUT` whole frames, which it only reads.
+            unsafe { (self.writei)(pcm, fade.as_ptr().cast(), FADE_OUT as c_ulong) };
+            true
+        } else {
             // Cut where it is: heard as a click, so said, to know how often the device does it.
-            false => {
-                eprintln!("slot: player: cut short, {can} frames could be taken back");
-                false
-            }
+            log::info!("cut short, {can} frames could be taken back");
+            false
         };
         self.written.clear();
         faded
@@ -290,7 +311,7 @@ impl Output for Alsa {
         // Opened now, to know; any other failure is the next write's to say.
         match self.pcm() {
             Err(Unopened::Refused(why)) => {
-                eprintln!("slot: player: {why}");
+                log::info!("{why}");
                 self.rate = RATE;
                 false
             }
@@ -305,8 +326,10 @@ impl Output for Alsa {
         // Played on from a pause: the silence it went on with is taken back, and the sound fades
         // in after what is left of it.
         if std::mem::take(&mut self.hushed) {
+            // SAFETY: `pcm` is open, here and below.
             let take = taken_back(unsafe { (self.rewindable)(pcm) }, self.rate);
             if take > 0 {
+                // SAFETY: `pcm` is open.
                 unsafe { (self.rewind)(pcm, take as c_ulong) };
             }
             self.fade_in = FADE;
@@ -338,6 +361,7 @@ impl Output for Alsa {
             return 0;
         };
         let mut frames: c_long = 0;
+        // SAFETY: `pcm` is open; `frames` is somewhere to write the count.
         match unsafe { (self.delay)(pcm, &mut frames) } {
             0 => frames.max(0) as u64,
             _ => 0,
@@ -347,6 +371,7 @@ impl Output for Alsa {
     fn flush(&mut self) {
         if let Some(pcm) = self.pcm {
             self.end(pcm);
+            // SAFETY: `pcm` is open.
             unsafe { (self.prepare)(pcm) };
             self.fade_in = FADE;
         }
@@ -361,8 +386,11 @@ impl Output for Alsa {
             return;
         };
         if !self.fade_out(pcm) {
-            unsafe { (self.drop)(pcm) };
-            unsafe { (self.prepare)(pcm) };
+            // SAFETY: `pcm` is open.
+            unsafe {
+                (self.drop)(pcm);
+                (self.prepare)(pcm);
+            }
         }
         self.hushed = true;
     }
@@ -372,9 +400,10 @@ impl Output for Alsa {
             return Ok(());
         };
         let silence = std::mem::take(&mut self.silence);
-        let silence = match silence.is_empty() {
-            true => vec![0; IDLE * usize::from(CHANNELS)],
-            false => silence,
+        let silence = if silence.is_empty() {
+            vec![0; IDLE * usize::from(CHANNELS)]
+        } else {
+            silence
         };
         let put = self.put(pcm, &silence);
         self.silence = silence;
@@ -384,6 +413,7 @@ impl Output for Alsa {
     fn release(&mut self) {
         if let Some(pcm) = self.pcm.take() {
             self.end(pcm);
+            // SAFETY: `pcm` is open, taken out of `self.pcm`, so never used again.
             unsafe { (self.close)(pcm) };
         }
     }
@@ -412,9 +442,12 @@ impl Alsa {
         let mut at = 0;
         while at < samples.len() {
             let frames = ((samples.len() - at) / channels) as c_ulong;
+            // SAFETY: `pcm` is open; what is left of `samples` holds `frames` whole frames, which
+            // it only reads.
             let n = unsafe { (self.writei)(pcm, samples[at..].as_ptr().cast(), frames) };
             if n < 0 {
                 // An underrun after a quiet moment, or a sleep: recover, and write on.
+                // SAFETY: `pcm` is open.
                 let err = unsafe { (self.recover)(pcm, n as c_int, 1) };
                 if err < 0 {
                     let why = self.message(err);
@@ -485,6 +518,17 @@ mod tests {
         assert_eq!(taken_back(12_000, 44_100), 12_000 - 2_205, "all but 50 ms");
         assert_eq!(taken_back(2_000, 44_100), 0, "less than that: it plays out");
         assert_eq!(taken_back(-32, 44_100), 0, "an error takes nothing back");
+    }
+
+    #[test]
+    fn a_fade_out_takes_back_only_what_it_still_holds_to_fade_from() {
+        assert_eq!(faded_back(12_000, 20_000, 44_100), 12_000 - 2_205, "as any");
+        assert_eq!(
+            faded_back(12_000, 4_096, 44_100),
+            4_096,
+            "a pause just after playing on: the silence before it plays out"
+        );
+        assert_eq!(faded_back(2_000, 4_096, 44_100), 0);
     }
 
     #[test]

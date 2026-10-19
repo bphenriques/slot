@@ -1,6 +1,8 @@
 //! The music screen's textures. Lines are drawn once at full length and shown through a
 //! window, so long ones scroll: the highlighted row in a list, every line on Now Playing.
 
+#![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
+
 mod list;
 mod motion;
 mod now_playing;
@@ -8,21 +10,18 @@ mod text_view;
 
 use slot_gfx::{Compositor, TexId};
 use slot_input::Millis;
-use slot_music::{text, Body, Legend, RowIcon, RowText};
+use slot_music::{text, Body, Legend, RowText};
 use slot_ui::music::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
-    music_heart_face, music_hint_face, music_letter_face, music_line_face, music_moon_face,
-    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_status_face,
-    music_tint_ink, music_title_w, music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces,
-    MusicTheme, MUSIC_STATUS,
+    music_half_w, music_header_title_w, music_heart_face, music_hint_face, music_letter_face,
+    music_line_face, music_moon_face, music_no_art_face, music_paragraph_face, music_ring_face,
+    music_row_face, music_row_heart_face, music_status_face, music_tint_ink, music_window,
+    BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme, MUSIC_RING_STEPS, MUSIC_STATUS,
 };
 use slot_ui::UndoFace;
 
 use crate::app::App;
 use motion::Motion;
-
-/// How many steps a hold's ring fills in, each drawn once a colour.
-const RING_STEPS: f32 = 40.0;
 
 /// A held key's ring as drawn: how far round, in what ink, around which hint's cap (the
 /// arrows' for `Some(None)`), or in the corner.
@@ -58,7 +57,7 @@ impl Spec {
                 music_paragraph_face(text, *ink, *px as f32, width, theme)
             }
             Spec::Row { text, ink, px } => {
-                let icon = text.icon.map(|RowIcon::Play| MUSIC_STATUS[0]);
+                let icon = text.playing.then_some(MUSIC_STATUS[0]);
                 music_row_face(
                     icon,
                     &text.before,
@@ -193,6 +192,8 @@ struct Glyphs {
     status: [MusicFace; 5],
     heart: MusicFace,
     moon: MusicFace,
+    /// Now Playing's square with no picture: a note, then a book.
+    no_art: [MusicFace; 2],
 }
 
 impl Glyphs {
@@ -200,7 +201,13 @@ impl Glyphs {
         let carets = [false, true].map(|right| music_caret_face(right, theme));
         let status = MUSIC_STATUS.map(|g| music_status_face(g, theme));
         let rest = [music_heart_face(theme), music_moon_face(theme)];
-        carets.into_iter().chain(status).chain(rest).collect()
+        let no_art = [false, true].map(|book| music_no_art_face(book, theme));
+        carets
+            .into_iter()
+            .chain(status)
+            .chain(rest)
+            .chain(no_art)
+            .collect()
     }
 
     fn of(faces: &[MusicFace]) -> Glyphs {
@@ -210,6 +217,7 @@ impl Glyphs {
             status: [2, 3, 4, 5, 6].map(at),
             heart: at(7),
             moon: at(8),
+            no_art: [at(9), at(10)],
         }
     }
 }
@@ -282,6 +290,8 @@ pub struct MusicText {
     /// texture takes the next one.
     art: Option<now_playing::Picture>,
     art_was: Option<now_playing::Picture>,
+    /// The textures of pictures let go, for the next to take.
+    art_free: Vec<TexId>,
     /// The hearts list rows show, for the page size it was drawn at.
     row_heart: Styled<(bool, usize)>,
     /// The letter a list jumped to, and the ring a held key fills, by how far, around which
@@ -353,11 +363,20 @@ impl MusicText {
             Body::Message(_) => true,
             Body::NowPlaying(_) | Body::Text(_) => false,
         };
-        let clock = screen.clock && !menu;
-        let title_w = music_title_w(clock, canvas);
-        let title = match menu {
-            true => None,
-            false => self.header.sync(
+        // The corner first, at most half the header: the title takes what it leaves.
+        let corner = self.header.sync(
+            compositor,
+            theme,
+            1,
+            Spec::small(screen.corner),
+            music_half_w(canvas),
+            None,
+        );
+        let title_w = music_header_title_w(corner.map_or(0, |(_, w, _)| w), canvas);
+        let title = if menu {
+            None
+        } else {
+            self.header.sync(
                 compositor,
                 theme,
                 0,
@@ -365,16 +384,8 @@ impl MusicText {
                 title_w,
                 // Too long for the header, it scrolls, as a highlighted row does.
                 Some(self.motion.up_for(now)),
-            ),
+            )
         };
-        let corner = self.header.sync(
-            compositor,
-            theme,
-            1,
-            Spec::small(screen.corner),
-            title_w,
-            None,
-        );
         let legend = self.legend(compositor, screen.legend);
         // A key held to act fills a ring around its hint's cap, or in the corner where it has
         // none; Dynamic Color tints it on Now Playing, as it does the bar.
@@ -383,12 +394,12 @@ impl MusicText {
             _ => theme.lit,
         };
         let ring = screen.hold.and_then(|hold| {
-            let step = (hold.done * RING_STEPS).round() as u8;
+            let step = (hold.done * MUSIC_RING_STEPS).round() as u8;
             let hints = text::legend(screen.legend);
             let cap = hold.hint.and_then(|i| hints.get(i));
             let cap = cap.map(|h| (h.key != text::ARROWS).then_some(h.key));
             let draw = |&(step, ink, cap): &Ring, t: &MusicTheme| {
-                let done = step as f32 / RING_STEPS;
+                let done = step as f32 / MUSIC_RING_STEPS;
                 vec![match cap {
                     Some(key) => music_cap_ring_face(key, done, ink, t),
                     None => music_ring_face(done, ink, t),
@@ -424,7 +435,6 @@ impl MusicText {
             legend,
             body,
             motion: self.motion.at(now),
-            clock,
             canvas,
             theme,
             letter,
@@ -436,9 +446,10 @@ impl MusicText {
             .into_iter()
             .filter_map(Lines::next)
             .min();
-        let wake = match self.motion.moving(now) {
-            true => Some(now),
-            false => next.map(|ms| now + ms),
+        let wake = if self.motion.moving(now) {
+            Some(now)
+        } else {
+            next.map(|ms| now + ms)
         };
         app.music_drawn(wake);
         true

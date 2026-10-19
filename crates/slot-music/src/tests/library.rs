@@ -52,10 +52,11 @@ fn rescan_reads_what_changed_and_rebuild_everything_near_the_end_of_settings() {
     assert_eq!(b.view(), View::Debug, "the Debug page, last");
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(rows, ["Performance Log", "Last Error"]);
+    assert_eq!(rows, ["Performance Log", "Detailed Log", "Last Error"]);
     press(&mut b, &lib, &[Key::B]);
+    // Up past Help and Controls, to Rebuild.
     assert_eq!(
-        press(&mut b, &lib, &[Key::Up, Key::A]),
+        press(&mut b, &lib, &[Key::Up, Key::Up, Key::Up, Key::A]),
         Outcome::Tell(Notice::Hold("A")),
         "Rebuild acts only held"
     );
@@ -173,6 +174,11 @@ fn recently_played_is_kept_by_path_and_listed_with_the_playlists() {
     }
     assert_eq!(b.view(), View::RecentlyPlayed);
     assert_eq!(b.page(&cx).rows, ["Play All", "Shuffle Songs", "one"]);
+    // A song there plays from it, as in any list of songs.
+    b.press(&cx, Key::Down);
+    b.press(&cx, Key::Down);
+    let play = b.press(&cx, Key::A);
+    assert!(matches!(play, Outcome::Play { start: 0, .. }), "{play:?}");
 }
 
 #[test]
@@ -452,4 +458,20 @@ fn a_song_s_own_tags_name_it_file_it_and_say_how_long_it_plays() {
     );
     let part = lib.tracks.iter().find(|t| t.book.is_some()).unwrap();
     assert_eq!(part.secs, 1.0, "a second long");
+}
+
+#[test]
+fn only_files_the_player_can_play_are_listed() {
+    let (_d, lib) = library(&[
+        "X/A/01 one.mp3",
+        "X/A/02 two.flac",
+        "X/A/03 three.m4a",
+        "X/A/04 four.ogg",
+        "X/A/05 five.wav",
+        "X/A/06 six.opus",
+        "X/A/07 seven.wma",
+    ]);
+    let names: Vec<_> = lib.tracks.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(names.len(), 5, "not Opus, nor WMA: {names:?}");
+    assert!(!names.contains(&"six") && !names.contains(&"seven"));
 }

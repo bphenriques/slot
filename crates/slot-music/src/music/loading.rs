@@ -103,8 +103,8 @@ impl Music {
         if self.scan.ready {
             self.carry_over();
         }
-        eprintln!(
-            "slot: music: {} artists, {} albums, {} tracks, {} to optimize",
+        log::info!(
+            "{} artists, {} albums, {} tracks, {} to optimize",
             lib.artists.len(),
             lib.albums.len(),
             lib.tracks.len(),
@@ -184,6 +184,8 @@ pub(crate) fn spawn_scan(
 ) -> Receiver<Found> {
     let (tx, rx) = mpsc::channel();
     let root: PathBuf = root.to_path_buf();
+    // Asked on the frame loop, which is woken as each library is ready to show.
+    let frames = std::thread::current();
     let spawned = std::thread::Builder::new()
         .name("slot-music-scan".into())
         .spawn(move || {
@@ -191,19 +193,35 @@ pub(crate) fn spawn_scan(
             let started = Instant::now();
             let shown =
                 !full && scan::cached(&root).is_some_and(|lib| tx.send(Found::Cached(lib)).is_ok());
+            frames.unpark();
             let (lib, changed) = scan::scan(&root, full, &progress);
             let missing = covers::missing(&root, &lib);
-            eprintln!(
-                "slot: music: library read in {} ms",
-                started.elapsed().as_millis()
-            );
-            let _ = tx.send(match shown && !changed {
-                true => Found::Same(missing),
-                false => Found::Fresh(lib, missing),
+            log::info!("library read in {} ms", started.elapsed().as_millis());
+            let _ = tx.send(if shown && !changed {
+                Found::Same(missing)
+            } else {
+                Found::Fresh(lib, missing)
             });
+            frames.unpark();
         });
     if let Err(e) = spawned {
-        eprintln!("slot: music: {e}");
+        log::warn!("{e}");
     }
     rx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_library_read_wakes_the_frame_loop_resting() {
+        let card = tempfile::tempdir().unwrap();
+        let rx = spawn_scan(card.path(), true, Arc::new(scan::Progress::default()));
+        let began = Instant::now();
+        while rx.try_recv().is_err() {
+            std::thread::park_timeout(std::time::Duration::from_secs(5));
+            assert!(began.elapsed() < std::time::Duration::from_secs(2), "woken");
+        }
+    }
 }

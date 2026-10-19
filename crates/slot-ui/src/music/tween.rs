@@ -21,9 +21,10 @@ pub const MUSIC_ART_MS: u64 = 220;
 /// How far along an ease `since` ms in, of one over `over` ms: 0 to 1, slot's curve.
 pub fn music_eased(since: u64, over: u64) -> f32 {
     let over = over as f32 * slow();
-    match over > 0.0 {
-        true => ease((since as f32 / over).min(1.0)),
-        false => 1.0,
+    if over > 0.0 {
+        ease((since as f32 / over).min(1.0))
+    } else {
+        1.0
     }
 }
 

@@ -7,7 +7,7 @@
 
 use super::{list, now_playing, Body, NowPlayingBody, Screen, Status};
 use crate::books;
-use crate::browse::rows::Row;
+use crate::browse::rows::{self, Row};
 use crate::browse::{Browser, Context, Key, Outcome, View};
 use crate::library::{BookId, TrackId};
 use crate::playback::player::Repeat;
@@ -38,15 +38,30 @@ pub(crate) fn press(cx: &Context, key: Key) -> Outcome {
     }
 }
 
-/// The chapters, on the one playing.
-pub(crate) fn open_chapters(b: &mut Browser, cx: &Context) {
-    b.push(View::Chapters, cx.queue.chapter.unwrap_or(cx.queue.at));
+/// A book's chapters, all its parts', on the one it was left in or plays: from its Now Playing,
+/// its list or its menu.
+pub(crate) fn open_book_chapters(b: &mut Browser, cx: &Context, book: BookId) {
+    let view = View::BookChapters(book);
+    let at = rows::left_at(cx, &rows::rows(cx, view), book);
+    b.push(view, at);
 }
 
 /// A chapter or bookmark picked plays, on Now Playing; X takes a bookmark out.
 pub(crate) fn press_row(b: &mut Browser, row: Row, key: Key) -> Option<Outcome> {
     let outcome = match (row, key, b.view()) {
-        (Row::Chapter(i), Key::A, _) => Outcome::Chapter(i),
+        (
+            Row::BookChapter {
+                book,
+                part,
+                chapter,
+            },
+            Key::A,
+            _,
+        ) => Outcome::BookChapter {
+            book,
+            part,
+            chapter,
+        },
         (Row::Bookmark(mark), Key::A, View::Bookmarks(book)) => Outcome::GoBookmark { book, mark },
         (Row::Bookmark(mark), Key::X, View::Bookmarks(book)) => {
             return Some(Outcome::RemoveBookmark { book, mark })
@@ -82,12 +97,11 @@ fn timing(music: &Music, book: BookId) -> Timing {
         .map_or((0.0, len), |c| (c.chapter.start, c.end));
     let b = &lib.books[book];
     let (_, part) = music.book().unwrap_or_default();
-    let (left, done) = match b.secs > 0.0 {
-        true => {
-            let into = books::into_book(lib, book, part, pos);
-            (b.secs - into, Some((into / b.secs).clamp(0.0, 1.0)))
-        }
-        false => (len - pos, None),
+    let (left, done) = if b.secs > 0.0 {
+        let into = books::into_book(lib, book, part, pos);
+        (b.secs - into, Some((into / b.secs).clamp(0.0, 1.0)))
+    } else {
+        (len - pos, None)
     };
     let speed = player.speed();
     Timing {
@@ -140,9 +154,10 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
     let (title, (n, of)) = match player.chapter() {
         // A chapter with no title of its own is named as its part is.
         Some(c) => (
-            match c.chapter.title.is_empty() {
-                true => lib.tracks[track].title.clone(),
-                false => c.chapter.title.clone(),
+            if c.chapter.title.is_empty() {
+                lib.tracks[track].title.clone()
+            } else {
+                c.chapter.title.clone()
             },
             (c.index + 1, player.chapters()),
         ),
@@ -178,6 +193,7 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
             left.max(0.0) / f64::from(speed),
         )),
         color: music.settings.color,
+        book: true,
     };
     Screen::new(
         text::NOW_PLAYING,
@@ -186,14 +202,12 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
     )
 }
 
-/// The chapters of the book playing, or a book's bookmarks.
+/// A book's chapters, or its bookmarks.
 pub(crate) fn list(music: &Music) -> Screen {
-    match music.browser.view() {
-        View::Bookmarks(book) => match music.books.shelf.bookmarks(&music.library, book) {
-            [] => Screen::message(text::BOOKMARKS, text::NO_BOOKMARKS),
-            _ => list::rows_screen(music),
-        },
-        _ if music.book().is_none() => Screen::message(text::NOW_PLAYING, text::NOTHING_PLAYING),
-        _ => list::rows_screen(music),
+    if let View::Bookmarks(book) = music.browser.view() {
+        if music.books.shelf.bookmarks(&music.library, book).is_empty() {
+            return Screen::message(text::BOOKMARKS, text::NO_BOOKMARKS);
+        }
     }
+    list::rows_screen(music)
 }

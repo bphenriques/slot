@@ -15,9 +15,6 @@ list = normal
 # The repeat mode, set on Now Playing's menu (START): off, all or one.
 repeat = off
 
-# Show slot's clock and battery in the music screens' header: on or off. Only set here.
-clock = off
-
 # Show the next track under Now Playing: on or off. Only set here.
 up_next = on
 

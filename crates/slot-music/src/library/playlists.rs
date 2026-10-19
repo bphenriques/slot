@@ -24,9 +24,10 @@ impl Library {
     /// dealt from Favorites before keeps its songs.
     pub fn toggle_favorite(&mut self, t: TrackId) -> Option<usize> {
         let favorites = self.playlists.first_mut()?;
-        match favorites.tracks.contains(&t) {
-            true => favorites.tracks.retain(|&f| f != t),
-            false => favorites.tracks.push(t),
+        if favorites.tracks.contains(&t) {
+            favorites.tracks.retain(|&f| f != t)
+        } else {
+            favorites.tracks.push(t)
         }
         Some(0)
     }

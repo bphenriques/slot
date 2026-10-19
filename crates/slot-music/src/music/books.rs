@@ -4,8 +4,11 @@
 
 use super::worker::Job;
 use super::{Effect, Music};
+use crate::books::chapters::Chapter;
 use crate::books::shelf::{Bookmark, Place, Shelf};
 use crate::books::{rewind, SPEEDS};
+use crate::browse::rows;
+use crate::browse::View;
 use crate::library::{BookId, TrackId};
 use crate::playback::queue::Queue;
 use crate::settings::cycle;
@@ -112,13 +115,12 @@ impl Music {
         let plays_on = playing == Some(self.library.tracks[parts[part]].path.as_path());
         self.books.aside = self.player.take();
         self.player.set_speed(place.speed);
-        match plays_on {
-            true => self.player.restore(parts, part, place.pos, true),
-            false => {
-                let at = place.pos - rewind(self.now.wall.saturating_sub(place.when));
-                let stop = self.player.put(Queue::new(parts, part, None), at.max(0.0));
-                self.send(stop);
-            }
+        if plays_on {
+            self.player.restore(parts, part, place.pos, true)
+        } else {
+            let at = place.pos - rewind(self.now.wall.saturating_sub(place.when));
+            let stop = self.player.put(Queue::new(parts, part, None), at.max(0.0));
+            self.send(stop);
         }
         plays_on
     }
@@ -205,14 +207,6 @@ impl Music {
         self.player.set_speed(speed)
     }
 
-    /// Goes to chapter `i`: the file's own, or else a part.
-    pub(crate) fn go_chapter(&mut self, i: usize) -> Option<Command> {
-        match self.player.chapters() {
-            0 => self.player.jump(&self.library, i),
-            _ => self.player.go_chapter(i),
-        }
-    }
-
     /// Marks where the book playing is, named by its chapter.
     pub(crate) fn add_bookmark(&mut self) -> Option<Command> {
         let (book, part) = self.book()?;
@@ -223,7 +217,8 @@ impl Music {
         let pos = self.player.time().0;
         let mark = Bookmark { part, pos, chapter };
         self.books.shelf.add_bookmark(&self.library, book, mark);
-        self.tell(Notice::Bookmarked)
+        self.tell(Notice::Bookmarked);
+        None
     }
 
     /// Plays `book` from its bookmark `i`: within the part playing, a seek.
@@ -234,11 +229,27 @@ impl Music {
             .bookmarks(&self.library, book)
             .get(i)?
             .clone();
+        self.go_spot(book, mark.part, mark.pos)
+    }
+
+    /// Plays `book` from its `part`'s `chapter`, or the part's start.
+    pub(crate) fn go_book_chapter(
+        &mut self,
+        book: BookId,
+        part: usize,
+        chapter: Option<usize>,
+    ) -> Option<Command> {
+        let pos = rows::chapter_start(&self.context(), book, part, chapter);
+        self.go_spot(book, part, pos)
+    }
+
+    /// Plays `book` from `pos` into its `part`: within the part playing, a seek.
+    fn go_spot(&mut self, book: BookId, part: usize, pos: f64) -> Option<Command> {
         match self.book() {
-            Some((b, part)) if b == book && part == mark.part => self.player.seek_to(mark.pos),
+            Some((b, p)) if b == book && p == part => self.player.seek_to(pos),
             _ => {
                 self.note_book();
-                self.open_book(book, mark.part, mark.pos)
+                self.open_book(book, part, pos)
             }
         }
     }
@@ -268,9 +279,10 @@ impl Music {
             part: at,
             pos: here,
         });
-        match part == at {
-            true => self.player.seek_to(pos),
-            false => self.play_part(book, part, pos),
+        if part == at {
+            self.player.seek_to(pos)
+        } else {
+            self.play_part(book, part, pos)
         }
     }
 
@@ -284,26 +296,58 @@ impl Music {
     }
 
     /// Asks for the chapters of the book's part playing, and the next part's, read ahead so
-    /// the bar does not jump as one runs into the other: once a part, however it was reached,
-    /// read from its file by the worker, an MP4's own or an MP3's.
+    /// the bar does not jump as one runs into the other; and, while a book's chapters are
+    /// listed, those of all its parts: once a part, however it was reached, read from its file
+    /// by the worker, an MP4's own or an MP3's.
     pub(crate) fn read_chapters(&mut self) {
-        let Some(track) = self.player.current().filter(|_| self.book().is_some()) else {
-            return;
-        };
+        let playing = self.player.current().filter(|_| self.book().is_some());
         // Read before it played, they are the player's as it starts.
-        if self.player.chapters_of() != Some(track) {
+        if let Some(track) = playing.filter(|&t| self.player.chapters_of() != Some(t)) {
             if let Some(chapters) = self.chapters.of(track) {
                 self.player.set_chapters(track, chapters.clone());
             }
         }
-        let wanted: Vec<_> = [Some(track), self.player.up_next()]
+        let mut wanted: Vec<_> = playing
             .into_iter()
-            .flatten()
+            .chain(playing.and(self.player.up_next()))
             .collect();
+        if let View::BookChapters(book) = self.browser.view() {
+            let parts = &self.library.albums[self.library.books[book].album].tracks;
+            for &part in parts {
+                if !wanted.contains(&part) {
+                    wanted.push(part);
+                }
+            }
+        }
         for part in self.chapters.want(&wanted) {
             let path = self.library.tracks[part].path.clone();
             self.work(Job::Chapters { track: part, path });
         }
+    }
+
+    /// A part's chapters, read: the player's, if it plays. A book's chapters listed open on
+    /// the one it was left in, and the cursor follows that as its parts' come in, unless it was
+    /// moved.
+    pub(crate) fn chapters_read(&mut self, track: TrackId, chapters: Vec<Chapter>) {
+        let follow = self.left_row() == Some(self.browser.at());
+        self.chapters.put(track, chapters);
+        if let Some(at) = self.left_row().filter(|_| follow) {
+            self.browser.set_at(at);
+        }
+        self.read_chapters();
+    }
+
+    /// The row a book's chapters, listed, were left in.
+    fn left_row(&self) -> Option<usize> {
+        let View::BookChapters(book) = self.browser.view() else {
+            return None;
+        };
+        let cx = self.context();
+        Some(rows::left_at(
+            &cx,
+            &rows::rows(&cx, View::BookChapters(book)),
+            book,
+        ))
     }
 
     /// Seconds of listening left in the song playing, or the book's chapter, for the sleep

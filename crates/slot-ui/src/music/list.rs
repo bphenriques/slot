@@ -5,16 +5,36 @@
 use super::slot::{push, Canvas, Draw, MENU_PAD, MENU_PX, QUICK_EDGE, QUICK_PITCH};
 use super::theme::rgba;
 use super::{
-    draw_progress, ListFaces, MusicFace, MusicTheme, ACTION_SCALE, BAR_INSET, CARET_GAP, LEGEND_Y,
-    LIST_TYPE_PER_ROW, PROGRESS_Y, ROWS_Y,
+    draw_progress, Ink, ListFaces, MusicFace, MusicTheme, ACTION_SCALE, BAR_INSET, CARET_GAP,
+    LEGEND_Y, LIST_TYPE_PER_ROW, MUSIC_HEART_ROOM, PROGRESS_Y, ROWS_Y,
 };
 
 /// The type size of a page's rows: the quick menu's for menus, from the spacing for lists.
 pub fn music_row_px(menu: bool, per_page: usize) -> f32 {
-    match menu {
-        true => MENU_PX,
-        false => (Grid::new(menu, per_page).pitch * LIST_TYPE_PER_ROW).round(),
+    if menu {
+        MENU_PX
+    } else {
+        (Grid::new(menu, per_page).pitch * LIST_TYPE_PER_ROW).round()
     }
+}
+
+/// Room left between a row's text and its value.
+const VALUE_GAP: u32 = 20;
+
+/// A row's ink: faint when behind or unavailable, dim so on the highlight; else lit.
+pub fn music_row_ink(faint: bool, selected: bool) -> Ink {
+    match (faint, selected) {
+        (true, false) => Ink::Faint,
+        (true, true) => Ink::Dim,
+        (false, _) => Ink::Lit,
+    }
+}
+
+/// The room a row's text has of `width`: short of its heart, if it has one, and of a value
+/// `value_w` wide, if any.
+pub fn music_row_text_w(width: u32, heart: bool, value_w: u32) -> u32 {
+    let value = if value_w > 0 { value_w + VALUE_GAP } else { 0 };
+    width.saturating_sub(u32::from(heart) * MUSIC_HEART_ROOM + value)
 }
 
 /// Action rows are a size down.
@@ -37,19 +57,20 @@ impl<'a> Grid<'a> {
     /// between the header and the hints.
     fn new(menu: bool, per_page: usize) -> Grid<'a> {
         let rows = per_page.max(1) as f32;
-        match menu {
-            true => Grid {
+        if menu {
+            Grid {
                 top: ((LEGEND_Y - QUICK_PITCH * rows) / 2.0).round(),
                 pitch: QUICK_PITCH,
                 head: 0,
                 offsets: &[],
-            },
-            false => Grid {
+            }
+        } else {
+            Grid {
                 top: ROWS_Y,
                 pitch: ((LEGEND_Y - 8.0 - ROWS_Y) / rows).floor(),
                 head: 0,
                 offsets: &[],
-            },
+            }
         }
     }
 
@@ -64,9 +85,10 @@ impl<'a> Grid<'a> {
     }
 
     fn height(self, i: usize) -> f32 {
-        match i < self.head {
-            true => self.pitch * ACTION_SCALE,
-            false => self.pitch,
+        if i < self.head {
+            self.pitch * ACTION_SCALE
+        } else {
+            self.pitch
         }
     }
 
@@ -141,9 +163,10 @@ fn draw_bar(list: &ListFaces, grid: Grid, canvas: Canvas, theme: &MusicTheme, ou
         y: grid.row_top(at).round() + BAR_INSET,
         w: canvas.w,
         h: grid.height(at.round() as usize) - 2.0 * BAR_INSET,
-        colour: match list.lifted {
-            true => lifted(theme),
-            false => rgba(theme.bar, 1.0),
+        colour: if list.lifted {
+            lifted(theme)
+        } else {
+            rgba(theme.bar, 1.0)
         },
     });
 }
@@ -220,6 +243,20 @@ fn draw_marks(
 mod tests {
     use super::*;
     use crate::quick_menu::{quick_row_top, QuickRow};
+
+    #[test]
+    fn a_row_is_inked_by_its_state_and_its_text_stops_short_of_its_heart_and_value() {
+        assert_eq!(music_row_ink(true, false), Ink::Faint);
+        assert_eq!(
+            music_row_ink(true, true),
+            Ink::Dim,
+            "faint reads dim on the highlight"
+        );
+        assert_eq!(music_row_ink(false, true), Ink::Lit);
+        assert_eq!(music_row_text_w(500, false, 0), 500);
+        assert_eq!(music_row_text_w(500, true, 0), 500 - MUSIC_HEART_ROOM);
+        assert_eq!(music_row_text_w(500, false, 60), 500 - 60 - VALUE_GAP);
+    }
 
     #[test]
     fn lists_scale_from_normal_and_menus_keep_the_quick_menu_size() {

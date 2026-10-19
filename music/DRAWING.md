@@ -37,8 +37,7 @@ keeps the last frame. Everything else is in our own files.
 
 - **What the music screen shows** (`app::music::Shown`), compared with what it showed when last
   drawn: the `Screen` slot-music builds, the album picture and colours the faces are drawn from,
-  the minute slot's clock shows, slot's own draws for the frame (its battery, and anything of
-  its over the music, as the volume), and the compositor's settings (brightness fading in on
+  slot's own draws for the frame (anything of its over the music, as the volume), and the compositor's settings (brightness fading in on
   wake, the shader). A change to any of them is a frame.
 - **When it next moves of itself** (the glue's `wake`, ghostty's `animationWake`), told with each
   frame drawn: the next frame while a slide, glide or fade is on its way (`Motion::moving`);
@@ -104,8 +103,8 @@ deadline:
   A button held is timed frame by frame, slot's (a volume held) as much as the music's, so the
   loop does not rest while one is down.
 - **The lid is read every 150 ms**, as before, so a rest lasts at most that. What changes of
-  itself unseen by the above (a notice going, the clock's minute, the player going on into the
-  next song in the dark) is late by at most as much.
+  itself unseen by the above (a notice going, the player going on into the next song in the
+  dark) is late by at most as much.
 
 So the lid closed, a list, or a still screen wakes about 7 times a second instead of 60, and
 Now Playing as often as it shows something new. That is two of upstream's files, its loop and

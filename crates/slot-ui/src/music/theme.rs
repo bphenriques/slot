@@ -1,7 +1,7 @@
 //! The music screens' colours, as a theme: dark, in slot's own menu colours, or light. Every
 //! part is drawn in the theme's colours, so another theme is another instance of it.
 
-use super::slot::{edge, opening, FOOTER_INK_LIGHT, HUD_INK, MENU_INK};
+use super::slot::{edge, opening, MENU_INK};
 use super::Ink;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -14,8 +14,6 @@ pub struct MusicTheme {
     pub lit: [u8; 3],
     pub dim: [u8; 3],
     pub faint: [u8; 3],
-    /// The clock and battery in the header.
-    pub status: [u8; 3],
     /// How far Dynamic Color's bar goes from the album's colour to `lit`, to stand out.
     pub tint_to_lit: f32,
     /// How strongly Dynamic Color's wash shows over `ground`.
@@ -35,7 +33,6 @@ impl MusicTheme {
             lit: MENU_INK,
             dim: [0x9a, 0x9a, 0xa4],
             faint: [0x5c, 0x5c, 0x66],
-            status: HUD_INK,
             tint_to_lit: 0.35,
             wash: 0.12,
             lift: 0.25,
@@ -51,7 +48,6 @@ impl MusicTheme {
             lit: [0x1a, 0x1a, 0x1d],
             dim: [0x66, 0x66, 0x6e],
             faint: [0xa6, 0xa6, 0xae],
-            status: FOOTER_INK_LIGHT,
             // Album colours are bright; on paper they need much more ink.
             tint_to_lit: 0.6,
             // Paper takes a colour less readily than black: a little more of it.
@@ -62,9 +58,10 @@ impl MusicTheme {
     }
 
     pub fn of(light: bool) -> MusicTheme {
-        match light {
-            true => MusicTheme::light(),
-            false => MusicTheme::dark(),
+        if light {
+            MusicTheme::light()
+        } else {
+            MusicTheme::dark()
         }
     }
 

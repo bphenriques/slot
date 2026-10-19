@@ -124,8 +124,6 @@ impl Player {
             at: self.queue.at(),
             playing: self.state == PlayState::Playing,
             waiting: self.waiting,
-            chapters: self.file_chapters(),
-            chapter: self.chapter().map(|c| c.index),
             speed: self.speed,
         }
     }
@@ -151,9 +149,10 @@ impl Player {
         self.waiting = false;
         let any = self.queue.current().is_some();
         self.resume_at = (any && !playing).then_some(pos);
-        self.state = match playing && any {
-            true => PlayState::Playing,
-            false => PlayState::Stopped,
+        self.state = if playing && any {
+            PlayState::Playing
+        } else {
+            PlayState::Stopped
         };
     }
 
@@ -334,12 +333,6 @@ impl Player {
         stop.then_some(Command::Stop)
     }
 
-    /// Goes to the start of the open file's chapter `i`.
-    pub fn go_chapter(&mut self, i: usize) -> Option<Command> {
-        let at = self.file_chapters().get(i)?.start;
-        self.seek_to(at)
-    }
-
     /// Goes back `secs`, playing or paused.
     pub fn rewind(&mut self, secs: f64) -> Option<Command> {
         (secs > 0.0).then(|| self.seek_to(self.time().0 - secs))?
@@ -410,13 +403,27 @@ impl Player {
         })
     }
 
+    /// The repeat for the track playing: a book never repeats, but goes on to its next part only,
+    /// and ends, as audiobook players have it.
+    fn repeat_here(&self, lib: &Library) -> Repeat {
+        let book = self
+            .current()
+            .and_then(|t| lib.tracks.get(t.0))
+            .is_some_and(|t| t.book.is_some());
+        if book {
+            Repeat::Off
+        } else {
+            self.repeat
+        }
+    }
+
     /// Where the queue goes when the track playing runs out: the next, round again under Repeat
-    /// All, or the same under Repeat One. A book goes on to its next part only, and ends.
+    /// All, or the same under Repeat One.
     fn following_at(&self, lib: &Library) -> Option<usize> {
-        let book = lib.tracks.get(self.current()?.0)?.book.is_some();
-        match (self.repeat, book) {
-            (Repeat::One, false) => Some(self.queue.at()),
-            (repeat, book) => self.queue.step(1, repeat == Repeat::All && !book),
+        lib.tracks.get(self.current()?.0)?;
+        match self.repeat_here(lib) {
+            Repeat::One => Some(self.queue.at()),
+            repeat => self.queue.step(1, repeat == Repeat::All),
         }
     }
 
@@ -440,7 +447,7 @@ impl Player {
         {
             return self.seek_to(at);
         }
-        let to = self.queue.step(by, self.repeat == Repeat::All)?;
+        let to = self.queue.step(by, self.repeat_here(lib) == Repeat::All)?;
         self.queue.go(to);
         self.resume_at = None;
         // Paused, the song skipped to waits, as players have it.
@@ -454,16 +461,19 @@ impl Player {
     /// file without chapters is one, from 0.
     fn chapter_skip(&self, by: i32) -> Option<f64> {
         let chapters = self.file_chapters();
-        let starts: Vec<f64> = match chapters.is_empty() {
-            true => vec![0.0],
-            false => chapters.iter().map(|c| c.start).collect(),
+        let starts: Vec<f64> = if chapters.is_empty() {
+            vec![0.0]
+        } else {
+            chapters.iter().map(|c| c.start).collect()
         };
         let pos = self.time().0;
         let i = starts.iter().rposition(|&at| at <= pos).unwrap_or(0);
-        match by < 0 {
-            true if pos - starts[i] >= RESTART_S => Some(starts[i]),
-            true => i.checked_sub(1).map(|j| starts[j]),
-            false => starts.get(i + 1).copied(),
+        if by >= 0 {
+            starts.get(i + 1).copied()
+        } else if pos - starts[i] >= RESTART_S {
+            Some(starts[i])
+        } else {
+            i.checked_sub(1).map(|j| starts[j])
         }
     }
 
@@ -486,22 +496,21 @@ impl Player {
         match event {
             // An end for another track is an earlier skip arriving late.
             Event::End(path) if self.current().map(|t| &lib.tracks[t].path) == Some(&path) => {
-                return match self.repeat {
+                return match self.repeat_here(lib) {
                     Repeat::One => self.start(lib),
                     _ => self.next(lib),
                 };
             }
             Event::Error(why) => {
-                eprintln!("slot: music: {why}");
+                log::warn!("{why}");
                 if self.state == PlayState::Playing {
                     self.errors += 1;
-                    return match self.errors < ERRORS_BEFORE_STOP {
-                        true => self.next(lib),
-                        false => {
-                            self.state = PlayState::Stopped;
-                            self.changed = true;
-                            None
-                        }
+                    return if self.errors < ERRORS_BEFORE_STOP {
+                        self.next(lib)
+                    } else {
+                        self.state = PlayState::Stopped;
+                        self.changed = true;
+                        None
                     };
                 }
             }
@@ -528,7 +537,7 @@ impl Player {
 
     /// The next track, also after a failure: Repeat One does not retry a broken track.
     fn next(&mut self, lib: &Library) -> Option<Command> {
-        match self.queue.step(1, self.repeat == Repeat::All) {
+        match self.queue.step(1, self.repeat_here(lib) == Repeat::All) {
             Some(_) => self.skip(lib, 1),
             None => {
                 self.state = PlayState::Stopped;

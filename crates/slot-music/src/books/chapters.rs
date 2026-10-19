@@ -8,6 +8,8 @@ use std::path::Path;
 
 /// The file's metadata box is read whole; one larger than this is not a book's.
 const MOOV_MAX: u64 = 16 << 20;
+/// More chapters than this are not a book's: a file that says so is read no further.
+const CHAPTERS_MAX: usize = 10_000;
 
 /// A chapter of a file: where it starts, in seconds, and its title, which may be empty.
 #[derive(Clone, PartialEq, Debug)]
@@ -100,9 +102,12 @@ fn syncsafe(bytes: &[u8]) -> Option<u32> {
 fn id3_text(frame: &[u8]) -> String {
     let (encoding, text) = frame.split_first().unwrap_or((&3, &[]));
     let units = |big: bool, bytes: &[u8]| -> Vec<u16> {
-        let pair = |p: &[u8]| match big {
-            true => u16::from_be_bytes([p[0], p[1]]),
-            false => u16::from_le_bytes([p[0], p[1]]),
+        let pair = |p: &[u8]| {
+            if big {
+                u16::from_be_bytes([p[0], p[1]])
+            } else {
+                u16::from_le_bytes([p[0], p[1]])
+            }
         };
         bytes.chunks_exact(2).map(pair).collect()
     };
@@ -162,7 +167,7 @@ fn moov(file: &mut File) -> Option<Vec<u8>> {
                 file.read_exact(&mut head[8..]).ok()?;
                 (u64_at(&head, 8)?, 16)
             }
-            0 => (file.metadata().ok()?.len() - at, 8),
+            0 => (file.metadata().ok()?.len().checked_sub(at)?, 8),
             size => (size, 8),
         };
         if moov && size <= MOOV_MAX {
@@ -170,7 +175,8 @@ fn moov(file: &mut File) -> Option<Vec<u8>> {
             file.read_exact(&mut moov).ok()?;
             return Some(moov);
         }
-        at += size.max(8);
+        // A size past the end of the file ends the search, rather than come round again.
+        at = at.checked_add(size.max(8))?;
     }
 }
 
@@ -220,13 +226,15 @@ fn track(file: &mut File, moov: &[u8]) -> Option<Vec<(f64, String)>> {
     (!chapters.is_empty()).then_some(chapters)
 }
 
-/// When each sample starts, in the track's time scale, from the runs of their durations.
+/// When each sample starts, in the track's time scale, from the runs of their durations: at
+/// most [`CHAPTERS_MAX`], whatever the runs say.
 fn starts(stts: &[u8]) -> Option<Vec<u64>> {
     let mut starts = Vec::new();
     let mut t = 0;
     for run in 0..u32_at(stts, 4)? as usize {
         let (n, d) = (u32_at(stts, 8 + run * 8)?, u32_at(stts, 12 + run * 8)?);
-        for _ in 0..n {
+        let left = CHAPTERS_MAX - starts.len();
+        for _ in 0..(n as usize).min(left) {
             starts.push(t);
             t += u64::from(d);
         }
@@ -406,6 +414,19 @@ mod tests {
             );
         }
         let (_d, path) = id3_file(4, &[frame(b"TIT2", b"\x03No chapters", 4)]);
+        assert!(read(&path).is_empty());
+    }
+
+    #[test]
+    fn a_broken_file_is_read_no_further_than_it_holds() {
+        // A run of four billion chapters is not a book's: read to the most, not to memory's end.
+        let runs = starts(&be(&[0, 1, u32::MAX, 1])).unwrap();
+        assert_eq!(runs.len(), CHAPTERS_MAX);
+        // A box that says it is far past the end, which added to where it is would come round to
+        // a box before it.
+        let free = [&be(&[8])[..], b"free"].concat();
+        let past = [&be(&[1])[..], b"free", &(u64::MAX - 7).to_be_bytes()].concat();
+        let (_d, path) = file(&[mp4box(b"ftyp", b"M4B "), free, past]);
         assert!(read(&path).is_empty());
     }
 

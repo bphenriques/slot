@@ -191,13 +191,24 @@ fn a_book_s_keys_jump_mark_and_change_speed_and_list_its_marks_and_chapters() {
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &chapters,
-        chapter: Some(1),
         speed: 1.0,
     };
+    // The first part's chapters, read; it was left 40 s in, in the second.
+    let mut read = crate::music::ReadAhead::default();
+    read.want(&parts[..1]);
+    read.put(parts[0], chapters);
+    let mut shelf = crate::books::Shelf::new();
+    let left = crate::books::Place {
+        pos: 40.0,
+        when: 1,
+        ..Default::default()
+    };
+    shelf.set_place(&lib, BookId(0), left);
     let cx = Context {
         queue,
         book: Some(BookId(0)),
+        chapters: &read,
+        shelf: &shelf,
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
@@ -226,10 +237,10 @@ fn a_book_s_keys_jump_mark_and_change_speed_and_list_its_marks_and_chapters() {
     b.press(&cx, Key::B);
     assert_eq!(b.view(), View::NowPlaying);
     b.press(&cx, Key::Select);
-    assert_eq!(b.view(), View::Chapters);
+    assert_eq!(b.view(), View::BookChapters(BookId(0)));
     let page = b.page(&cx);
     assert_eq!(page.selected, 1, "on the one playing");
-    assert!(page.rows[0].faint && page.rows[1].icon.is_some());
+    assert!(page.rows[0].faint && page.rows[1].playing);
     assert_eq!(page.values[0].as_deref(), Some("0:30"), "how long each is");
     assert_eq!(
         page.values[1].as_deref(),
@@ -237,7 +248,12 @@ fn a_book_s_keys_jump_mark_and_change_speed_and_list_its_marks_and_chapters() {
         "the last, to its part's end"
     );
     b.press(&cx, Key::Up);
-    assert_eq!(b.press(&cx, Key::A), Outcome::Chapter(0));
+    let first = Outcome::BookChapter {
+        book: BookId(0),
+        part: 0,
+        chapter: Some(0),
+    };
+    assert_eq!(b.press(&cx, Key::A), first);
     assert_eq!(b.view(), View::NowPlaying, "back to it");
     // A slip can be undone from the menu, which offers it first.
     let cx = Context {
@@ -321,4 +337,69 @@ fn a_finished_book_leaves_in_progress_for_finished_last_on_the_menu() {
         "the finished one not in it"
     );
     assert_eq!(page.values[4].as_deref(), Some("1"));
+}
+
+#[test]
+fn a_book_s_chapters_list_from_the_books_across_its_parts_on_the_one_it_was_left_in() {
+    use crate::books::{Place, Shelf};
+    use crate::music::ReadAhead;
+    let (_d, mut lib) = library(&[
+        "../Audiobooks/Wilde - Tales/01 one.m4b",
+        "../Audiobooks/Wilde - Tales/02 two.mp3",
+    ]);
+    let book = BookId(0);
+    let parts = lib.albums[lib.books[0].album].tracks.clone();
+    (lib.tracks[parts[0]].secs, lib.tracks[parts[1]].secs) = (180.0, 90.0);
+    // The first part's own chapters, read; the second has none, so is one.
+    let mut chapters = ReadAhead::default();
+    chapters.want(&parts);
+    let chapter = |start, title: &str| Chapter {
+        start,
+        title: title.into(),
+    };
+    chapters.put(parts[0], vec![chapter(0.0, "One"), chapter(60.0, "Two")]);
+    chapters.put(parts[1], Vec::new());
+    let mut shelf = Shelf::new();
+    let left = Place {
+        part: 0,
+        pos: 70.0,
+        when: 1,
+        ..Place::default()
+    };
+    shelf.set_place(&lib, book, left);
+    let cx = Context {
+        shelf: &shelf,
+        chapters: &chapters,
+        ..Context::new(&lib, at(0))
+    };
+    let mut b = Browser::default();
+    b.push(View::BookList(crate::BookList::All), 0);
+    // X on a book, as Y lists its bookmarks.
+    assert_eq!(b.press(&cx, Key::X), Outcome::None);
+    assert_eq!(b.view(), View::BookChapters(book));
+    let page = b.page(&cx);
+    let titles: Vec<_> = page.rows.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(titles, ["One", "Two", "two"]);
+    assert_eq!(page.selected, 1, "on the one it was left in");
+    assert!(page.rows[0].faint && page.rows[1].playing);
+    let lengths: Vec<_> = page.values.iter().map(|v| v.as_deref()).collect();
+    assert_eq!(lengths, [Some("1:00"), Some("2:00"), Some("1:30")]);
+    b.press(&cx, Key::Down);
+    let picked = b.press(&cx, Key::A);
+    let second = Outcome::BookChapter {
+        book,
+        part: 1,
+        chapter: None,
+    };
+    assert_eq!(picked, second, "the part with none, from its start");
+    assert_eq!(b.view(), View::NowPlaying, "on to play it");
+    // The book's menu lists them too, first.
+    b.press(&cx, Key::B);
+    b.press(&cx, Key::Start);
+    assert_eq!(
+        b.view(),
+        View::RowMenu(crate::browse::rows::Row::Book(book))
+    );
+    assert_eq!(b.press(&cx, Key::A), Outcome::None);
+    assert_eq!(b.view(), View::BookChapters(book));
 }

@@ -56,8 +56,9 @@ impl Settings {
             repeat: get("repeat").and_then(Repeat::parse).unwrap_or_default(),
             play_screen_off: is("screen_off", "play"),
             list_size: get("list").and_then(list).unwrap_or(ListSize::Normal),
-            clock: is("clock", "on"),
             up_next: !is("up_next", "off"),
+            // Named in music.txt, and found among the presets: `Store::equalizer`.
+            eq: 0,
             color: !is("color", "off"),
             theme: get("theme").and_then(theme).unwrap_or(Theme::Slot),
             jump: get("jump")
@@ -74,6 +75,8 @@ impl Settings {
             pocket: !is("pocket", "off"),
             pocket_buzz: !is("pocket_buzz", "off"),
             perf: is("perf", "on"),
+            log: is("log", "on"),
+            scrobbler: is("scrobbler", "on"),
         }
     }
 
@@ -86,7 +89,6 @@ impl Settings {
             ("repeat", self.repeat.key()),
             ("screen_off", pick(self.play_screen_off, "play", "pause")),
             ("list", self.list_size.key()),
-            ("clock", pick(self.clock, "on", "off")),
             ("up_next", pick(self.up_next, "on", "off")),
             ("color", pick(self.color, "on", "off")),
             ("theme", self.theme.key()),
@@ -99,6 +101,8 @@ impl Settings {
             ("pocket", pick(self.pocket, "on", "off")),
             ("pocket_buzz", pick(self.pocket_buzz, "on", "off")),
             ("perf", pick(self.perf, "on", "off")),
+            ("log", pick(self.log, "on", "off")),
+            ("scrobbler", pick(self.scrobbler, "on", "off")),
         ];
         entries.map(|(key, value)| (key, value.to_string())).into()
     }

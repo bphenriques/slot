@@ -43,9 +43,10 @@ impl PocketLock {
         if beat >= u128::from(times) * 2 {
             self.buzz = None;
         }
-        let strength = match self.buzz.is_some() && beat.is_multiple_of(2) {
-            true => u16::MAX,
-            false => 0,
+        let strength = if self.buzz.is_some() && beat.is_multiple_of(2) {
+            u16::MAX
+        } else {
+            0
         };
         (strength != self.motor).then(|| {
             self.motor = strength;

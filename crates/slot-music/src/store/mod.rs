@@ -4,6 +4,7 @@
 //! never touches the card. The library cache and the album pictures are made again from the
 //! music, and the workers that make them keep them.
 
+pub mod equalizer;
 pub mod playlists;
 pub mod queue;
 pub mod recent;
@@ -54,6 +55,8 @@ enum Job {
     Whole(PathBuf, String),
     /// One `key = value` line of a settings file, the rest of it as it was.
     Key(PathBuf, &'static str, String),
+    /// A line onto the end of a file, the file begun with `header` when new.
+    Append(PathBuf, &'static str, String),
     /// Says when everything sent before is written.
     Flush(Sender<()>),
 }
@@ -68,7 +71,7 @@ impl Store {
                 write_all(rx);
             });
         if let Err(e) = spawned {
-            eprintln!("slot: music: {e}");
+            log::warn!("{e}");
         }
         Store {
             root: root.to_path_buf(),
@@ -84,6 +87,13 @@ impl Store {
     /// Writes a file's whole text, from the card's root, or at a path of its own.
     pub fn write(&self, file: impl AsRef<Path>, text: String) {
         let _ = self.tx.send(Job::Whole(self.root.join(file), text));
+    }
+
+    /// Adds `line` to the end of a file, from the card's root, begun with `header` if new.
+    pub fn append(&self, file: impl AsRef<Path>, header: &'static str, line: String) {
+        let _ = self
+            .tx
+            .send(Job::Append(self.root.join(file), header, line));
     }
 
     /// Sets one key of a settings file, keeping its other lines and comments.
@@ -125,13 +135,14 @@ fn write_all(rx: Receiver<Job>) {
                 Job::Whole(path, _) if newer(path) => Ok(()),
                 Job::Whole(path, text) => whole(path, text),
                 Job::Key(path, key, value) => set_key(path, key, value),
+                Job::Append(path, header, line) => append(path, header, line),
                 Job::Flush(done) => {
                     let _ = done.send(());
                     Ok(())
                 }
             };
             if let Err(e) = done {
-                eprintln!("slot: music: {e}");
+                log::warn!("{e}");
             }
         }
     }
@@ -143,6 +154,18 @@ fn whole(path: &Path, text: &str) -> std::io::Result<()> {
     }
     slot_store::atomic_write(path, text.as_bytes())
         .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
+}
+
+fn append(path: &Path, header: &str, line: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    if file.metadata()?.len() == 0 {
+        file.write_all(header.as_bytes())?;
+    }
+    file.write_all(line.as_bytes())
 }
 
 fn set_key(path: &Path, key: &str, value: &str) -> std::io::Result<()> {
@@ -166,10 +189,17 @@ mod tests {
         store.write("Config/a.txt", "two".into());
         store.set("Config/b.txt", "x", "1".into());
         store.set("Config/b.txt", "y", "2".into());
+        store.append("log.txt", "#head\n", "one\n".into());
+        store.append("log.txt", "#head\n", "two\n".into());
         store.flush();
         assert_eq!(store.read("Config/a.txt"), "two");
         let b = slot_store::ini::parse(&store.read("Config/b.txt"));
         assert_eq!((b["x"].as_str(), b["y"].as_str()), ("1", "2"));
         assert_eq!(store.read("Config/none.txt"), "", "nothing there");
+        assert_eq!(
+            store.read("log.txt"),
+            "#head\none\ntwo\n",
+            "headed once, then on its end"
+        );
     }
 }

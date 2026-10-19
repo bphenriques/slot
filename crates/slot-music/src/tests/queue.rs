@@ -35,8 +35,6 @@ fn the_queue_opens_on_the_playing_track_and_x_held_goes_on_taking_tracks_out() {
         at: 1,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let mut b = Browser::default();
@@ -88,8 +86,6 @@ fn the_queue_opens_below_now_playing_and_a_pick_goes_back_to_it() {
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let s = Settings::default();
@@ -113,8 +109,6 @@ fn in_the_queue_y_favorites_a_track_and_held_lifts_it_to_carry() {
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let s = Settings::default();
@@ -164,8 +158,6 @@ fn a_carried_track_can_be_put_next_and_a_played_one_shows_faint() {
         at: 1,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let s = Settings::default();
@@ -175,7 +167,7 @@ fn a_carried_track_can_be_put_next_and_a_played_one_shows_faint() {
     let page = b.page(&cx(&lib, queue, s));
     // The whole queue, at what plays, the played one faint above it.
     assert_eq!(page.rows.len(), 3);
-    assert!(page.rows[0].faint && page.rows[1].icon.is_some() && !page.rows[2].faint);
+    assert!(page.rows[0].faint && page.rows[1].playing && !page.rows[2].faint);
     // The last track, lifted and put next: just after the one playing.
     b.press(&cx(&lib, queue, s), Key::Down);
     b.held(&cx(&lib, queue, s), Key::Y);
@@ -205,8 +197,6 @@ fn up_next_s_menu_saves_the_queue_as_a_playlist_or_clears_all_but_what_plays() {
             at: q.at(),
             playing: true,
             waiting: false,
-            chapters: &[],
-            chapter: None,
             speed: 1.0,
         }
     }
@@ -260,8 +250,6 @@ fn select_opens_the_whole_queue_at_what_plays_played_songs_faint() {
         at: 1,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let s = Settings::default();

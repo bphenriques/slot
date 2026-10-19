@@ -1688,7 +1688,6 @@ impl App {
     pub fn status_ink(&self) -> [u8; 3] {
         match self.phase {
             Phase::Playing { .. } | Phase::Polaroids { .. } => footer_ink(false),
-            Phase::Music => self.music_faces.theme.status,
             _ => footer_ink(self.light()),
         }
     }

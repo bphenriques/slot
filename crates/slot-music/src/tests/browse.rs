@@ -214,8 +214,6 @@ fn rows_name_their_context_dim_and_mark_what_plays() {
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let mut b = Browser::default();
@@ -232,13 +230,7 @@ fn rows_name_their_context_dim_and_mark_what_plays() {
     let row = &page.rows[2];
     assert_eq!((row.before.as_str(), row.text.as_str()), ("", "Cryin"));
     assert!(row.playing && row.after.is_empty());
-    assert_eq!(
-        row.icon,
-        Some(crate::RowIcon::Play),
-        "the play symbol stands in for 03"
-    );
-    assert!(page.rows[0].action && !row.action);
-    assert_eq!(page.rows[0].icon, None, "action rows go without icons");
+    assert!(page.rows[0].action && !row.action && !page.rows[0].playing);
 }
 
 #[test]
@@ -271,8 +263,6 @@ fn the_menu_goes_to_the_album_on_the_track_and_a_held_in_a_list_plays_next() {
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let s = Settings::default();
@@ -413,8 +403,6 @@ fn the_first_row_resumes_when_paused_and_shuffles_everything_with_nothing_queued
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     assert_eq!(
@@ -466,8 +454,6 @@ fn song_info_tells_the_track_from_its_file_and_start_closes_the_menu() {
         at: 0,
         playing: true,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let s = Settings::default();
@@ -713,8 +699,6 @@ fn x_on_the_music_menu_does_nothing_as_phones_have_no_stop() {
         at: 0,
         playing: false,
         waiting: false,
-        chapters: &[],
-        chapter: None,
         speed: 1.0,
     };
     let cx = Context {

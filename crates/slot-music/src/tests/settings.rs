@@ -43,6 +43,7 @@ fn music_settings_flip_with_left_and_right() {
     assert_eq!(
         shown(&sound.page(&own_cx))[..],
         [
+            on("Equalizer", "Off"),
             on("Crossfade", "Off"),
             on("Volume Leveling", "Off"),
             on("Mono Audio", "Off"),
@@ -65,8 +66,8 @@ fn settings_are_kept_on_the_card_but_the_sleep_timer_is_not() {
     assert_eq!(store.settings(), Settings::default());
     let s = Settings {
         repeat: crate::Repeat::One,
-        clock: true,
         up_next: false,
+        log: true,
         color: false,
         jump: 15,
         ..Settings::default()

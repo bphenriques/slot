@@ -57,9 +57,9 @@ macro_rules! ids {
 
 ids!(TrackId => Track, AlbumId => Album, ArtistId => Artist, BookId => Book);
 
-const AUDIO: [&str; 9] = [
-    "mp3", "m4a", "m4b", "aac", "flac", "ogg", "opus", "wav", "wave",
-];
+/// The files listed, those slot-player decodes: MP3; AAC or Apple Lossless in MP4 (.m4a, an
+/// .m4b book) or alone; FLAC; Vorbis or FLAC in Ogg; WAV. Not Opus, which it has no decoder for.
+const AUDIO: [&str; 8] = ["mp3", "m4a", "m4b", "aac", "flac", "ogg", "wav", "wave"];
 
 pub struct Artist {
     pub name: String,
@@ -165,9 +165,12 @@ impl Song {
         let numbered = track_number(file);
         let mut from_file = numbered.rsplit('-').map(|n| n.parse::<u32>().unwrap_or(0));
         let (file_track, file_disc) = (from_file.next().unwrap_or(0), from_file.next());
-        let or = |tag: &str, fallback: &str| match tag.is_empty() {
-            true => fallback.to_string(),
-            false => tag.to_string(),
+        let or = |tag: &str, fallback: &str| {
+            if tag.is_empty() {
+                fallback.to_string()
+            } else {
+                tag.to_string()
+            }
         };
         let t = &r.tags;
         let folder_artist = or(folder_artist, text::UNKNOWN_ARTIST);
@@ -423,8 +426,9 @@ pub fn track_title(file_name: &str) -> String {
     let rest = stem.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-');
     let numbered = rest.len() < stem.len();
     let title = rest.trim_start_matches([' ', '.', '-', '_']);
-    match numbered && !title.is_empty() && title.len() < rest.len() {
-        true => title.to_string(),
-        false => stem.to_string(),
+    if numbered && !title.is_empty() && title.len() < rest.len() {
+        title.to_string()
+    } else {
+        stem.to_string()
     }
 }

@@ -9,6 +9,7 @@ use crate::books::Shelf;
 use crate::browse::keys::Mode;
 use crate::library::Library;
 use crate::library::{AlbumId, ArtistId, BookId, TrackId};
+use crate::music::ReadAhead;
 use crate::playback::fade::Sleep;
 use crate::screens;
 use crate::settings::{Setting, Settings};
@@ -31,7 +32,7 @@ pub enum View {
     /// The sound settings slot's player has, a page of Music Settings; and the audiobooks'.
     Sound,
     BookSettings,
-    /// What to try on the device, to say how it went: the motor, and the last sound error.
+    /// What helps say how the device does: the logs, and the last sound error.
     Debug,
     Artists,
     Artist(ArtistId),
@@ -51,8 +52,8 @@ pub enum View {
     BookList(BookList),
     Authors,
     Author(ArtistId),
-    /// The chapters of the book playing, and a book's bookmarks.
-    Chapters,
+    /// A book's chapters, each part's own or else the part, and its bookmarks.
+    BookChapters(BookId),
     Bookmarks(BookId),
     /// Now Playing's menu, from START.
     PlayingMenu,
@@ -62,6 +63,11 @@ pub enum View {
     RowMenu(Row),
     /// What is known of a song, set as a list.
     SongInfo(TrackId),
+    /// Settings' Integrations page: what the player tells programs outside it.
+    Integrations,
+    /// Settings' Controls, the keys the hints leave out, and Help, a page to read.
+    Controls,
+    Help,
 }
 
 /// The audiobooks a list holds.
@@ -85,6 +91,7 @@ impl View {
                 | View::Settings
                 | View::Sound
                 | View::BookSettings
+                | View::Integrations
                 | View::Debug
                 | View::PlayingMenu
                 | View::QueueMenu
@@ -115,7 +122,8 @@ pub enum Key {
     Y,
     /// START: the menu for what is shown; held, it pauses.
     Start,
-    /// SELECT on its own: to Now Playing, and from there to the queue and back.
+    /// SELECT on its own: to Now Playing, and from there to the queue and back; held, the screen
+    /// blanks.
     Select,
     /// SELECT with L1 or R1: the previous or next track, from any music screen.
     SelectL1,
@@ -123,8 +131,8 @@ pub enum Key {
     /// L2 and R2: on Now Playing, seek back and on.
     L2,
     R2,
-    /// The pocket combo, two shoulders or both triggers together: tapped, play or pause;
-    /// held, the music's keys locked or unlocked.
+    /// The pocket combo, two of the shoulders and triggers together: held, the music's keys
+    /// locked or unlocked.
     Pocket,
 }
 
@@ -164,8 +172,12 @@ pub enum Outcome {
     Finish(BookId),
     /// The playing speed, as a setting steps: -1 and 1 stop at the ends, 0 goes round.
     Speed(i32),
-    /// Go to a chapter of the book playing.
-    Chapter(usize),
+    /// Play a book from its `part`'s `chapter`, or the part's start for none.
+    BookChapter {
+        book: BookId,
+        part: usize,
+        chapter: Option<usize>,
+    },
     /// Mark where the book playing is; play from a mark, or take it out.
     Bookmark,
     GoBookmark {
@@ -178,6 +190,8 @@ pub enum Outcome {
     },
     /// Back to where the book was before it last moved.
     Back,
+    /// Turn the screen off until a button, which then acts as it would: SELECT held.
+    Blank,
     /// Play from a line of the timed lyrics.
     FromLine(usize),
     /// Take everything out of the queue but what plays.
@@ -214,9 +228,6 @@ pub struct QueueView<'a> {
     pub playing: bool,
     /// A saved queue waits for the library to be read, to be put back.
     pub waiting: bool,
-    /// The open file's chapters, where each starts and its title, and the one playing.
-    pub chapters: &'a [Chapter],
-    pub chapter: Option<usize>,
     /// How fast it plays.
     pub speed: f32,
 }
@@ -241,6 +252,10 @@ pub struct Context<'a> {
     pub last_error: Option<&'a str>,
     /// The queue plays shuffled.
     pub shuffled: bool,
+    /// Chapters read from books' files, by part.
+    pub chapters: &'a ReadAhead<Vec<Chapter>>,
+    /// The equalizer's preset, by name; none when off.
+    pub eq: Option<&'a str>,
     /// The moment the keys act at: the frame's, never the clock's.
     pub now: Instant,
 }
@@ -270,10 +285,16 @@ impl<'a> Context<'a> {
             recent: &[],
             last_error: None,
             shuffled: false,
+            chapters: &NO_CHAPTERS,
+            eq: None,
             now,
         }
     }
 }
+
+/// No chapters read, for a test's context.
+#[cfg(test)]
+static NO_CHAPTERS: ReadAhead<Vec<Chapter>> = ReadAhead::new();
 
 /// A list screen's page: the rows the cursor is among.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -347,6 +368,7 @@ impl Browser {
     pub fn held(&mut self, cx: &Context, key: Key) -> Outcome {
         match key {
             Key::Start => return Outcome::Toggle,
+            Key::Select => return Outcome::Blank,
             Key::B => {
                 self.home();
                 return Outcome::None;
@@ -372,6 +394,7 @@ impl Browser {
     pub fn at_end(&self, cx: &Context, key: Key) -> bool {
         let n = match self.view() {
             View::Lyrics => cx.lyrics.lines,
+            View::Help => text::HELP_TEXT.len(),
             view => rows(cx, view).len(),
         };
         match key {
@@ -389,7 +412,7 @@ impl Browser {
             return screens::queue::carrying(self, cx, from, key);
         }
         match key {
-            // START opens the menu for what is shown; held, it pauses (the facade's).
+            // START opens the menu for what is shown; held, it pauses.
             Key::Start => {
                 screens::menu::toggle(self, cx);
                 return Outcome::None;
@@ -400,9 +423,11 @@ impl Browser {
             // back.
             Key::Select => {
                 match self.view() {
-                    View::NowPlaying if cx.book.is_some() => screens::book::open_chapters(self, cx),
-                    View::NowPlaying => screens::now_playing::open_queue(self, cx),
-                    View::Queue | View::Chapters if self.under_now_playing() => self.pop(),
+                    View::NowPlaying => match cx.book {
+                        Some(book) => screens::book::open_book_chapters(self, cx, book),
+                        None => screens::now_playing::open_queue(self, cx),
+                    },
+                    View::Queue | View::BookChapters(_) if self.under_now_playing() => self.pop(),
                     _ => self.visit(View::NowPlaying),
                 }
                 return Outcome::None;
@@ -418,6 +443,7 @@ impl Browser {
             (View::NowPlaying, Some(_)) => return screens::book::press(cx, key),
             (View::NowPlaying, None) => return screens::now_playing::press(self, cx, key),
             (View::Lyrics, _) => return screens::lyrics::press(self, cx, key),
+            (View::Help, _) => return screens::help::press(self, key),
             _ => {}
         }
         let rows = rows(cx, self.view());
@@ -431,7 +457,9 @@ impl Browser {
             row if self.view().is_start_menu() => screens::menu::press(self, cx, row, key),
             Row::Setting(s) => screens::settings::press(s, key),
             Row::Queued(i) => screens::queue::press(self, cx, i, key),
-            Row::Chapter(_) | Row::Bookmark(_) => screens::book::press_row(self, rows[at], key),
+            Row::BookChapter { .. } | Row::Bookmark(_) => {
+                screens::book::press_row(self, rows[at], key)
+            }
             _ => None,
         };
         own.unwrap_or_else(|| screens::list::press(self, cx, &rows, at, key))
@@ -497,7 +525,6 @@ impl Browser {
         self.stack.push(Level { view, at });
     }
 
-    /// The highlighted row.
     /// The row the cursor is on: the last, where the list has grown shorter under it, as every
     /// read of the cursor has it.
     pub(crate) fn row(&self, cx: &Context) -> Option<Row> {
@@ -541,8 +568,9 @@ impl Browser {
 
 /// Rows a page of `view` holds: menus keep slot's size, lists follow List Size.
 pub fn per_page(view: View, settings: &Settings) -> usize {
-    match view.is_menu() {
-        true => MENU_ROWS,
-        false => settings.list_size.page(),
+    if view.is_menu() {
+        MENU_ROWS
+    } else {
+        settings.list_size.page()
     }
 }

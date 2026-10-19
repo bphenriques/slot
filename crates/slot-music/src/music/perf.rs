@@ -41,11 +41,13 @@ impl Timing {
 }
 
 /// What the frame loop keeps while the log is on: the music's own frame, building its screen,
-/// and the frontend drawing it; and what was shown, said in a few words.
+/// the frontend telling whether a frame shows anything new, and drawing it; and what was shown,
+/// said in a few words.
 #[derive(Default)]
 pub(crate) struct Stats {
     pub poll: Timing,
     pub screen: Timing,
+    pub compare: Timing,
     pub glue: Timing,
     pub what: Mutex<String>,
     /// Files the player was told to open: a song played, skipped to or gone on into.
@@ -69,7 +71,7 @@ impl PerfLog {
             .name("slot-music-perf".into())
             .spawn(move || write(&path, &kept, &stopped));
         if let Err(e) = spawned {
-            eprintln!("slot: music: {e}");
+            log::warn!("{e}");
         }
         PerfLog {
             stats,
@@ -83,6 +85,7 @@ fn write(path: &PathBuf, stats: &Stats, stopped: &Receiver<()>) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
+    rotate(path);
     let mut was = cpu();
     let mut worked = slot_player::Work::default();
     let mut since = Instant::now();
@@ -99,8 +102,18 @@ fn write(path: &PathBuf, stats: &Stats, stopped: &Receiver<()>) {
             .append(true)
             .open(path);
         if let Err(e) = file.and_then(|mut f| writeln!(f, "{line}")) {
-            eprintln!("slot: music: {}: {e}", path.display());
+            log::warn!("{}: {e}", path.display());
         }
+    }
+}
+
+/// Past this, the log is begun afresh as it starts, the last kept beside it, as slot.log is.
+const PERF_MAX: u64 = 1 << 20;
+
+/// Moves a log grown past [`PERF_MAX`] to `.1`, over the one before, so it never fills the card.
+fn rotate(path: &Path) {
+    if std::fs::metadata(path).is_ok_and(|m| m.len() > PERF_MAX) {
+        let _ = std::fs::rename(path, path.with_extension("log.1"));
     }
 }
 
@@ -128,6 +141,7 @@ fn line(
     let player = shares(worked, work, secs);
     let (poll, poll_max, frames) = stats.poll.take();
     let (screen, screen_max, _) = stats.screen.take();
+    let (compare, compare_max, _) = stats.compare.take();
     // The faces are built only for a frame drawn: their count is the frames drawn.
     let (glue, glue_max, drawn) = stats.glue.take();
     let opened = stats.opened.swap(0, Ordering::Relaxed);
@@ -147,7 +161,7 @@ fn line(
         .collect();
     format!(
         "{} {secs:.0}s {what} | {:.0} fps, {:.0} drawn | music {poll}us (max {poll_max}) screen {screen}us \
-         (max {screen_max}) draw {glue}us (max {glue_max}) | opened {opened} | sound {} | player {player} | clock {} | cpu {} \
+         (max {screen_max}) compare {compare}us (max {compare_max}) draw {glue}us (max {glue_max}) | opened {opened} | sound {} | player {player} | clock {} | cpu {} \
          | rss {} MB",
         slot_store::stamp_now(),
         frames as f64 / secs,
@@ -178,9 +192,10 @@ fn sound() -> String {
     let open: Vec<String> = subs
         .filter_map(|s| hw_params(&std::fs::read_to_string(s.path().join("hw_params")).ok()?))
         .collect();
-    match open.is_empty() {
-        true => "closed".into(),
-        false => open.join(", "),
+    if open.is_empty() {
+        "closed".into()
+    } else {
+        open.join(", ")
     }
 }
 
@@ -303,6 +318,38 @@ mod tests {
             "decode 0.00% mix 0.00% write 0.00% (alsa 0.00%)",
             "a player begun again counts from nothing"
         );
+    }
+
+    #[test]
+    fn a_line_tells_how_long_telling_a_frame_new_took_beside_building_and_drawing_it() {
+        let stats = Stats::default();
+        stats.screen.add(Duration::from_micros(20));
+        stats.compare.add(Duration::from_micros(30));
+        stats.compare.add(Duration::from_micros(50));
+        stats.glue.add(Duration::from_micros(400));
+        let none = slot_player::Work::default();
+        let told = line(
+            &stats,
+            (&Cpu::default(), &Cpu::default()),
+            (none, none),
+            10.0,
+        );
+        assert!(
+            told.contains("screen 20us (max 20) compare 40us (max 50) draw 400us (max 400)"),
+            "{told}"
+        );
+    }
+
+    #[test]
+    fn a_log_grown_past_its_most_is_begun_afresh_the_last_kept_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("music-perf.log");
+        std::fs::write(&path, "short").unwrap();
+        rotate(&path);
+        assert!(path.exists(), "small, it is kept");
+        std::fs::write(&path, vec![b'x'; PERF_MAX as usize + 1]).unwrap();
+        rotate(&path);
+        assert!(!path.exists() && dir.path().join("music-perf.log.1").exists());
     }
 
     #[test]

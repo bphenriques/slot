@@ -3,6 +3,7 @@
 pub(crate) mod binds;
 pub(crate) mod book;
 pub(crate) mod dark;
+pub(crate) mod help;
 pub(crate) mod list;
 pub(crate) mod lyrics;
 pub(crate) mod main;
@@ -89,7 +90,7 @@ pub enum Target {
     Playlist,
     /// Play All or Shuffle: the whole list.
     All,
-    /// An audiobook: A plays it on, Y lists its bookmarks, START has its menu.
+    /// An audiobook: A plays it on, X lists its chapters, Y its bookmarks, START has its menu.
     Book,
     /// A book's author: A lists their books.
     Author,
@@ -149,8 +150,6 @@ pub struct Screen {
     pub body: Body,
     /// How deep the screen is, so a change slides the way it went.
     pub depth: usize,
-    /// Whether the header shows slot's clock and battery (`clock = on`).
-    pub clock: bool,
     /// The letter a list just jumped to, shown large in the middle.
     pub letter: Option<char>,
     /// A key held to act, filling a ring until it does.
@@ -226,6 +225,8 @@ pub struct NowPlayingBody {
     pub marks: Vec<f32>,
     /// Whether the screen takes its colour from the album picture.
     pub color: bool,
+    /// A book's: with no picture, the square shows a book rather than a note.
+    pub book: bool,
 }
 
 /// Whether music plays, how it repeats, whether the queue is shuffled, and whether the song is
@@ -248,7 +249,6 @@ impl Screen {
             legend,
             body,
             depth: 0,
-            clock: false,
             letter: None,
             hold: None,
         }
@@ -270,11 +270,15 @@ impl Music {
     fn build_screen(&self) -> Screen {
         let screen = match self.browser.view() {
             View::Main => main::screen(self),
-            View::Settings | View::Sound | View::BookSettings | View::Debug => {
-                settings::screen(self)
-            }
+            View::Settings
+            | View::Sound
+            | View::BookSettings
+            | View::Integrations
+            | View::Debug => list::rows_screen(self),
             View::Queue => queue::screen(self),
             View::Lyrics => lyrics::screen(self),
+            View::Help => help::screen(self),
+            View::Controls => list::table(self),
             View::NowPlaying => now_playing::screen(self),
             View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_) => {
                 menu::screen(self)
@@ -291,29 +295,29 @@ impl Music {
             | View::BookList(_)
             | View::Authors
             | View::Author(_) => list::screen(self),
-            View::Books => main::books(self),
-            View::Chapters | View::Bookmarks(_) => book::list(self),
+            View::Books => list::rows_screen(self),
+            View::Bookmarks(_) | View::BookChapters(_) => book::list(self),
         };
         let now = self.now.at;
-        // A notice shows in any corner left empty, Now Playing's too; else there, the sleep
-        // timer counting down.
-        let sleeping = (self.browser.view() == View::NowPlaying
-            && self.transport.sleep.left(now).is_some())
-        .then(|| text::sleeping(self.transport.sleep.remaining(now)));
-        let corner = match screen.corner.is_empty() {
-            true => {
-                // Locked, it says so until unlocked.
-                let locked = self
-                    .pocket
-                    .locked
-                    .then(|| text::notice(&Notice::Locked(true)));
-                self.notice().or(locked).or(sleeping).unwrap_or_default()
-            }
-            false => screen.corner,
-        };
+        // The corner says, first, a notice; then that the keys are locked, until unlocked; then
+        // the sleep timer counting down, on every screen; and else what the screen has there,
+        // as a list its count.
+        let sleeping = self
+            .transport
+            .sleep
+            .left(now)
+            .map(|_| text::sleeping(self.transport.sleep.remaining(now)));
+        let locked = self
+            .pocket
+            .locked
+            .then(|| text::notice(&Notice::Locked(true)));
+        let corner = self
+            .notice()
+            .or(locked)
+            .or(sleeping)
+            .unwrap_or(screen.corner);
         Screen {
             depth: self.browser.depth(),
-            clock: self.settings.clock,
             letter: self
                 .letter
                 .filter(|(_, at)| now.saturating_duration_since(*at) < LETTER)
@@ -382,15 +386,24 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
         },
         // Rebuild Library acts only when A is held; the pages it opens open; Last Error is only
         // told.
-        View::Settings | View::Sound | View::BookSettings | View::Debug => match row {
-            Some(Row::Rebuild) => Legend::Hold,
-            Some(Row::Sound | Row::BookSettings | Row::Debug) => Legend::Menu,
-            Some(Row::LastError) => Legend::Back,
-            _ => Legend::Settings,
-        },
-        View::SongInfo(_) => Legend::Back,
+        View::Settings | View::Sound | View::BookSettings | View::Integrations | View::Debug => {
+            match row {
+                Some(Row::Rebuild) => Legend::Hold,
+                Some(
+                    Row::Sound
+                    | Row::BookSettings
+                    | Row::Integrations
+                    | Row::Controls
+                    | Row::Help
+                    | Row::Debug,
+                ) => Legend::Menu,
+                Some(Row::LastError) => Legend::Back,
+                _ => Legend::Settings,
+            }
+        }
+        View::SongInfo(_) | View::Controls | View::Help => Legend::Back,
         View::PlayingMenu | View::QueueMenu | View::RowMenu(_) => Legend::Menu,
-        View::Chapters => Legend::Chapters,
+        View::BookChapters(_) => Legend::Chapters,
         View::Bookmarks(_) => Legend::Bookmarks,
         View::Artists
         | View::Artist(_)
@@ -444,10 +457,8 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
         (View::Lyrics, _) => lyrics::steps_in(music),
         _ => None,
     };
-    // The countdown in Now Playing's corner, in seconds rounded up.
+    // The countdown in the corner, on every screen, in seconds rounded up.
     let left = music.transport.sleep.remaining(music.now.at);
-    let sleep = left
-        .filter(|_| view == View::NowPlaying)
-        .and_then(|left| whole_in(-left.as_secs_f64(), 1.0));
+    let sleep = left.and_then(|left| whole_in(-left.as_secs_f64(), 1.0));
     [song, sleep].into_iter().flatten().reduce(f64::min)
 }

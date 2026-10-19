@@ -1,6 +1,8 @@
 //! The codec's volume, for the music player, which plays straight to it. `lineout volume` is 0 to 31 at
 //! 1.5 dB a step, 0 muted, as plorpOS found on the H700.
 
+#![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
+
 use std::ffi::{c_char, c_int, c_long, c_uint, c_void, CString};
 
 use libloading::Library;
@@ -35,45 +37,68 @@ struct Ctl {
 
 impl Ctl {
     fn open() -> Option<Ctl> {
+        // SAFETY: ALSA's library runs nothing of its own as it loads.
         let lib = unsafe { Library::new("libasound.so.2") }.ok()?;
+        // SAFETY: each symbol is ALSA's function of that name, typed as `alsa/control.h` declares
+        // it, and kept no longer than `lib`, which is kept with them. All are found before the
+        // device is opened, so a missing one leaves nothing open.
+        let (open, malloc, iface, name, close, free, read, write, get, set) = unsafe {
+            (
+                *lib.get::<Open>(b"snd_ctl_open\0").ok()?,
+                *lib.get::<ValueMalloc>(b"snd_ctl_elem_value_malloc\0")
+                    .ok()?,
+                *lib.get::<SetInterface>(b"snd_ctl_elem_value_set_interface\0")
+                    .ok()?,
+                *lib.get::<SetName>(b"snd_ctl_elem_value_set_name\0").ok()?,
+                *lib.get::<Close>(b"snd_ctl_close\0").ok()?,
+                *lib.get::<ValueFree>(b"snd_ctl_elem_value_free\0").ok()?,
+                *lib.get::<Elem>(b"snd_ctl_elem_read\0").ok()?,
+                *lib.get::<Elem>(b"snd_ctl_elem_write\0").ok()?,
+                *lib.get::<GetInteger>(b"snd_ctl_elem_value_get_integer\0")
+                    .ok()?,
+                *lib.get::<SetInteger>(b"snd_ctl_elem_value_set_integer\0")
+                    .ok()?,
+            )
+        };
+        let card = CString::new(CARD).ok()?;
+        let control = CString::new(CONTROL).ok()?;
+        let mut ctl = std::ptr::null_mut();
+        // SAFETY: `ctl` is somewhere to write the handle; `card` a string ended by a zero.
+        if unsafe { open(&mut ctl, card.as_ptr(), 0) } < 0 {
+            return None;
+        }
+        let mut value = std::ptr::null_mut();
+        // SAFETY: `value` is somewhere to write the new value's pointer.
+        if unsafe { malloc(&mut value) } < 0 {
+            // SAFETY: `ctl` is open, and is not used again.
+            unsafe { close(ctl) };
+            return None;
+        }
+        // SAFETY: `value` was just made; `control` is a string ended by a zero, which ALSA copies.
         unsafe {
-            let open: Open = *lib.get(b"snd_ctl_open\0").ok()?;
-            let malloc: ValueMalloc = *lib.get(b"snd_ctl_elem_value_malloc\0").ok()?;
-            let iface: SetInterface = *lib.get(b"snd_ctl_elem_value_set_interface\0").ok()?;
-            let name: SetName = *lib.get(b"snd_ctl_elem_value_set_name\0").ok()?;
-            let card = CString::new(CARD).ok()?;
-            let control = CString::new(CONTROL).ok()?;
-            let mut ctl = std::ptr::null_mut();
-            if open(&mut ctl, card.as_ptr(), 0) < 0 {
-                return None;
-            }
-            let close: Close = *lib.get(b"snd_ctl_close\0").ok()?;
-            let mut value = std::ptr::null_mut();
-            if malloc(&mut value) < 0 {
-                close(ctl);
-                return None;
-            }
             iface(value, IFACE_MIXER);
             name(value, control.as_ptr());
-            Some(Ctl {
-                ctl,
-                value,
-                close,
-                free: *lib.get(b"snd_ctl_elem_value_free\0").ok()?,
-                read: *lib.get(b"snd_ctl_elem_read\0").ok()?,
-                write: *lib.get(b"snd_ctl_elem_write\0").ok()?,
-                get: *lib.get(b"snd_ctl_elem_value_get_integer\0").ok()?,
-                set: *lib.get(b"snd_ctl_elem_value_set_integer\0").ok()?,
-                _lib: lib,
-            })
         }
+        Some(Ctl {
+            ctl,
+            value,
+            close,
+            free,
+            read,
+            write,
+            get,
+            set,
+            _lib: lib,
+        })
     }
 
     fn read(&self) -> Option<c_long> {
+        // SAFETY: `ctl` is open and `value` made, while `self` is.
         unsafe { ((self.read)(self.ctl, self.value) >= 0).then(|| (self.get)(self.value, 0)) }
     }
 
     fn write(&self, raw: c_long) -> bool {
+        // SAFETY: `ctl` is open and `value` made, while `self` is.
         unsafe {
             (self.set)(self.value, 0, raw);
             (self.write)(self.ctl, self.value) >= 0
@@ -83,6 +108,7 @@ impl Ctl {
 
 impl Drop for Ctl {
     fn drop(&mut self) {
+        // SAFETY: `value` and `ctl` are live, and are never used again.
         unsafe {
             (self.free)(self.value);
             (self.close)(self.ctl);
@@ -138,7 +164,7 @@ impl LineOut {
                     self.saved = ctl.read();
                 }
                 if !ctl.write(raw_level(v)) {
-                    eprintln!("slot: audio: {CONTROL} refused");
+                    log::warn!(target: "slot_audio", "{CONTROL} refused");
                 }
                 self.applied = Some(v);
             }
@@ -156,7 +182,7 @@ impl LineOut {
         if !std::mem::replace(&mut self.tried, true) {
             self.ctl = Ctl::open();
             if self.ctl.is_none() {
-                eprintln!("slot: audio: no {CONTROL} on {CARD}");
+                log::warn!(target: "slot_audio", "no {CONTROL} on {CARD}");
             }
         }
     }

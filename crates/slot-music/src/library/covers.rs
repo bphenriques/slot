@@ -108,13 +108,13 @@ pub fn make(job: &Make, px: u32) {
     let img = match picture(song) {
         Some(Ok(img)) => img.thumbnail(px, px).to_rgba8(),
         Some(Err(e)) => {
-            eprintln!("slot: music: {}: {e}", song.display());
+            log::warn!("{}: {e}", song.display());
             image::RgbaImage::new(1, 1)
         }
         None => image::RgbaImage::new(1, 1),
     };
     if let Err(e) = file_label(&img, label) {
-        eprintln!("slot: music: {}: {e}", label.display());
+        log::warn!("{}: {e}", label.display());
     }
 }
 
@@ -135,7 +135,7 @@ pub fn load(album: AlbumId, label: &Path, px: u32) -> Option<Art> {
         }
         Err(image::ImageError::IoError(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
-            eprintln!("slot: music: {}: {e}", label.display());
+            log::warn!("{}: {e}", label.display());
             None
         }
     }

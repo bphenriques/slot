@@ -79,9 +79,10 @@ pub fn into_book(lib: &Library, book: BookId, part: usize, pos: f64) -> f64 {
 pub fn progress(lib: &Library, book: BookId, place: &Place) -> f64 {
     let b = &lib.books[book];
     let parts = &lib.albums[b.album].tracks;
-    let done = match b.secs > 0.0 {
-        true => into_book(lib, book, place.part, place.pos) / b.secs,
-        false => place.part as f64 / parts.len().max(1) as f64,
+    let done = if b.secs > 0.0 {
+        into_book(lib, book, place.part, place.pos) / b.secs
+    } else {
+        place.part as f64 / parts.len().max(1) as f64
     };
     done.clamp(0.0, 1.0)
 }

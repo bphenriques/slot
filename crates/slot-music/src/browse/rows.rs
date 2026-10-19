@@ -3,6 +3,7 @@
 use crate::library::sort::{initial, sort_key};
 
 use crate::books;
+use crate::books::chapters::Chapter;
 use crate::browse::{BookList, Context, QueueView, View};
 use crate::library::Library;
 use crate::library::{AlbumId, ArtistId, BookId, TrackId};
@@ -52,8 +53,14 @@ pub enum Row {
     /// A book's chapters and bookmarks, from its menu, and one of each; and its speed there.
     Chapters,
     Bookmarks,
-    Chapter(usize),
     Bookmark(usize),
+    /// A chapter of a book listed from the books: its `part`'s `chapter`, or the part, for one
+    /// with none.
+    BookChapter {
+        book: BookId,
+        part: usize,
+        chapter: Option<usize>,
+    },
     Speed,
     /// Back to where the book was before it last moved.
     Back,
@@ -66,6 +73,15 @@ pub enum Row {
     SaveQueue,
     ClearQueue,
     Info(Info),
+    /// Settings' Integrations, Controls and Help pages; and a row of Controls: a heading of
+    /// `KEYS`, or one of its keys.
+    Integrations,
+    Controls,
+    Help,
+    Key {
+        group: usize,
+        key: Option<usize>,
+    },
 }
 
 /// What Song Info tells of the track playing.
@@ -90,14 +106,13 @@ impl Info {
     ];
 }
 
-/// A row: its name, context before (a track number) or after (the artist), an icon, and
-/// its state.
+/// A row: its name, context before (a track number) or after (the artist), and its state.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RowText {
-    pub icon: Option<RowIcon>,
     pub before: String,
     pub text: String,
     pub after: String,
+    /// The one playing, the play symbol in place of what goes before it.
     pub playing: bool,
     /// Set back: played already, or nothing to resume.
     pub faint: bool,
@@ -105,11 +120,6 @@ pub struct RowText {
     pub action: bool,
     /// A song in Favorites, marked with a heart at the right.
     pub favorite: bool,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum RowIcon {
-    Play,
 }
 
 impl RowText {
@@ -168,11 +178,7 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         ),
         View::Authors => rows.extend(books::authors(lib).into_iter().map(Row::Author)),
         View::Author(a) => rows.extend(books::by(lib, a).into_iter().map(Row::Book)),
-        // The file's own chapters, or else the book's parts.
-        View::Chapters => match queue.chapters.len() {
-            0 => rows.extend((0..queue.tracks.len()).map(Row::Chapter)),
-            n => rows.extend((0..n).map(Row::Chapter)),
-        },
+        View::BookChapters(book) => rows.extend(book_chapters(cx, book)),
         View::Bookmarks(book) => {
             let n = cx.shelf.bookmarks(lib, book).len();
             rows.extend((0..n).map(Row::Bookmark));
@@ -184,11 +190,31 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
             rows.push(Row::Sound);
             rows.extend((!lib.books.is_empty()).then_some(Row::BookSettings));
             rows.extend(looks.iter().copied().map(Row::Setting));
-            rows.extend([Row::Rescan, Row::Rebuild, Row::Debug]);
+            rows.extend([
+                Row::Rescan,
+                Row::Rebuild,
+                Row::Controls,
+                Row::Help,
+                Row::Debug,
+            ]);
         }
         View::Sound => rows.extend(Setting::SOUND.map(Row::Setting)),
         View::BookSettings => rows.extend(Setting::BOOKS.map(Row::Setting)),
-        View::Debug => rows.extend([Row::Setting(Setting::PerfLog), Row::LastError]),
+        View::Integrations => rows.extend(Setting::INTEGRATIONS.map(Row::Setting)),
+        View::Debug => rows.extend([
+            Row::Setting(Setting::PerfLog),
+            Row::Setting(Setting::Log),
+            Row::LastError,
+        ]),
+        View::Controls => {
+            for (group, (_, keys)) in text::KEYS.iter().enumerate() {
+                rows.push(Row::Key { group, key: None });
+                rows.extend((0..keys.len()).map(|k| Row::Key {
+                    group,
+                    key: Some(k),
+                }));
+            }
+        }
         View::Queue => rows.extend((0..queue.tracks.len()).map(Row::Queued)),
         View::Artists => rows.extend(lib.music_artists.iter().map(|&a| Row::Artist(a))),
         View::Artist(a) => rows.extend(lib.artists[a].albums.iter().map(|&a| Row::Album(a))),
@@ -234,18 +260,75 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         View::RowMenu(Row::Track(_)) => {
             rows.extend([Row::GoToAlbum, Row::GoToArtist, Row::SongInfo])
         }
-        View::RowMenu(_) => rows.extend([Row::StartOver, Row::Finished]),
+        View::RowMenu(_) => rows.extend([Row::Chapters, Row::StartOver, Row::Finished]),
         View::SongInfo(_) => rows.extend(Info::ALL.map(Row::Info)),
-        View::NowPlaying | View::Lyrics => {}
+        // Now Playing, or text to read: no rows.
+        View::NowPlaying | View::Lyrics | View::Help => {}
     }
     rows
+}
+
+/// A book's chapters: each part's own, as read from its file, or else the part itself.
+fn book_chapters(cx: &Context, book: BookId) -> Vec<Row> {
+    let parts = &cx.lib.albums[cx.lib.books[book].album].tracks;
+    let mut rows = Vec::new();
+    for (part, &t) in parts.iter().enumerate() {
+        let row = |chapter| Row::BookChapter {
+            book,
+            part,
+            chapter,
+        };
+        match cx.chapters.of(t).map_or(0, Vec::len) {
+            0 => rows.push(row(None)),
+            n => rows.extend((0..n).map(|i| row(Some(i)))),
+        }
+    }
+    rows
+}
+
+/// The chapters of `book`'s `part` read from its file; none until they are, or if it has none.
+fn part_chapters<'a>(cx: &Context<'a>, book: BookId, part: usize) -> &'a [Chapter] {
+    let parts = &cx.lib.albums[cx.lib.books[book].album].tracks;
+    parts
+        .get(part)
+        .and_then(|&t| cx.chapters.of(t))
+        .map_or(&[], Vec::as_slice)
+}
+
+/// Where in its part a book's chapter starts, in seconds; a part with none, at its start.
+pub(crate) fn chapter_start(
+    cx: &Context,
+    book: BookId,
+    part: usize,
+    chapter: Option<usize>,
+) -> f64 {
+    chapter
+        .and_then(|i| part_chapters(cx, book, part).get(i))
+        .map_or(0.0, |c| c.start)
+}
+
+/// The chapter `book` was left in, as its part and its chapter there: where its list opens.
+fn left_in(cx: &Context, book: BookId) -> (usize, Option<usize>) {
+    let place = cx.shelf.place(cx.lib, book);
+    let chapters = part_chapters(cx, book, place.part);
+    let chapter = chapters.iter().rposition(|c| c.start <= place.pos);
+    (place.part, chapter.or((!chapters.is_empty()).then_some(0)))
+}
+
+/// The row of `rows` (a book's chapters) it was left in, to open the list at.
+pub(crate) fn left_at(cx: &Context, rows: &[Row], book: BookId) -> usize {
+    let left = left_in(cx, book);
+    rows.iter()
+        .position(
+            |&r| matches!(r, Row::BookChapter { part, chapter, .. } if (part, chapter) == left),
+        )
+        .unwrap_or(0)
 }
 
 /// A row as shown. The playing track shows the play symbol in place of its number.
 pub(crate) fn label(cx: &Context, view: View, row: Row) -> RowText {
     let mut text = describe(cx, view, row);
     if text.playing {
-        text.icon = Some(RowIcon::Play);
         text.before.clear();
     }
     text.action = fixed(view).contains(&row);
@@ -283,9 +366,10 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
         // Favorites is worded here; the rest are named by their files.
         Row::Playlist(0) => RowText::plain(text::FAVORITES),
         Row::Playlist(p) => RowText::plain(&lib.playlists[p].name),
-        Row::Favorite => RowText::plain(match subject.is_some_and(|t| lib.is_favorite(t)) {
-            true => text::UNFAVORITE,
-            false => text::FAVORITE,
+        Row::Favorite => RowText::plain(if subject.is_some_and(|t| lib.is_favorite(t)) {
+            text::UNFAVORITE
+        } else {
+            text::FAVORITE
         }),
         // The menu names where it goes: "Go to" lit, as the other actions are, the name dim.
         Row::GoToAlbum | Row::GoToArtist => match (row, subject) {
@@ -312,16 +396,25 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
                 ..RowText::plain(&album.name)
             }
         }
-        // The one playing marked; those before, faint, as in the queue.
-        Row::Chapter(i) => {
-            let playing = queue.chapter.unwrap_or(queue.at);
-            let title = match queue.chapters.get(i) {
-                Some(c) => c.title.clone(),
-                None => lib.tracks[queue.tracks[i]].title.clone(),
-            };
+        // The chapter a book was left in marked, once begun, those before faint, as the book
+        // playing's are; titled by its file, or else by its part.
+        Row::BookChapter {
+            book,
+            part,
+            chapter,
+        } => {
+            let parts = &lib.albums[lib.books[book].album].tracks;
+            let title = chapter
+                .and_then(|i| part_chapters(cx, book, part).get(i))
+                .map(|c| c.title.clone())
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| lib.tracks[parts[part]].title.clone());
+            let place = cx.shelf.place(lib, book);
+            let begun = place.when > 0 && !place.finished;
+            let left = left_in(cx, book);
             RowText {
-                playing: i == playing,
-                faint: i < playing,
+                playing: begun && (part, chapter) == left,
+                faint: begun && (part, chapter) < left,
                 ..RowText::plain(title)
             }
         }
@@ -358,6 +451,21 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             faint: i < queue.at,
             ..track(queue.tracks[i])
         },
+        // A heading, faint; a key, then what it does, dim, as Song Info sets its facts.
+        Row::Key { group, key: None } => RowText {
+            faint: true,
+            ..RowText::plain(text::KEYS[group].0)
+        },
+        Row::Key {
+            group,
+            key: Some(k),
+        } => {
+            let (key, does) = text::KEYS[group].1[k];
+            RowText {
+                after: does.into(),
+                ..RowText::plain(key)
+            }
+        }
         // What it is, lit as a label, then what the track's is, dim.
         Row::Info(info) => RowText {
             after: subject.map(|t| fact(lib, t, info)).unwrap_or_default(),
@@ -408,25 +516,30 @@ pub(crate) fn value(cx: &Context, row: Row) -> Option<String> {
                 (false, false) => None,
             }
         }
-        // How long a chapter is.
-        Row::Chapter(i) => {
-            // A chapter runs to the next, the last to the end of its part.
-            let q = cx.queue;
-            let secs = |t: usize| Some(cx.lib.tracks[*q.tracks.get(t)?].secs).filter(|&s| s > 0.0);
-            let len = match q.chapters.get(i) {
-                Some(c) => q
-                    .chapters
-                    .get(i + 1)
-                    .map(|c| c.start)
-                    .or(secs(q.at))
-                    .map(|end| end - c.start),
-                None => secs(i),
-            };
-            len.map(text::clock)
+        // How long a book's chapter is: to the next, the last to the end of its part.
+        Row::BookChapter {
+            book,
+            part,
+            chapter,
+        } => {
+            let parts = &cx.lib.albums[cx.lib.books[book].album].tracks;
+            let secs = cx.lib.tracks[parts[part]].secs;
+            let next = chapter.and_then(|i| part_chapters(cx, book, part).get(i + 1));
+            let (start, end) = (
+                chapter_start(cx, book, part, chapter),
+                next.map_or(secs, |c| c.start),
+            );
+            (end > start).then(|| text::clock(end - start))
         }
         Row::Tracks => count(cx.lib.tracks_by_title.len()),
         Row::Playlist(p) => count(cx.lib.playlists[p].tracks.len()),
-        Row::Setting(s) => Some(text::setting(s, &cx.settings, cx.sleep, cx.book.is_some())),
+        Row::Setting(s) => Some(text::setting(
+            s,
+            &cx.settings,
+            cx.sleep,
+            cx.book.is_some(),
+            cx.eq,
+        )),
         Row::Speed => Some(text::speed(cx.queue.speed)),
         Row::ShuffleQueue => Some(text::on_off(cx.shuffled).into()),
         Row::LastError => Some(cx.last_error.unwrap_or(text::NONE).to_string()),
@@ -520,13 +633,14 @@ pub(crate) fn letter(lib: &Library, rows: &[Row], at: usize, forward: bool) -> u
         }
         i
     };
-    match forward {
-        true => (at + 1..rows.len())
+    if forward {
+        (at + 1..rows.len())
             .find(|&i| group(i) != here)
-            .unwrap_or(at),
-        false => match start(at) {
+            .unwrap_or(at)
+    } else {
+        match start(at) {
             0 => 0,
             first => start(first - 1),
-        },
+        }
     }
 }

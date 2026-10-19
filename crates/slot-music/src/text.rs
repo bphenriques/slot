@@ -16,6 +16,74 @@ pub const NOW_PLAYING: &str = "Now Playing";
 pub const QUEUE: &str = "Queue";
 pub const SAVED_QUEUE: &str = "Saved Queue";
 pub const DEBUG: &str = "Debug";
+pub const CONTROLS: &str = "Controls";
+pub const HELP: &str = "Help";
+pub const INTEGRATIONS: &str = "Integrations";
+
+/// Settings' Controls: the keys the hints leave out, by where they act, each with what it does.
+pub const KEYS: [(&str, &[(&str, &str)]); 7] = [
+    (
+        "Everywhere",
+        &[
+            ("START held", "Play or pause"),
+            ("SELECT", "Now Playing, then the queue"),
+            ("SELECT held", "Blank the screen"),
+            ("SELECT + L1 / R1", "Previous / next song"),
+            ("B held", "Back to the Music menu"),
+            ("MENU", "Back to slot"),
+        ],
+    ),
+    ("Menus and Settings", &[("L1 / R1", "Previous / next song")]),
+    (
+        "Lists",
+        &[
+            ("L1 / R1", "Previous / next letter"),
+            ("Left / Right", "Previous / next page"),
+        ],
+    ),
+    (
+        "Now Playing",
+        &[
+            ("L1 / R1", "Previous / next song"),
+            ("Left / Right held", "Seek"),
+            ("L2 / R2", "Back / on 10 s"),
+            ("Up", "Repeat"),
+            ("Down", "Shuffle"),
+        ],
+    ),
+    (
+        "Audiobooks",
+        &[
+            ("L1 / R1", "Previous / next chapter"),
+            ("SELECT", "Chapters"),
+            ("Y held", "Bookmarks"),
+        ],
+    ),
+    (
+        "Pocket",
+        &[("Two shoulders held", "Lock / unlock the keys")],
+    ),
+    (
+        "Lid closed",
+        &[
+            ("L1 / R1", "Skip, or jump in a book"),
+            ("L1 / R1 held", "Seek"),
+            ("L2 / R2", "Play or pause"),
+            ("L2 / R2 held", "Bookmark, in a book"),
+        ],
+    ),
+];
+
+/// Settings' Help: what the screens do not say, a paragraph each.
+pub const HELP_TEXT: [&str; 7] = [
+    "Songs go in Music, audiobooks in Audiobooks: a folder per book, or one .m4b.",
+    "Playlists are .m3u files in Music/Playlists. Y adds a song to Favorites.",
+    "Lyrics come from an .lrc file beside the song, or from its tags. X on Now Playing shows them.",
+    "A hint like Play (Next) is tap to play, hold to play next. A ring fills while you hold.",
+    "With Screen Off set to Keep Playing, music goes on with the lid closed, and the shoulders still work.",
+    "A book picks up where you left it, a few seconds back after a long pause.",
+    "Asked for a log? Turn on Settings, Debug, Detailed Log, play a while, then send Logs/slot.log from the card.",
+];
 pub const NONE: &str = "None";
 pub const RECENTLY_PLAYED: &str = "Recently Played";
 pub const RESUME: &str = "Resume";
@@ -49,13 +117,16 @@ pub fn title(view: View) -> Option<&'static str> {
         View::Sound => SOUND,
         View::BookSettings => BOOKS,
         View::Debug => DEBUG,
+        View::Controls => CONTROLS,
+        View::Integrations => INTEGRATIONS,
+        View::Help => HELP,
         View::Artists => "Artists",
         View::Albums => "Albums",
         View::Tracks => "Songs",
         View::Books => BOOKS,
         View::BookList(list) => book_list(list),
         View::Authors => AUTHORS,
-        View::Chapters => CHAPTERS,
+        View::BookChapters(_) => CHAPTERS,
         View::Bookmarks(_) => BOOKMARKS,
         View::Playlists => "Playlists",
         View::RecentlyAdded => "Recently Added",
@@ -84,6 +155,9 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         Row::Rescan => "Update Library",
         Row::Rebuild => "Rebuild Library",
         Row::Debug => DEBUG,
+        Row::Controls => CONTROLS,
+        Row::Integrations => INTEGRATIONS,
+        Row::Help => HELP,
         Row::LastError => "Last Error",
         Row::Books => BOOKS,
         Row::Continue => CONTINUE,
@@ -103,11 +177,14 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             Setting::ScreenOff => "Screen Off",
             Setting::Jump => "Jump Length",
             Setting::Mono => "Mono Audio",
+            Setting::Equalizer => "Equalizer",
             Setting::Crossfade => "Crossfade",
             Setting::SkipSilence => "Skip Silence",
             Setting::Pocket => "Pocket Lock",
             Setting::PocketBuzz => "Pocket Vibration",
             Setting::PerfLog => "Performance Log",
+            Setting::Log => "Detailed Log",
+            Setting::Scrobbler => "Scrobbler Log",
             Setting::Boost => "Volume Boost",
             Setting::Leveling => "Volume Leveling",
             Setting::Repeat => "Repeat",
@@ -131,7 +208,8 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         | Row::Info(_)
         | Row::Playlist(_)
         | Row::Book(_)
-        | Row::Chapter(_)
+        | Row::BookChapter { .. }
+        | Row::Key { .. }
         | Row::Bookmark(_)
         | Row::Back
         | Row::Finished
@@ -161,7 +239,14 @@ pub fn info(info: Info) -> &'static str {
 }
 
 /// A setting's choice; `sleep` is what the sleep timer waits for.
-pub fn setting(setting: Setting, settings: &Settings, sleep: Option<Sleep>, book: bool) -> String {
+/// `eq` is the equalizer's preset, by name; none is off.
+pub fn setting(
+    setting: Setting,
+    settings: &Settings,
+    sleep: Option<Sleep>,
+    book: bool,
+    eq: Option<&str>,
+) -> String {
     let on_off = |on: bool| on_off(on).to_string();
     let pick = |on: bool, yes: &str, no: &str| if on { yes } else { no }.to_string();
     match setting {
@@ -182,6 +267,9 @@ pub fn setting(setting: Setting, settings: &Settings, sleep: Option<Sleep>, book
         Setting::SkipSilence => on_off(settings.skip_silence),
         Setting::PocketBuzz => on_off(settings.pocket_buzz),
         Setting::PerfLog => on_off(settings.perf),
+        Setting::Equalizer => eq.map_or_else(|| on_off(false), str::to_string),
+        Setting::Log => on_off(settings.log),
+        Setting::Scrobbler => on_off(settings.scrobbler),
         Setting::Pocket => on_off(settings.pocket),
         Setting::Crossfade => match settings.crossfade {
             0 => "Off".into(),
@@ -223,6 +311,11 @@ pub enum Notice {
     /// START held paused or played, away from Now Playing.
     Paused,
     Playing,
+    /// SELECT with a shoulder skipped, away from Now Playing: on, or back. Short and fixed, as
+    /// the corner is.
+    Skipped {
+        on: bool,
+    },
     /// The music's keys locked, or unlocked, by the pocket combo.
     Locked(bool),
     /// The speed X changed to, in hundredths.
@@ -247,6 +340,8 @@ pub fn notice(notice: &Notice) -> String {
         Notice::Hold(key) => format!("Hold {key}"),
         Notice::Paused => "Paused".into(),
         Notice::Playing => "Playing".into(),
+        Notice::Skipped { on: true } => "Next".into(),
+        Notice::Skipped { on: false } => "Previous".into(),
         Notice::Locked(true) => "Locked".into(),
         Notice::Locked(false) => "Unlocked".into(),
         Notice::Bookmarked => "Bookmarked".into(),
@@ -286,6 +381,16 @@ pub fn sleeping(left: Option<Duration>) -> String {
     }
 }
 
+/// The lyrics' header: the song and who sings it, as Up Next names them; the song alone when
+/// its artist is not known.
+pub fn lyrics_of(title: &str, artist: &str) -> String {
+    if artist.is_empty() {
+        title.into()
+    } else {
+        format!("{title} · {artist}")
+    }
+}
+
 /// The track after this one, under Now Playing.
 pub fn up_next(title: &str, artist: &str) -> String {
     format!("{UP_NEXT}: {title} · {artist}")
@@ -293,9 +398,10 @@ pub fn up_next(title: &str, artist: &str) -> String {
 
 /// A book's menu row that marks it finished, or not.
 pub fn finished(finished: bool) -> &'static str {
-    match finished {
-        true => "Mark as Unfinished",
-        false => "Mark as Finished",
+    if finished {
+        "Mark as Unfinished"
+    } else {
+        "Mark as Finished"
     }
 }
 
@@ -421,6 +527,7 @@ pub(crate) enum Word {
     Next,
     PlayNext,
     PlayLine,
+    Chapters,
     Bookmarks,
     Bookmark,
     List,
@@ -454,6 +561,7 @@ fn word(word: Word) -> &'static str {
         Word::Next => "Next",
         Word::PlayNext => "Play Next",
         Word::PlayLine => "Play Line",
+        Word::Chapters => CHAPTERS,
         Word::Bookmarks => BOOKMARKS,
         Word::Bookmark => "Bookmark",
         Word::List => "List",
@@ -521,9 +629,9 @@ mod tests {
             "the pocket combo has no hint"
         );
         assert_eq!(
-            hint_of(Legend::List(Target::Song), Key::Start),
+            hint_of(Legend::List(Target::Album), Key::Start),
             None,
-            "nor START here"
+            "nor START, held, on an album's list, which has no menu"
         );
     }
 }

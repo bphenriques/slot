@@ -19,6 +19,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::eq::Equalizer;
 use crate::level::Leveling;
 use crate::track::Track;
 use crate::{Command, Event, PlayState};
@@ -39,7 +40,7 @@ const HEADROOM: f32 = 0.794_328;
 /// Where the sound goes: interleaved stereo at the rate last set, each sample -1 to 1.
 pub trait Output: Send + 'static {
     /// Plays at `rate` from the next write, letting the device go first if it was open at
-    /// another; false when the device will not take it, and is to be given [`RATE`] instead.
+    /// another; false when the device will not take it, and is to be given `RATE` instead.
     fn set_rate(&mut self, rate: u32) -> bool;
     /// Plays `samples`, waiting as a device does while it is full.
     fn write(&mut self, samples: &[f32]) -> Result<(), String>;
@@ -134,9 +135,10 @@ impl Snapshot {
     fn at(&self, now: Instant) -> f64 {
         let at =
             self.from + self.heard_by(now) * f64::from(self.speed) / f64::from(self.rate.max(1));
-        match self.len > 0.0 {
-            true => at.min(self.len),
-            false => at,
+        if self.len > 0.0 {
+            at.min(self.len)
+        } else {
+            at
         }
     }
 
@@ -319,7 +321,7 @@ impl Engine {
                 },
             )),
             Err(why) => {
-                eprintln!("slot: player: {}: {why}", path.display());
+                log::warn!("{}: {why}", path.display());
                 None
             }
         }
@@ -374,6 +376,7 @@ struct Writer<O: Output> {
     state: PlayState,
     mono: bool,
     boost: f32,
+    eq: Equalizer,
     /// Frames of the file playing written since it was opened or moved; and of all written,
     /// those still in the device, as of `sampled`.
     written: u64,
@@ -405,6 +408,7 @@ impl<O: Output> Writer<O> {
             state: PlayState::Stopped,
             mono: false,
             boost: 1.0,
+            eq: Equalizer::default(),
             written: 0,
             queued: 0,
             sampled: None,
@@ -484,8 +488,7 @@ impl<O: Output> Writer<O> {
             // The state stays: slot, still playing, moves on to the next.
             Do::Unplayable => {
                 self.output.flush();
-                (self.tracks.now, self.tracks.next) = (None, None);
-                (self.now, self.next, self.ending) = (None, None, None);
+                self.close();
                 self.recount();
             }
             Do::Command(command) => self.command(command),
@@ -515,14 +518,14 @@ impl<O: Output> Writer<O> {
                 self.flush_if_playing();
             }
             Command::Stop => {
-                (self.tracks.now, self.tracks.next) = (None, None);
-                (self.now, self.next, self.ending) = (None, None, None);
+                self.close();
                 self.release();
                 self.recount();
                 self.state = PlayState::Stopped;
             }
             Command::Mono(on) => self.mono = on,
             Command::Boost(by) => self.boost = by.max(0.0),
+            Command::Equalizer(bands) => self.eq.set(bands),
             Command::Crossfade(secs) => self.tracks.fade = secs.max(0.0),
             Command::Level(leveling) => {
                 let Tracks { now, next, .. } = &mut self.tracks;
@@ -580,6 +583,12 @@ impl<O: Output> Writer<O> {
         }
     }
 
+    /// No file open, nor one to go on into.
+    fn close(&mut self) {
+        (self.tracks.now, self.tracks.next) = (None, None);
+        (self.now, self.next, self.ending) = (None, None, None);
+    }
+
     /// Nothing written since the file was opened or moved, nothing in the device of it.
     fn recount(&mut self) {
         (self.written, self.queued, self.sampled) = (0, 0, None);
@@ -612,7 +621,7 @@ impl<O: Output> Writer<O> {
                 }
             }
             Some(_) => {
-                eprintln!("slot: player: let go, paused a while");
+                log::info!("let go, paused a while");
                 self.release();
             }
             None => self.release(),
@@ -638,6 +647,7 @@ impl<O: Output> Writer<O> {
                 return;
             }
             self.rate = rate;
+            self.eq.rate(rate);
         }
         self.hushed = None;
         let (began, decoded) = (thread_time(), self.work.decode);
@@ -710,8 +720,7 @@ impl<O: Output> Writer<O> {
             match read {
                 Ok(read) => n += read,
                 Err(_) => {
-                    (self.tracks.now, self.tracks.next) = (None, None);
-                    (self.now, self.next, self.ending) = (None, None, None);
+                    self.close();
                     let failed = Event::Error("the file stopped decoding".into());
                     let _ = self.events.send(failed);
                     break;
@@ -723,6 +732,7 @@ impl<O: Output> Writer<O> {
             }
         }
         self.chunk[n..].fill(0.0);
+        self.eq.run(&mut self.chunk);
         let gain = HEADROOM * self.boost;
         for frame in self.chunk.chunks_exact_mut(channels) {
             if self.mono {
@@ -804,6 +814,7 @@ pub(crate) fn thread_time() -> u64 {
         tv_sec: 0,
         tv_nsec: 0,
     };
+    // SAFETY: `t` is a valid timespec to write to.
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
     t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
 }
@@ -811,11 +822,10 @@ pub(crate) fn thread_time() -> u64 {
 /// Rounds off what a boost would take past full scale, rather than clip it; leaves the rest.
 pub(crate) fn limit(sample: f32) -> f32 {
     const KNEE: f32 = 0.9;
-    match sample.abs() > KNEE {
-        true => {
-            sample.signum() * (KNEE + (1.0 - KNEE) * ((sample.abs() - KNEE) / (1.0 - KNEE)).tanh())
-        }
-        false => sample,
+    if sample.abs() > KNEE {
+        sample.signum() * (KNEE + (1.0 - KNEE) * ((sample.abs() - KNEE) / (1.0 - KNEE)).tanh())
+    } else {
+        sample
     }
 }
 

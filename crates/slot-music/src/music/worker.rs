@@ -37,8 +37,9 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    /// `px` is the square pictures are shrunk to fit.
-    pub fn spawn(px: u32) -> Worker {
+    /// `px` is the square pictures are shrunk to fit; `frames` is the frame loop's thread, woken
+    /// as each job is done, so what it read shows at once rather than at the loop's next wake.
+    pub fn spawn(px: u32, frames: std::thread::Thread) -> Worker {
         let (jobs, job_rx) = mpsc::channel::<(u32, Job)>();
         let (done_tx, done) = mpsc::channel();
         let spawned = std::thread::Builder::new()
@@ -58,13 +59,15 @@ impl Worker {
                     let Some((generation, job)) = queue.next() else {
                         continue;
                     };
-                    if done_tx.send((generation, work(job, px))).is_err() {
+                    let done = guarded(job, |job| work(job, px));
+                    if done_tx.send((generation, done)).is_err() {
                         return;
                     }
+                    frames.unpark();
                 }
             });
         if let Err(e) = spawned {
-            eprintln!("slot: music: {e}");
+            log::warn!("{e}");
         }
         Worker { jobs, done }
     }
@@ -103,6 +106,18 @@ impl Queue {
     }
 }
 
+/// `job` done by `work`; or, should a file make it panic, as though it found nothing, so one
+/// broken file costs only its own picture, lyrics or chapters, and the worker goes on.
+fn guarded(job: Job, work: impl FnOnce(Job) -> Done) -> Done {
+    let nothing = match &job {
+        Job::Make(make) => Done::Made(make.album),
+        Job::Load { album, .. } => Done::Loaded(*album, None),
+        Job::Chapters { track, .. } => Done::Chapters(*track, Vec::new()),
+        Job::Lyrics { track, .. } => Done::Lyrics(*track, None),
+    };
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(job))).unwrap_or(nothing)
+}
+
 fn work(job: Job, px: u32) -> Done {
     match job {
         Job::Make(make) => {
@@ -119,6 +134,31 @@ fn work(job: Job, px: u32) -> Done {
 mod tests {
     use super::*;
     use crate::library::AlbumId;
+
+    #[test]
+    fn a_job_done_wakes_the_frame_loop_resting_rather_than_wait_for_its_next_wake() {
+        let worker = Worker::spawn(16, std::thread::current());
+        let lyrics = Job::Lyrics {
+            track: TrackId(1),
+            path: PathBuf::from("/no/such/song.mp3"),
+        };
+        let began = std::time::Instant::now();
+        worker.send(0, lyrics);
+        while worker.done().next().is_none() {
+            std::thread::park_timeout(std::time::Duration::from_secs(5));
+            assert!(began.elapsed() < std::time::Duration::from_secs(2), "woken");
+        }
+    }
+
+    #[test]
+    fn a_job_that_panics_finds_nothing_rather_than_end_the_worker() {
+        let lyrics = Job::Lyrics {
+            track: TrackId(1),
+            path: PathBuf::from("a.mp3"),
+        };
+        let done = guarded(lyrics, |_| panic!("a broken file"));
+        assert!(matches!(done, Done::Lyrics(TrackId(1), None)));
+    }
 
     #[test]
     fn what_a_screen_waits_on_goes_before_the_labels_to_make() {

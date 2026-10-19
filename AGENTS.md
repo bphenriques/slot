@@ -38,7 +38,11 @@ with tests; new looks go in the kit. Upstream slot's own files change only at on
   legend is chosen in one place (`screens::legend`), and both the hints shown and the keys'
   modes are read from its table, so they cannot disagree; tests hold the tables to one meaning
   a key, and to hints that say a hold only of a key that holds. What a key then does is the
-  screen's `press` and `held`. Update `music/CONTROLS.md` with any key change.
+  screen's `press` and `held`. A key the hints leave out goes in Settings › Controls (`text.rs`'s
+  `KEYS`); `music/README.md` says only what the screens cannot.
+- Rust as the community writes it, not a house style: rustfmt and clippy as they are, `if` over
+  a `match` on a bool, and a `// SAFETY:` comment on every `unsafe` saying why it holds. The
+  lints keep it so (`[lints.clippy]` in our crates, `#![warn(...)]` atop our modules in slot's).
 - Comments read as plain sentences saying what something is for, in the existing voice.
 - Every behaviour change comes with a test (see Tests).
 - A battery device: nothing polls while idle, nothing works harder than it must. The music

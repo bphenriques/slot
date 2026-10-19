@@ -78,9 +78,9 @@ pub(super) fn draw(
     }
 }
 
-/// The picture centred in its box, fading in over the last one. The empty box shows only
-/// before the first picture: between two, it would flash grey round a picture that is not
-/// square, so a last picture of another shape fades out instead.
+/// The picture centred in its box, fading in over the last one. The empty box, a note or a book
+/// on it, shows only before the first picture: between two, it would flash grey round a
+/// picture that is not square, so a last picture of another shape fades out instead.
 fn draw_art(np: &NowPlayingFaces, art_in: f32, theme: &MusicTheme, out: &mut Vec<Draw>) {
     let shown = np.art.map_or(0.0, |_| art_in);
     let was = np.art.and(np.art_was).filter(|_| shown < 1.0);
@@ -93,6 +93,14 @@ fn draw_art(np: &NowPlayingFaces, art_in: f32, theme: &MusicTheme, out: &mut Vec
             h: ART_BOX as f32,
             colour: [r, g, b, a * (1.0 - shown)],
         });
+        if let Some((tex, w, h)) = np.no_art {
+            let x = QUICK_EDGE + (ART_BOX - w) as f32 / 2.0;
+            let y = NP_TOP + (ART_BOX - h) as f32 / 2.0;
+            push(out, tex, x, y, w, h);
+            if let Some(Draw::Tex { alpha, .. }) = out.last_mut() {
+                *alpha = 1.0 - shown;
+            }
+        }
     }
     let same = |(_, w, h): MusicFace| np.art.is_some_and(|(_, nw, nh)| (nw, nh) == (w, h));
     let was_alpha = was.map_or(0.0, |f| if same(f) { 1.0 } else { 1.0 - shown });
@@ -105,5 +113,35 @@ fn draw_art(np: &NowPlayingFaces, art_in: f32, theme: &MusicTheme, out: &mut Vec
                 *a = alpha;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slot_gfx::TexId;
+
+    #[test]
+    fn the_empty_square_shows_a_note_until_a_picture_fades_in_over_it() {
+        let (note, picture) = (TexId::from_raw(1), TexId::from_raw(2));
+        let theme = MusicTheme::dark();
+        let np = |art| NowPlayingFaces {
+            no_art: Some((note, 96, 96)),
+            art,
+            ..NowPlayingFaces::default()
+        };
+        let note_at = |np: &NowPlayingFaces, art_in| {
+            let mut out = Vec::new();
+            draw_art(np, art_in, &theme, &mut out);
+            out.iter().find_map(|d| match *d {
+                Draw::Tex { tex, alpha, x, .. } if tex == note => Some((alpha, x)),
+                _ => None,
+            })
+        };
+        let middle = QUICK_EDGE + (ART_BOX - 96) as f32 / 2.0;
+        assert_eq!(note_at(&np(None), 0.0), Some((1.0, middle)), "centred");
+        let shown = np(Some((picture, 240, 240)));
+        assert_eq!(note_at(&shown, 0.25).map(|n| n.0), Some(0.75), "going");
+        assert_eq!(note_at(&shown, 1.0).map(|n| n.0), Some(0.0), "gone");
     }
 }

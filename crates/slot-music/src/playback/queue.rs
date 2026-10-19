@@ -71,10 +71,12 @@ impl Queue {
     /// The place `by` from here: round the ends when `wrap`, otherwise none past them.
     pub fn step(&self, by: i32, wrap: bool) -> Option<usize> {
         let (to, n) = (self.at as i64 + by as i64, self.tracks.len() as i64);
-        match wrap {
-            true if n > 0 => Some(to.rem_euclid(n) as usize),
-            _ if to < 0 || to >= n => None,
-            _ => Some(to as usize),
+        if wrap && n > 0 {
+            Some(to.rem_euclid(n) as usize)
+        } else if to < 0 || to >= n {
+            None
+        } else {
+            Some(to as usize)
         }
     }
 

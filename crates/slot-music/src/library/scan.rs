@@ -101,7 +101,7 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
     if changed {
         write_cache(root, &records);
     }
-    eprintln!("slot: music: {} songs, {read} read", records.len());
+    log::info!("{} songs, {read} read", records.len());
     (Library::build(root, records), changed)
 }
 
@@ -120,9 +120,10 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, u64, u64)>, progress: 
         let Ok(kind) = entry.file_type() else {
             continue;
         };
-        let is_dir = match kind.is_symlink() {
-            true => path.is_dir(),
-            false => kind.is_dir(),
+        let is_dir = if kind.is_symlink() {
+            path.is_dir()
+        } else {
+            kind.is_dir()
         };
         if is_dir {
             if depth < MAX_DEPTH {
@@ -178,7 +179,7 @@ fn write_cache(root: &Path, records: &[Record]) {
         .and_then(|_| std::fs::write(&part, text))
         .and_then(|_| std::fs::rename(&part, &path));
     if let Err(e) = done {
-        eprintln!("slot: music: {}: {e}", path.display());
+        log::warn!("{}: {e}", path.display());
     }
 }
 

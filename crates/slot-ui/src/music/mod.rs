@@ -1,37 +1,20 @@
-//! The music screens: a header (title, corner, clock), a body (a list or Now Playing) and the
-//! button hints. The knobs to tune them are all here.
+//! The music screens' kit: it draws a `slot_music::Screen` and knows nothing else of the
+//! player. Every screen is made of the same few parts, each meaning one thing wherever it shows:
 //!
-//! Every screen is made of the same few parts, so each means one thing wherever it shows:
+//! - **Menu**: rows at slot's quick-menu size, centred, no header.
+//! - **List**: rows sized by List Size under a title, with a count in the corner.
+//! - **Row**: a name lit, what describes it dim, faint when behind or unavailable; ▶ marks what
+//!   plays. An action row (Play All) is a size down, above a rule.
+//! - **Corner**: short news: a count, a notice, the sleep timer.
+//! - **Hints**: what each button does here and now; "Play (Next)" is a tap and a hold. A key held
+//!   to act fills a ring around its cap.
+//! - **Text view**: paragraphs, centred, the one in focus held in the middle.
+//! - **Motion**: everything that moves eases as `tween` says; colours are all `theme`'s.
 //!
-//! - **Menu**: rows at slot's quick-menu size, centred, no header (Music, Settings, START menus).
-//! - **List**: rows sized by List Size under a title and a count (the library, the queue).
-//! - **Row**: a name in `Ink::Lit`, with what describes it (number, artist, "Go to") in
-//!   `Ink::Dim`; `Ink::Faint` when behind or unavailable (played, nothing to resume). The ▶
-//!   marks the song playing.
-//! - **Action row**: a size down, above a rule; it acts on the whole list (Play All, Shuffle).
-//! - **Setting row**: a value at the right, dim, lit on the highlight, with arrows when Left and
-//!   Right change it.
-//! - **Info row**: read only: no highlight, and a long one scrolls by itself (Song Info).
-//! - **Marker**: a symbol at a row's right or in the status row, dim off the highlight: the
-//!   heart (a favorite), the moon (the sleep timer).
-//! - **Highlight**: the bar under the row picked; lighter when the row is lifted to carry.
-//! - **Rule**: a thin line where a list changes part: after the action rows, between discs.
-//! - **Corner**: short news, kept within 18 characters: a count, "Queue +1", "Hold A".
-//! - **Hints**: what each button does here and now; they follow the row and the state ("Play"
-//!   or "Pause"). A button that does more held says so: "Play, Hold Next".
-//! - **Ring**: around the held key's cap in the hints while it is held to act, filling until it
-//!   does; in the corner for a hold no hint names (the pocket combo). Let go before it closes
-//!   and nothing happens. Tinted on Now Playing, as its bar is.
-//! - **Text view**: paragraphs to read, wrapped and centred, the one in focus held in the middle;
-//!   followed lines lit, the rest dim (lyrics).
-//! - **Motion**: everything that moves eases the one way `tween` says, over its durations; a
-//!   new target takes over from where a value is drawn. Only what is drawn moves.
-//!
-//! The kit, a part a file: `face` (lines, rows, paragraphs, hints, ring, symbols), `list`,
-//! `now_playing`, `text_view`, `tween`, with every colour from `theme` and the album's from
-//! `tint`. Its only contract with the music player is `slot_music::Screen`: what to show, never
-//! how; the frontend (`slot::music_faces`) turns a `Screen` into these faces. Another kit could
-//! take this one's place behind that contract without `slot-music` knowing.
+//! The frontend (`slot::music_faces`) turns a `Screen` into these faces; another kit could take
+//! this one's place behind that contract.
+
+#![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
 
 mod face;
 mod list;
@@ -42,20 +25,18 @@ mod theme;
 mod tint;
 mod tween;
 
-use slot_power::Battery;
-
 use slot::{
-    centred_hints, cluster_width, draw_gauge, draw_printed, push, Canvas, Draw, Printed, TexId,
-    CAP, GAUGE_H, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H, PLATE_H, QUICK_EDGE,
+    centred_hints, push, Canvas, Draw, TexId, CAP, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H,
+    PLATE_H, QUICK_EDGE,
 };
 
 pub use face::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_heart_face, music_hint_face, music_letter_face, music_line_face, music_moon_face,
-    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_status_face,
-    music_window, Ink, LineInk, MUSIC_STATUS,
+    music_no_art_face, music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face,
+    music_status_face, music_window, Ink, LineInk, MUSIC_STATUS,
 };
-pub use list::{music_action_px, music_row_px};
+pub use list::{music_action_px, music_row_ink, music_row_px, music_row_text_w};
 pub use text_view::TextFaces;
 pub use theme::MusicTheme;
 pub use tint::{music_tint, music_tint_ink, MusicTint};
@@ -80,11 +61,13 @@ const TITLE_Y: f32 = (PLATE_H - SMALL_H as f32) / 2.0;
 const ROWS_Y: f32 = 60.0;
 const BAR_INSET: f32 = 4.0;
 /// The room a row's heart takes from its text.
-pub const MUSIC_HEART_ROOM: u32 = 40;
+const MUSIC_HEART_ROOM: u32 = 40;
 const LEGEND_Y: f32 = 427.0;
 const PROGRESS_Y: f32 = 50.0;
 const PROGRESS_H: f32 = 3.0;
 pub const ART_BOX: u32 = 240;
+/// The note, or a book, on the square with no picture: two fifths of it across.
+const NO_ART_PX: f32 = ART_BOX as f32 * 0.4;
 /// Now Playing: the room kept under the picture for Up Next, so the screen does not move when
 /// it comes and goes.
 const UP_NEXT_ROOM: f32 = 40.0;
@@ -99,9 +82,8 @@ const ART_GAP: f32 = 24.0;
 const CARET_GAP: f32 = 14.0;
 /// The gap between a row's parts: icon, number, name, artist.
 const PART_GAP: u32 = 14;
-/// The clock and battery in the header's middle, and the room kept for them.
-const CLOCK_GAP: f32 = 16.0;
-const CLOCK_ROOM: u32 = 200;
+/// Between the title and what the corner says.
+const CORNER_GAP: u32 = 24;
 /// A long line rests at each end of its scroll, moving between in 2 px steps, one a beat (each
 /// step is an upload and a frame): 50 px a second. Every long line keeps the one beat, so all of
 /// them step on the same frames.
@@ -121,6 +103,9 @@ const LETTER_PX: f32 = 64.0;
 const RING_PX: u32 = 22;
 const RING_STROKE: f32 = 3.0;
 
+/// How many steps a held key's ring fills in: each is drawn once, so the frontend keeps them.
+pub const MUSIC_RING_STEPS: f32 = 40.0;
+
 /// A texture and its size.
 pub type MusicFace = (TexId, u32, u32);
 
@@ -131,8 +116,6 @@ pub struct MusicFaces {
     pub legend: Vec<(TexId, u32)>,
     pub body: BodyFaces,
     pub motion: MusicMotion,
-    /// Whether the header shows slot's clock and battery.
-    pub clock: bool,
     /// The room slot gives the screen, and the colours to draw in.
     pub canvas: Canvas,
     pub theme: MusicTheme,
@@ -151,7 +134,6 @@ impl Default for MusicFaces {
             legend: Vec::new(),
             body: BodyFaces::default(),
             motion: MusicMotion::default(),
-            clock: false,
             canvas: Canvas::FRAMED,
             theme: MusicTheme::default(),
             letter: None,
@@ -207,6 +189,8 @@ pub struct NowPlayingFaces {
     pub art: Option<MusicFace>,
     /// The last picture, under the new one while it fades in.
     pub art_was: Option<MusicFace>,
+    /// What the square shows until a picture comes, or with none: a note, or a book.
+    pub no_art: Option<MusicFace>,
     pub status: Vec<MusicFace>,
     pub progress: Option<f32>,
     /// Bookmarks along the bar, 0 to 1.
@@ -243,20 +227,25 @@ pub fn music_text_width(art: bool, canvas: Canvas) -> u32 {
     canvas.w as u32 - QUICK_EDGE as u32 - text_left(art) + 2 * MENU_PAD
 }
 
-/// The title's and the corner's width: half the canvas each, or less round the clock between
-/// them. Values at a row's right, and Now Playing's time and place, take the half.
-pub fn music_title_w(clock: bool, canvas: Canvas) -> u32 {
-    let w = canvas.w as u32;
-    match clock {
-        true => (w - CLOCK_ROOM) / 2 - QUICK_EDGE as u32 + MENU_PAD,
-        false => w / 2,
-    }
+/// Half the canvas: the most the header's corner takes, and what values at a row's right and
+/// Now Playing's time and place take.
+pub fn music_half_w(canvas: Canvas) -> u32 {
+    canvas.w as u32 / 2
+}
+
+/// The title's width beside a corner `corner` wide: what it leaves across the header, a gap
+/// between them.
+pub fn music_header_title_w(corner: u32, canvas: Canvas) -> u32 {
+    let across = canvas.w as u32 - 2 * QUICK_EDGE as u32 + 2 * MENU_PAD;
+    let gap = if corner > 0 { CORNER_GAP } else { 0 };
+    across.saturating_sub(corner + gap)
 }
 
 fn text_left(art: bool) -> u32 {
-    match art {
-        true => QUICK_EDGE as u32 + ART_BOX + ART_GAP as u32,
-        false => QUICK_EDGE as u32,
+    if art {
+        QUICK_EDGE as u32 + ART_BOX + ART_GAP as u32
+    } else {
+        QUICK_EDGE as u32
     }
 }
 
@@ -332,24 +321,6 @@ fn shift_and_fade(draws: &mut [Draw], dx: f32, alpha: f32) {
     }
 }
 
-/// Slot's battery and clock, centred in the music header, in the theme's ink (slot prints the
-/// clock and percent in it while music is shown).
-pub fn draw_music_clock(
-    faces: &MusicFaces,
-    battery: Option<Battery>,
-    percent: Printed,
-    bolt: Option<TexId>,
-    clock: Printed,
-    out: &mut Vec<Draw>,
-) {
-    let gauge = battery.map_or(0.0, |_| cluster_width(percent) + CLOCK_GAP);
-    let x = faces.canvas.centred(gauge + clock.w as f32);
-    let mid = |h: f32| (TITLE_Y + (SMALL_H as f32 - h) / 2.0).round();
-    let ink = faces.theme.status;
-    draw_gauge(x, mid(GAUGE_H), battery, percent, bolt, ink, out);
-    draw_printed(x + gauge, mid(HINT_H as f32), clock, out);
-}
-
 /// A thin line on the theme's track, filled in `ink` as far as `done` (0 to 1).
 fn draw_progress(
     x: f32,
@@ -392,4 +363,17 @@ fn draw_letter(faces: &MusicFaces, out: &mut Vec<Draw>) {
     });
     let mid = |side: u32| ((LETTER_BOX - side as f32) / 2.0).round();
     push(out, tex, x + mid(w), y + mid(h), w, h);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_title_takes_what_the_corner_leaves() {
+        let canvas = Canvas::FRAMED;
+        let across = music_header_title_w(0, canvas);
+        assert!(across > music_half_w(canvas), "an empty corner: across");
+        assert_eq!(music_header_title_w(100, canvas), across - 100 - CORNER_GAP);
+    }
 }

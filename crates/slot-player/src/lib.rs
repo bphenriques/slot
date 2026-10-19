@@ -9,6 +9,7 @@ mod alsa;
 mod bench;
 mod decode;
 mod engine;
+mod eq;
 mod level;
 mod stretch;
 mod track;
@@ -18,6 +19,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 pub use engine::Output;
+pub use eq::Band;
 pub use level::Leveling;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
@@ -62,6 +64,8 @@ pub enum Command {
     SkipSilence(bool),
     /// How many times louder to play, the loudest rounded off rather than clipped: for books.
     Boost(f32),
+    /// The equalizer's bands, after the files are mixed; none plays as recorded.
+    Equalizer(Vec<Band>),
 }
 
 /// What a player tells slot.
@@ -137,7 +141,7 @@ impl Handle {
                 }
             });
         if let Err(e) = spawned {
-            eprintln!("slot: {name}: {e}");
+            log::warn!("{name}: {e}");
         }
         Handle {
             commands,
@@ -160,7 +164,7 @@ impl Handle {
             |shared, commands, back, events| match alsa::Alsa::load() {
                 Ok(alsa) => engine::run(alsa, shared, &commands, back, &events),
                 Err(why) => {
-                    eprintln!("slot: player: {why}");
+                    log::warn!("{why}");
                     let _ = events.send(Event::Gone);
                 }
             },

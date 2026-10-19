@@ -11,8 +11,6 @@ use crate::{text, Music};
 /// quickest repeat.
 const RUN: usize = 20;
 
-/// A and Y wait to see whether they are held; A not on the track playing, which it starts over
-/// at once. X repeats, as the moving keys do.
 /// The keys a queued track takes tapped; the rest move through the list.
 pub(crate) fn press(b: &mut Browser, cx: &Context, i: usize, key: Key) -> Option<Outcome> {
     match key {
@@ -71,9 +69,10 @@ pub(crate) fn carrying(b: &mut Browser, cx: &Context, from: usize, key: Key) -> 
 
 /// Where the track at `from` lands to play next: just after the one playing.
 fn next_place(queue: QueueView, from: usize) -> usize {
-    match from < queue.at {
-        true => queue.at,
-        false => queue.at + 1,
+    if from < queue.at {
+        queue.at
+    } else {
+        queue.at + 1
     }
     .min(queue.tracks.len().saturating_sub(1))
 }
@@ -82,8 +81,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
     if music.player.queue().tracks.is_empty() {
         return Screen::message(text::QUEUE, text::QUEUE_EMPTY);
     }
-    // A on the track playing starts it over, and says so.
-    let _at = music.player.queue().at;
     let mut screen = list::rows_screen(music);
     // The carried track's highlight is lifted; its legend says how to put it down.
     if let (Some(_), Body::List(list)) = (music.browser.carry, &mut screen.body) {

@@ -6,7 +6,7 @@ use slot_gfx::Compositor;
 use slot_input::Millis;
 use slot_music::{NowPlayingBody, Repeat, Status};
 use slot_ui::music::{
-    music_text_width, music_tint, music_title_w, LineInk, MusicFace, MusicTint, NowPlayingFaces,
+    music_half_w, music_text_width, music_tint, LineInk, MusicFace, MusicTint, NowPlayingFaces,
 };
 use slot_ui::Canvas;
 
@@ -47,7 +47,7 @@ pub(super) fn faces(
             scroll,
         )
     });
-    let half = music_title_w(false, canvas);
+    let half = music_half_w(canvas);
     let place = text.lines.sync(
         compositor,
         text.theme,
@@ -81,6 +81,7 @@ pub(super) fn faces(
         lines,
         art: art.map(|p| p.face),
         art_was: text.art_was.map(|p| p.face),
+        no_art: Some(glyphs.no_art[usize::from(body.book)]),
         status: shown(body.status, glyphs),
         progress: body.progress,
         marks: body.marks,
@@ -91,18 +92,28 @@ pub(super) fn faces(
     }
 }
 
-/// The playing album's picture, uploaded when the album changes, fading in over the last.
+/// The playing album's picture, uploaded when the album changes, fading in over the last; or,
+/// the first on a screen still coming in, there at once, as it comes in with the screen.
 fn art(
     text: &mut MusicText,
     app: &App,
     compositor: &mut Compositor,
     now: Millis,
 ) -> Option<Picture> {
-    let a = app.music_art()?;
+    // None, the last is let go, so the next does not fade in over it.
+    let Some(a) = app.music_art() else {
+        let gone = [text.art.take(), text.art_was.take()];
+        text.art_free
+            .extend(gone.into_iter().flatten().map(|p| p.face.0));
+        return None;
+    };
     match text.art {
         Some(p) if p.album == a.album => Some(p),
         _ => {
-            let mut tex = text.art_was.map(|p| p.face.0);
+            let mut tex = text
+                .art_was
+                .map(|p| p.face.0)
+                .or_else(|| text.art_free.pop());
             let id = put(compositor, &mut tex, a.w, a.h, &a.rgba);
             let picture = Picture {
                 album: a.album,
@@ -110,7 +121,8 @@ fn art(
                 tint: music_tint(&a.rgba),
             };
             text.art_was = text.art.replace(picture);
-            text.motion.new_art(now);
+            let fade = text.art_was.is_some() || !text.motion.entering(now);
+            text.motion.new_art(now, fade);
             Some(picture)
         }
     }

@@ -25,13 +25,16 @@ pub struct Stretch {
     channels: usize,
 }
 
-// SoundTouch keeps no thread's state: one instance, used from one thread at a time.
+// SAFETY: SoundTouch keeps no thread's state: an instance may move between threads, and `&mut self`
+// methods keep it to one at a time.
 unsafe impl Send for Stretch {}
 
 impl Stretch {
     /// For `channels` at `rate`, played `tempo` times as fast (1.5 is half as fast again).
     pub fn new(rate: u32, channels: u16, tempo: f32) -> Stretch {
+        // SAFETY: creating an instance takes nothing; it is checked for null before use.
         let st = NonNull::new(unsafe { soundtouch_createInstance() }).expect("SoundTouch");
+        // SAFETY: `st` is the live instance just created.
         unsafe {
             soundtouch_setSampleRate(st.as_ptr(), rate);
             soundtouch_setChannels(st.as_ptr(), c_uint::from(channels));
@@ -48,11 +51,14 @@ impl Stretch {
     /// Takes in `samples`, whole frames.
     pub fn put(&mut self, samples: &[f32]) {
         let frames = (samples.len() / self.channels) as c_uint;
+        // SAFETY: `st` is live while `self` is; `samples` holds `frames` whole frames, which it
+        // only reads.
         unsafe { soundtouch_putSamples(self.st.as_ptr(), samples.as_ptr(), frames) };
     }
 
     /// Lets out the rest of what was put in: at the end of a file.
     pub fn flush(&mut self) {
+        // SAFETY: `st` is live while `self` is.
         unsafe { soundtouch_flush(self.st.as_ptr()) };
     }
 
@@ -61,6 +67,7 @@ impl Stretch {
         let mut buf = [0.0; 4096];
         let room = (buf.len() / self.channels) as c_uint;
         loop {
+            // SAFETY: `st` is live while `self` is; `buf` has room for `room` frames.
             let frames =
                 unsafe { soundtouch_receiveSamples(self.st.as_ptr(), buf.as_mut_ptr(), room) };
             if frames == 0 {
@@ -73,6 +80,7 @@ impl Stretch {
 
 impl Drop for Stretch {
     fn drop(&mut self) {
+        // SAFETY: `st` is live, and is never used again.
         unsafe { soundtouch_destroyInstance(self.st.as_ptr()) };
     }
 }
