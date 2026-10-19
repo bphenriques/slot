@@ -128,6 +128,7 @@ pub fn heard_at(p: &mut Player, at_s: f64, len: f64, ms: u64) {
         at: at_s,
         len,
         sounding: state == PlayState::Playing,
+        ..Default::default()
     };
     p.observe(status, at(ms));
 }
@@ -146,6 +147,7 @@ pub fn said(p: &mut Player, state: PlayState, sounding: bool) {
         at: at_s,
         len,
         sounding,
+        ..Default::default()
     };
     p.observe(status, at(0));
 }

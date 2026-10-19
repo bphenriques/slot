@@ -8,7 +8,7 @@ use std::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_void, CStr};
 
 use libloading::Library;
 
-use crate::engine::{Output, CHANNELS, RATE};
+use crate::engine::{thread_time, Output, CHANNELS, RATE};
 
 const STREAM_PLAYBACK: c_int = 0;
 const FORMAT_S16_LE: c_int = 2;
@@ -99,6 +99,8 @@ pub struct Alsa {
     hushed: bool,
     silence: Vec<i16>,
     dither: Dither,
+    /// This thread's time in ALSA's writing so far, in nanoseconds.
+    library: u64,
     _lib: Library,
 }
 
@@ -138,6 +140,7 @@ impl Alsa {
                 silence: Vec::new(),
                 rate: RATE,
                 dither: Dither(0x9e37_79b9),
+                library: 0,
                 _lib: lib,
             })
         }
@@ -384,15 +387,28 @@ impl Output for Alsa {
             unsafe { (self.close)(pcm) };
         }
     }
+
+    fn library_time(&self) -> u64 {
+        self.library
+    }
 }
 
 impl Alsa {
     /// Writes `samples`, kept to fade out from, waiting while the device is full.
     fn put(&mut self, pcm: Pcm, samples: &[i16]) -> Result<(), String> {
-        let channels = usize::from(CHANNELS);
         self.written.extend(samples);
         let over = self.written.len().saturating_sub(KEPT);
         self.written.drain(..over);
+        let began = thread_time();
+        let written = self.write_all(pcm, samples);
+        self.library += thread_time() - began;
+        written
+    }
+
+    /// `samples` written whole, by ALSA: recovering from an underrun, failing for good only where
+    /// it cannot.
+    fn write_all(&mut self, pcm: Pcm, samples: &[i16]) -> Result<(), String> {
+        let channels = usize::from(CHANNELS);
         let mut at = 0;
         while at < samples.len() {
             let frames = ((samples.len() - at) / channels) as c_ulong;
@@ -421,22 +437,22 @@ impl Drop for Alsa {
 
 /// Triangular dither: noise of a step either way, so the quietest sound fades out
 /// instead of breaking up as it is cut to 16 bits.
-struct Dither(u32);
+pub(crate) struct Dither(pub(crate) u32);
 
 impl Dither {
-    fn cut(&mut self, sample: f32) -> i16 {
-        let noise = self.next() - self.next();
-        (sample * f32::from(i16::MAX) + noise)
-            .round()
-            .clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16
+    /// `sample` to 16 bits: the cast saturates, so past full scale is full scale.
+    pub(crate) fn cut(&mut self, sample: f32) -> i16 {
+        (sample * f32::from(i16::MAX) + self.noise()).round() as i16
     }
 
-    /// 0 to 1, from xorshift: noise, not secrets.
-    fn next(&mut self) -> f32 {
+    /// -1 to 1, triangular: the difference of two uniform values, the two halves of one draw
+    /// from xorshift. Noise, not secrets.
+    fn noise(&mut self) -> f32 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 17;
         self.0 ^= self.0 << 5;
-        (self.0 >> 8) as f32 / (1 << 24) as f32
+        let (high, low) = ((self.0 >> 16) as i32, (self.0 & 0xffff) as i32);
+        (high - low) as f32 / 65536.0
     }
 }
 
@@ -477,6 +493,19 @@ mod tests {
         assert_eq!(ramp(FADE / 2, FADE), 0.5);
         assert_eq!(ramp(FADE * 2, FADE), 1.0, "never past full");
         assert_eq!(ramp(3, 0), 1.0, "a fade of nothing is done");
+    }
+
+    #[test]
+    fn dither_is_triangular_a_step_either_way_an_eighth_of_the_time_each() {
+        let mut dither = Dither(0x9e37_79b9);
+        let mut steps = [0u32; 3];
+        for _ in 0..80_000 {
+            steps[(dither.cut(0.0) + 1) as usize] += 1;
+        }
+        // Of 80 000: 10 000 down, 60 000 none, 10 000 up, as a triangle from -1 to 1 rounds.
+        for (got, wanted) in steps.into_iter().zip([10_000, 60_000, 10_000]) {
+            assert!(got.abs_diff(wanted) < 500, "{steps:?}");
+        }
     }
 
     #[test]

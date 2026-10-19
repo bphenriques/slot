@@ -414,3 +414,40 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
         }),
     }
 }
+
+/// How far `done` is through `of`, 0 to 1, in the steps a bar can show: thousandths, finer than
+/// any bar is wide, so the screen changes only as often as its bar may.
+pub(crate) fn fraction(done: f64, of: f64) -> Option<f32> {
+    (of > 0.0).then(|| ((done / of).clamp(0.0, 1.0) * 1000.0).round() as f32 / 1000.0)
+}
+
+/// How many seconds until `x`, moving `rate` a second (counting down where it is negative),
+/// next changes its whole part, as a time shown in seconds does; none while it stands. Rounded
+/// to the nearest, it changes as `x + 0.5` does; rounded up, as `-x` does going the other way.
+pub(crate) fn whole_in(x: f64, rate: f64) -> Option<f64> {
+    match rate {
+        r if r > 0.0 => Some((x.floor() + 1.0 - x) / r),
+        r if r < 0.0 => Some((x - x.floor()) / -r),
+        _ => None,
+    }
+}
+
+/// How many seconds until the screen shows something new of itself, a screen that follows the
+/// song: its time, its bar, a book's time left, the line sung, the sleep timer counting down.
+/// None on any other screen, or while nothing of it moves; the screen is held to it in tests,
+/// as never later than it changes.
+pub(crate) fn steps_in(music: &Music) -> Option<f64> {
+    let view = music.browser.view();
+    let song = match (view, music.book()) {
+        (View::NowPlaying, Some((book, _))) => book::steps_in(music, book),
+        (View::NowPlaying, None) => now_playing::steps_in(music),
+        (View::Lyrics, _) => lyrics::steps_in(music),
+        _ => None,
+    };
+    // The countdown in Now Playing's corner, in seconds rounded up.
+    let left = music.transport.sleep.remaining(music.now.at);
+    let sleep = left
+        .filter(|_| view == View::NowPlaying)
+        .and_then(|left| whole_in(-left.as_secs_f64(), 1.0));
+    [song, sleep].into_iter().flatten().reduce(f64::min)
+}

@@ -1,8 +1,13 @@
 //! The music screen's side of `App`, apart from app.rs so upstream merges stay cheap.
 
-use slot_input::{Action, Btn, RawEvent};
-use slot_music::{Art, Button, Input, Music, Screen, Theme};
-use slot_ui::{MusicFaces, MusicTheme, QuickRow};
+use std::time::Duration;
+
+use slot_gfx::{Draw, Layout};
+use slot_input::{Action, Btn, Millis, RawEvent};
+use slot_music::{AlbumId, Art, Button, Input, Music, Screen, Theme};
+use slot_store::Shader;
+use slot_ui::music::{MusicFaces, MusicTheme};
+use slot_ui::QuickRow;
 
 use super::{App, Phase};
 
@@ -58,11 +63,11 @@ impl App {
     /// A game is starting and takes the sound; the queue waits, paused.
     /// The music screen, with slot's clock and battery when its header shows them.
     pub(super) fn draw_music(&self, out: &mut Vec<slot_ui::Draw>) {
-        slot_ui::draw_music(&self.music_faces, out);
+        slot_ui::music::draw_music(&self.music_faces, out);
         if self.music_faces.clock {
             let (battery, percent) = (self.battery, self.battery_percent);
             let (bolt, clock) = (self.bolt, self.shelf_clock);
-            slot_ui::draw_music_clock(&self.music_faces, battery, percent, bolt, clock, out);
+            slot_ui::music::draw_music_clock(&self.music_faces, battery, percent, bolt, clock, out);
         }
     }
 
@@ -112,6 +117,14 @@ impl App {
     /// the triggers as rewind and SELECT as theirs. True when it took it; MENU, power, the
     /// volume and the lid stay slot's.
     pub fn music_button(&mut self, ev: RawEvent) -> bool {
+        // Every button passes here, the music's or not: those down are kept, as a button held
+        // is timed frame by frame. The lid is no button.
+        let down = &mut self.music_frames.down;
+        match ev {
+            RawEvent::Down(btn) if btn != Btn::Lid && !down.contains(&btn) => down.push(btn),
+            RawEvent::Up(btn) => down.retain(|&d| d != btn),
+            RawEvent::Down(_) => {}
+        }
         let input = match ev {
             RawEvent::Down(btn) => button(btn).map(Input::Down),
             RawEvent::Up(btn) => button(btn).map(Input::Up),
@@ -128,6 +141,82 @@ impl App {
     /// The lid closed: nothing shows until it opens, though music may play on for hours.
     pub fn resting(&self) -> bool {
         matches!(self.phase, Phase::Doze { .. })
+    }
+
+    /// Whether the next frame would show what the last one did, so need not be drawn, the panel
+    /// keeping that one up: the lid closed, or the music screen with nothing new to show and
+    /// nothing on its way.
+    fn holds_still(&self) -> bool {
+        match &self.music_frames.drawn {
+            Some(Drawn::Music { shown, wake }) if self.music_shown() => {
+                still(&**shown, *wake, &self.music_now(), self.now())
+            }
+            // The lid closed: drawn once so, and then nothing until it opens.
+            Some(Drawn::Rest) => self.resting(),
+            _ => false,
+        }
+    }
+
+    /// What the next frame needs: whether it would show what the last one did, so need not be
+    /// drawn; and, so, for how long the loop may rest until a button or the lid: until the
+    /// soonest of the glue's next step and the music's next change, if any, and not at all while
+    /// a button is down or something moves frame by frame.
+    pub fn next_frame(&self) -> NextFrame {
+        let still = self.holds_still();
+        NextFrame {
+            still,
+            rest: still.then(|| self.rest_for()).flatten(),
+        }
+    }
+
+    /// For how long the loop may rest once the frame up stands, as one just drawn does: none
+    /// unless a frame of slot's own is drawn so, the music's or the lid closed.
+    pub fn rest_for(&self) -> Option<Duration> {
+        let frames = &self.music_frames;
+        let step = match frames.drawn.as_ref()? {
+            Drawn::Music { wake: Some(at), .. } => Some(at.saturating_sub(self.now())),
+            _ => None,
+        };
+        // A millisecond past the step: the clock counts whole milliseconds, and may read one short.
+        let step = step.map(|ms| Duration::from_millis(ms + 1));
+        let due = self.music.as_ref().and_then(Music::due_in);
+        let soonest = step.into_iter().chain(due).min();
+        let rests = frames.down.is_empty() && soonest != Some(Duration::ZERO);
+        rests.then(|| soonest.unwrap_or(Duration::MAX))
+    }
+
+    /// The music screen was drawn, to move of itself next at `wake`, if it does.
+    pub(crate) fn music_drawn(&mut self, wake: Option<Millis>) {
+        let shown = Box::new(self.music_now());
+        self.music_frames.drawn = Some(Drawn::Music { shown, wake });
+    }
+
+    /// A frame was drawn without the music screen: coming back to it draws it afresh.
+    pub(crate) fn music_hidden(&mut self) {
+        self.music_frames.drawn = self.resting().then_some(Drawn::Rest);
+    }
+
+    /// What the music screen shows now, but for what moves of itself.
+    fn music_now(&self) -> Shown {
+        let mut draws = Vec::new();
+        self.draw(&mut draws);
+        Shown {
+            screen: self.music_screen(),
+            art: self.music_art().map(|art| art.album),
+            theme: self.music_theme(),
+            minute: self.wall_secs().div_euclid(60),
+            draws,
+            look: (
+                self.layout(),
+                self.blue_light(),
+                self.screen_shader(),
+                [
+                    self.screen_power(),
+                    self.screen_shake(),
+                    self.overlay_slide(),
+                ],
+            ),
+        }
     }
 
     /// Whether music takes the keys: shown, or playing on with the screen off.
@@ -159,6 +248,11 @@ impl App {
         if let Some(music) = &self.music {
             music.note_draw(took);
         }
+    }
+
+    /// Whether the music screen is the one shown.
+    pub fn music_shown(&self) -> bool {
+        matches!(self.phase, Phase::Music)
     }
 
     pub fn music_owns_audio(&self) -> bool {
@@ -197,15 +291,93 @@ fn button(btn: Btn) -> Option<Button> {
     })
 }
 
+/// What the music screen shows, but for what moves of itself: what slot-music says, the picture
+/// and colours its faces are drawn from, the minute slot's clock shows, the draws (which hold
+/// slot's battery and anything of slot's over the music, as its volume), and the settings the
+/// compositor draws them through. A frame showing the same as the last needs no drawing.
+#[derive(PartialEq, Debug)]
+pub(super) struct Shown {
+    screen: Option<Screen>,
+    art: Option<AlbumId>,
+    theme: MusicTheme,
+    minute: i64,
+    draws: Vec<Draw>,
+    look: (Layout, u8, Shader, [f32; 3]),
+}
+
+/// What the next frame needs, as `App::next_frame` says: whether it holds still, and for how
+/// long at most the loop may rest; none to keep the frames' pace.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct NextFrame {
+    pub still: bool,
+    pub rest: Option<Duration>,
+}
+
+/// What tells whether the next frame is needed, and whether the loop may rest until a button:
+/// what was last drawn where it can stay up, and the buttons down, slot's or the music's.
+#[derive(Default)]
+pub(super) struct Frames {
+    drawn: Option<Drawn>,
+    down: Vec<Btn>,
+}
+
+/// What was last drawn, where it can stay up: the music screen, and when it next moves of
+/// itself, if it does; or the lid closed.
+pub(super) enum Drawn {
+    Music {
+        shown: Box<Shown>,
+        wake: Option<Millis>,
+    },
+    Rest,
+}
+
+/// Whether what was drawn, `then`, still stands `now`: it shows what would be drawn, and
+/// nothing of it is due to move.
+fn still<T: PartialEq>(then: &T, wake: Option<Millis>, shown: &T, now: Millis) -> bool {
+    wake.is_none_or(|at| now < at) && then == shown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn what_was_drawn_stands_while_it_shows_what_would_be_and_nothing_is_due() {
+        assert!(still(&1, None, &1, 50), "the same, nothing moving");
+        assert!(!still(&1, None, &2, 50), "something new");
+        assert!(still(&1, Some(60), &1, 50), "a step not yet due");
+        assert!(!still(&1, Some(60), &1, 60), "due");
+    }
+
+    #[test]
+    fn the_music_screen_holds_still_until_it_would_show_something_new() {
+        let d = tempfile::tempdir().unwrap();
+        let mut app = App::new(Vec::new());
+        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
+        app.phase = Phase::Music;
+        assert!(!app.holds_still(), "not yet drawn");
+        app.music_drawn(None);
+        assert!(app.holds_still(), "drawn, and nothing new");
+        app.music_drawn(Some(app.now()));
+        assert!(!app.holds_still(), "a scrolling line due to move");
+        app.music_drawn(None);
+        app.music_button(RawEvent::Down(Btn::Down));
+        app.music_button(RawEvent::Up(Btn::Down));
+        assert!(!app.holds_still(), "a key moved the highlight");
+        // Away and back: drawn afresh, though it shows what it last did.
+        app.music_drawn(None);
+        app.phase = Phase::Shelf;
+        assert!(!app.holds_still(), "slot draws every frame");
+        app.music_hidden();
+        app.phase = Phase::Music;
+        assert!(!app.holds_still());
+    }
+
+    #[test]
     fn game_buttons_are_the_music_s_while_it_takes_the_keys_and_slot_keeps_its_own() {
         let d = tempfile::tempdir().unwrap();
         let mut app = App::new(Vec::new());
-        app.music = Some(Music::spawn(d.path(), slot_ui::ART_BOX));
+        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
         let down = RawEvent::Down(Btn::R2);
         assert!(!app.music_button(down), "rewind and fast forward elsewhere");
         app.phase = Phase::Music;
@@ -228,6 +400,78 @@ mod tests {
         assert!(!app.resting());
         app.phase = Phase::Doze { cart: None };
         assert!(app.resting());
+    }
+
+    #[test]
+    fn the_loop_rests_held_still_until_its_next_step_and_never_with_a_button_down() {
+        let d = tempfile::tempdir().unwrap();
+        let mut app = App::new(Vec::new());
+        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
+        app.phase = Phase::Music;
+        let next = |app: &App| app.next_frame();
+        assert_eq!(
+            next(&app),
+            NextFrame {
+                still: false,
+                rest: None
+            },
+            "not yet drawn"
+        );
+        app.music_drawn(None);
+        assert_eq!(
+            next(&app),
+            NextFrame {
+                still: true,
+                rest: Some(Duration::MAX)
+            },
+            "nothing playing"
+        );
+        app.music_drawn(Some(app.now() + 40));
+        assert_eq!(
+            next(&app),
+            NextFrame {
+                still: true,
+                rest: Some(Duration::from_millis(41))
+            },
+            "until a millisecond past a line's step"
+        );
+        // Just drawn, the frame stands until its next step, without a frame run first to see so.
+        assert_eq!(app.rest_for(), Some(Duration::from_millis(41)));
+        app.music_drawn(None);
+        // A button held, slot's as much as the music's, is timed frame by frame.
+        app.music_button(RawEvent::Down(Btn::VolUp));
+        assert_eq!(next(&app).rest, None, "the volume held");
+        app.music_button(RawEvent::Up(Btn::VolUp));
+        assert_eq!(next(&app).rest, Some(Duration::MAX), "let go");
+        // A frame of slot's own screens is drawn every frame, as ever.
+        app.phase = Phase::Shelf;
+        app.music_hidden();
+        assert_eq!(app.rest_for(), None, "slot's own");
+        // The lid, shut, is no button held.
+        app.phase = Phase::Doze { cart: None };
+        app.music_button(RawEvent::Down(Btn::Lid));
+        app.music_hidden();
+        assert_eq!(
+            next(&app),
+            NextFrame {
+                still: true,
+                rest: Some(Duration::MAX)
+            },
+            "the lid closed"
+        );
+    }
+
+    #[test]
+    fn the_lid_closed_is_drawn_once_and_then_held_until_it_opens() {
+        let mut app = App::new(Vec::new());
+        app.music_hidden();
+        assert!(!app.holds_still(), "slot draws every frame");
+        app.phase = Phase::Doze { cart: None };
+        assert!(!app.holds_still(), "the lid just closed, not yet drawn so");
+        app.music_hidden();
+        assert!(app.holds_still(), "drawn closed, it stays up");
+        app.phase = Phase::Shelf;
+        assert!(!app.holds_still(), "opened");
     }
 
     #[test]

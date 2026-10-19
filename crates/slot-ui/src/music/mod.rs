@@ -50,10 +50,10 @@ use slot::{
 };
 
 pub use face::{
-    marquee_offset, music_cap_ring_face, music_caret_face, music_heart_face, music_hint_face,
-    music_letter_face, music_line_face, music_moon_face, music_paragraph_face, music_ring_face,
-    music_row_face, music_row_heart_face, music_status_face, music_window, Ink, LineInk,
-    MUSIC_STATUS,
+    marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
+    music_heart_face, music_hint_face, music_letter_face, music_line_face, music_moon_face,
+    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_status_face,
+    music_window, Ink, LineInk, MUSIC_STATUS,
 };
 pub use list::{music_action_px, music_row_px};
 pub use text_view::TextFaces;
@@ -102,11 +102,12 @@ const PART_GAP: u32 = 14;
 /// The clock and battery in the header's middle, and the room kept for them.
 const CLOCK_GAP: f32 = 16.0;
 const CLOCK_ROOM: u32 = 200;
-/// A long line rests at each end of its scroll, moving between in 2 px steps (each step is
-/// an upload).
+/// A long line rests at each end of its scroll, moving between in 2 px steps, one a beat (each
+/// step is an upload and a frame): 50 px a second. Every long line keeps the one beat, so all of
+/// them step on the same frames.
 const MARQUEE_REST_MS: u64 = 1200;
-const MARQUEE_PX_PER_S: u64 = 60;
 const MARQUEE_STEP: u32 = 2;
+const MARQUEE_BEAT_MS: u64 = 40;
 /// A line a little too long is set smaller to fit, down to this share of its size, before it
 /// scrolls.
 const FIT_MIN: f32 = 0.88;

@@ -90,10 +90,14 @@ pub fn run() {
     let mut pacer = FramePacer::new(Instant::now());
     let (mut frames, mut steps) = (0u32, 0u32);
     let mut said = Instant::now();
-    let mut rested = false;
+    let mut rest = None;
     loop {
         let deadline = pacer.deadline(frontend.frame_clock(), Instant::now());
-        if let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        if let Some(most) = rest {
+            input.rest(most);
+            // Rested, the frame is due now, and none is owed for the while it rested.
+            pacer = FramePacer::new(Instant::now());
+        } else if let Some(left) = deadline.checked_duration_since(Instant::now()) {
             std::thread::sleep(left);
         }
         frontend.advance(&mut input);
@@ -112,9 +116,11 @@ pub fn run() {
                 break;
             }
         }
-        // The lid closed, once its black frame is up nothing more is drawn until it opens.
-        let resting = frontend.app().resting();
-        if std::mem::replace(&mut rested, resting) && resting {
+        // Nothing new to show, the lid closed or the music still: its last frame stays up; and
+        // with nothing due of itself either, the loop rests until a button or the lid.
+        let next = frontend.app().next_frame();
+        rest = next.rest;
+        if next.still {
             continue;
         }
         frontend.render(&mut compositor, window);
@@ -125,6 +131,8 @@ pub fn run() {
         }
         let swap_took = swap.elapsed();
         slot::latency::swapped(swap_took.as_secs_f64() * 1000.0);
+        // Drawn, it may rest at once until its next step, not a frame later.
+        rest = frontend.app().rest_for();
         if slot::latency::tracing() {
             frames += 1;
             if frames == 600 {

@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 
 use crate::level::Leveling;
 use crate::track::Track;
-use crate::Status;
 use crate::{Command, Event, PlayState};
+use crate::{Status, Work};
 
 /// What a file is brought to when the device will not take its own rate.
 pub const RATE: u32 = 48_000;
@@ -63,6 +63,11 @@ pub trait Output: Send + 'static {
     }
     /// Nothing to play for a while: lets the device go, until the next write.
     fn release(&mut self);
+    /// Of its time writing, the nanoseconds spent in the device's own library since it began, as
+    /// this thread's time: the rest is the output's own work. None where it has no library.
+    fn library_time(&self) -> u64 {
+        0
+    }
 }
 
 /// What the engine is told: slot's commands; from the writer, that the device would not take a
@@ -120,25 +125,32 @@ struct Snapshot {
     queued: u64,
     sampled: Option<Instant>,
     sounding: bool,
+    work: Work,
 }
 
 impl Snapshot {
     /// Seconds into the file at `now`: where it was opened or moved to, what was heard by the
     /// last write, and, playing, what the device has played of the rest since.
     fn at(&self, now: Instant) -> f64 {
-        let rate = f64::from(self.rate.max(1));
+        let at =
+            self.from + self.heard_by(now) * f64::from(self.speed) / f64::from(self.rate.max(1));
+        match self.len > 0.0 {
+            true => at.min(self.len),
+            false => at,
+        }
+    }
+
+    /// Frames heard by `now`: by the last write, and, playing, what the device has played of the
+    /// rest since.
+    fn heard_by(&self, now: Instant) -> f64 {
         let mut heard = self.heard as f64;
         if self.state == PlayState::Playing {
             let since = self
                 .sampled
                 .map_or(0.0, |t| now.saturating_duration_since(t).as_secs_f64());
-            heard += (since * rate).min(self.queued as f64);
+            heard += (since * f64::from(self.rate.max(1))).min(self.queued as f64);
         }
-        let at = self.from + heard * f64::from(self.speed) / rate;
-        match self.len > 0.0 {
-            true => at.min(self.len),
-            false => at,
-        }
+        heard
     }
 }
 
@@ -153,6 +165,7 @@ pub(crate) fn status(shared: &Shared) -> Status {
         at: if s.open { s.at(Instant::now()) } else { 0.0 },
         len: if s.open { s.len } else { 0.0 },
         sounding: s.sounding,
+        work: s.work,
     }
 }
 
@@ -372,6 +385,8 @@ struct Writer<O: Output> {
     sounding: bool,
     /// Paused, the device going on silence until then.
     hushed: Option<Instant>,
+    /// The work it has done, for the performance log.
+    work: Work,
     chunk: Vec<f32>,
 }
 
@@ -396,6 +411,7 @@ impl<O: Output> Writer<O> {
             rate: 0,
             sounding: false,
             hushed: None,
+            work: Work::default(),
             chunk: vec![0.0; CHUNK * usize::from(CHANNELS)],
         }
     }
@@ -624,8 +640,14 @@ impl<O: Output> Writer<O> {
             self.rate = rate;
         }
         self.hushed = None;
+        let (began, decoded) = (thread_time(), self.work.decode);
         let of_now = self.fill();
+        let filled = thread_time();
         let written = self.output.write(&self.chunk);
+        let decoding = self.work.decode - decoded;
+        self.work.mix += (filled - began).saturating_sub(decoding);
+        self.work.write += thread_time() - filled;
+        self.work.library = self.output.library_time();
         if let Some(path) = self.ended.take() {
             let _ = self.events.send(Event::End(path));
         }
@@ -639,10 +661,17 @@ impl<O: Output> Writer<O> {
             return;
         }
         // Counted once written, with what the device holds after it, so what is heard is never
-        // ahead of what it has.
+        // ahead of what it has; nor behind what was said heard of the same file before, as a
+        // device that tells what it has played a period at a time would have it, and the place go
+        // back. Going on into the next, the count is the next's, said only once it is heard.
+        let now = Instant::now();
+        let said = match self.ending {
+            None => self.counted().heard_by(now) as u64,
+            Some(_) => 0,
+        };
         self.written += of_now;
-        self.queued = self.output.delay();
-        self.sampled = Some(Instant::now());
+        self.queued = self.output.delay().min(self.written.saturating_sub(said));
+        self.sampled = Some(now);
         self.sounding = true;
         // The file gone on into is heard: the last of the one before has played out.
         if self.ending.is_some() && self.written > self.queued {
@@ -675,7 +704,10 @@ impl<O: Output> Writer<O> {
         let (mut n, mut begins) = (0, 0);
         while n < self.chunk.len() && self.tracks.now.is_some() {
             let (tracks, chunk) = (&mut self.tracks, &mut self.chunk);
-            match catch_unwind(AssertUnwindSafe(|| tracks.read(&mut chunk[n..]))) {
+            let began = thread_time();
+            let read = catch_unwind(AssertUnwindSafe(|| tracks.read(&mut chunk[n..])));
+            self.work.decode += thread_time() - began;
+            match read {
                 Ok(read) => n += read,
                 Err(_) => {
                     (self.tracks.now, self.tracks.next) = (None, None);
@@ -737,10 +769,12 @@ impl<O: Output> Writer<O> {
                 queued: self.queued,
                 sampled: self.sampled,
                 sounding: self.sounding,
+                work: self.work,
             },
             None => Snapshot {
                 state: self.state,
                 sounding: self.sounding,
+                work: self.work,
                 ..Snapshot::default()
             },
         }
@@ -764,8 +798,18 @@ impl<O: Output> Writer<O> {
     }
 }
 
+/// This thread's own time so far, in nanoseconds: the time it worked, not the time it waited.
+pub(crate) fn thread_time() -> u64 {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+}
+
 /// Rounds off what a boost would take past full scale, rather than clip it; leaves the rest.
-fn limit(sample: f32) -> f32 {
+pub(crate) fn limit(sample: f32) -> f32 {
     const KNEE: f32 = 0.9;
     match sample.abs() > KNEE {
         true => {

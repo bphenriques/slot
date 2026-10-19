@@ -127,7 +127,7 @@ From [thwonp/plorpOS](https://github.com/thwonp/plorpOS) (`src/muse/muse.c`, `pc
   ALSA's resampling off. We open at the song's own rate instead, with ALSA's resampling off too,
   and fall back to our own resampler at 48 kHz if the device refuses.
 - Muse's whole cost was ~1% of a core: FFmpeg's decoder and its 64-tap resampler. Ours is the
-  pure-Rust decoder (symphonia, through rodio) plus rubato; the perf log says how far apart.
+  pure-Rust decoder (symphonia) plus rubato; the perf log says how far apart.
 
 What slot already has toward the same: while music holds the device, slot's sink keeps draining
 the game's ring on a timer and drops it (`audio/alsa.rs`, `yielded`), so a game would keep its

@@ -97,6 +97,7 @@ tasks:
       - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
       - cargo test -p slot-music -p slot-ui -p slot-input -p slot-player
       - cargo test -p slot --no-default-features --features slot/device --lib
+      - cargo test -p slot --no-default-features --features slot/device --test evdev
       - git checkout -- crates/slot/tests/prefetch.rs crates/slot/tests/runahead.rs
       - task: footprint
 
@@ -106,12 +107,40 @@ tasks:
       - rustup component add llvm-tools-preview
       - cargo llvm-cov -p slot-music -p slot-player --summary-only
 
+  perf:player:
+    desc: >-
+      Where the player's work goes on a real file (FILE=song.mp3), stage by stage, as shares
+      of this machine's core: not the device's, but how the stages compare
+    requires:
+      vars: [FILE]
+    cmds:
+      - SLOT_PLAYER_FILE={{.FILE}} cargo test --release -q -p slot-player --lib stages -- --ignored --nocapture 2>&1 | grep -E "as fast|Hz"
+
+  perf:ab:
+    desc: >-
+      The music's work budgets (how often each scenario's screen changes, the frames worth
+      drawing) at REV and in the working tree, side by side; a REV from before the budgets
+      prints none
+    requires:
+      vars: [REV]
+    vars:
+      AT: '{{.ROOT_DIR}}/target/ab'
+    cmds:
+      - git worktree remove --force {{.AT}} 2>/dev/null || true
+      - git worktree add --detach {{.AT}} {{.REV}}
+      # The other build keeps its own target, or cargo would take it for this one's.
+      - defer: git worktree remove --force {{.AT}}
+      - echo "{{.REV}}:"
+      - cd {{.AT}} && CARGO_TARGET_DIR={{.ROOT_DIR}}/target/ab-build cargo test -q -p slot-music work_budget -- --nocapture 2>&1 | grep "^budget" || true
+      - echo "working tree:"
+      - cargo test -q -p slot-music work_budget -- --nocapture 2>&1 | grep "^budget"
+
   footprint:
     desc: slot's own files as changed from upstream's, ours left out; growth here is a hook too many
     cmds:
       - >-
         git diff --stat upstream/pvaibhav-improvements --
-        crates/slot/src crates/slot-input/src crates/slot-ui/src
+        crates/slot/src crates/slot-input/src crates/slot-ui/src crates/slot-gfx/src
         ':!crates/slot/src/music_faces' ':!crates/slot/src/app/music.rs' ':!crates/slot-ui/src/music' ':!crates/slot/src/audio/line_out.rs'
 
   test:card:

@@ -2,7 +2,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::thread::Thread;
+use std::time::{Duration, Instant};
 
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 
@@ -43,6 +44,7 @@ impl DeviceInput {
         trace: Option<Arc<Trace>>,
     ) -> Self {
         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let main = std::thread::current();
         for node in pick_devices(dev, sys) {
             eprintln!(
                 "slot: input {} ({})",
@@ -52,10 +54,10 @@ impl DeviceInput {
             quicken_poll(sys, &node);
             let queue = pending.clone();
             let name = node.display().to_string();
-            let trace = trace.clone();
+            let (trace, main) = (trace.clone(), main.clone());
             let spawned = std::thread::Builder::new()
                 .name(format!("slot-input-{name}"))
-                .spawn(move || read_node(&node, &queue, trace.as_deref()));
+                .spawn(move || read_node(&node, &queue, trace.as_deref(), &main));
             if let Err(e) = spawned {
                 eprintln!("slot: input {name}: {e}");
             }
@@ -94,7 +96,8 @@ fn quicken_poll(sys: &Path, node: &Path) {
     }
 }
 
-fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
+/// Reads `node` into `queue`, waking `main` from a rest for what it read.
+fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, main: &Thread) {
     let label = node
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -138,6 +141,7 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .extend(events);
+        main.unpark();
     }
 }
 
@@ -181,6 +185,12 @@ impl Trace {
 }
 
 impl DeviceInput {
+    /// Waits for a button, for `most`, or until the lid is next read, whichever comes first: for
+    /// a frontend with nothing due of itself sooner.
+    pub fn rest(&self, most: Duration) {
+        std::thread::park_timeout(most.min(Duration::from_millis(LID_POLL_MS)));
+    }
+
     fn read_lid(&self) -> Option<bool> {
         let raw = std::fs::read_to_string(self.hall.as_ref()?).ok()?;
         match raw.trim() {

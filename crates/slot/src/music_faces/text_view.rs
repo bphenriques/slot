@@ -4,7 +4,8 @@
 use slot_gfx::Compositor;
 use slot_input::Millis;
 use slot_music::TextBody;
-use slot_ui::{music_row_px, music_text_width, Canvas, Ink, TextFaces};
+use slot_ui::music::{music_row_px, music_text_width, Ink, TextFaces};
+use slot_ui::Canvas;
 
 use super::{MusicText, Spec};
 

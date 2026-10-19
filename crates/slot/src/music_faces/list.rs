@@ -4,10 +4,11 @@
 use slot_gfx::Compositor;
 use slot_input::Millis;
 use slot_music::{ListBody, RowText};
-use slot_ui::{
-    music_action_px, music_row_px, music_text_width, music_title_w, Canvas, Ink, ListFaces,
+use slot_ui::music::{
+    music_action_px, music_row_px, music_text_width, music_title_w, Ink, ListFaces,
     MUSIC_HEART_ROOM,
 };
+use slot_ui::Canvas;
 
 use super::{Glyphs, MusicText, Spec};
 

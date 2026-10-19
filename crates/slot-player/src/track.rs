@@ -2,15 +2,12 @@
 //! at (its own, unless the device will not take it), with a resampler as fine as a 64-tap sinc
 //! filter where that is another, and played at its speed, its pitch kept.
 
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
-use std::time::Duration;
 
-use rodio::{Decoder, Source};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
 
+use crate::decode::Decoder;
 use crate::engine::CHANNELS;
 use crate::level::{Gains, Leveling};
 use crate::stretch::Stretch;
@@ -23,9 +20,7 @@ const SILENT: f32 = 0.003;
 const STEREO: usize = CHANNELS as usize;
 
 pub struct Track {
-    decoder: Decoder<BufReader<File>>,
-    /// The file's channels, of which the first two are played; a mono file on both sides.
-    channels: usize,
+    decoder: Decoder,
     /// The rate it plays at, and the resampler for a file not at it.
     rate: u32,
     resampler: Option<Fft<f32>>,
@@ -64,13 +59,12 @@ impl Track {
         leveling: Leveling,
         rate: impl FnOnce(u32) -> u32,
     ) -> Result<(Track, f64), String> {
-        let file = File::open(path).map_err(|e| e.to_string())?;
-        let mut decoder = Decoder::try_from(file).map_err(|e| e.to_string())?;
-        let len = decoder.total_duration().map_or(0.0, |d| d.as_secs_f64());
+        let mut decoder = Decoder::open(path)?;
+        let len = decoder.len();
         if at > 0.0 {
-            decoder.try_seek(secs(at)).map_err(|e| e.to_string())?;
+            decoder.seek(at)?;
         }
-        let own = decoder.sample_rate().get();
+        let own = decoder.rate();
         let rate = rate(own);
         let resampler = match own == rate {
             true => None,
@@ -79,7 +73,6 @@ impl Track {
         // Its tags are read only when leveled: most play as recorded.
         let gains = (leveling != Leveling::Off).then(|| Gains::read(path));
         let mut track = Track {
-            channels: usize::from(decoder.channels().get()),
             decoder,
             rate,
             resampler,
@@ -105,7 +98,7 @@ impl Track {
 
     /// Moves to `at` seconds in, dropping what was decoded ahead.
     pub fn seek(&mut self, at: f64) -> Result<(), String> {
-        self.decoder.try_seek(secs(at)).map_err(|e| e.to_string())?;
+        self.decoder.seek(at)?;
         (self.from, self.played) = (at, 0);
         self.restart();
         Ok(())
@@ -229,19 +222,7 @@ impl Track {
     /// Decodes up to `frames` frames into `decoded`, as stereo, and says how many it got.
     fn decode(&mut self, frames: usize) -> usize {
         self.decoded.clear();
-        let mut frame = [0.0; 8];
-        let channels = self.channels.clamp(1, frame.len());
-        for got in 0..frames {
-            for sample in &mut frame[..channels] {
-                match self.decoder.next() {
-                    Some(s) => *sample = s,
-                    None => return got,
-                }
-            }
-            let right = if channels == 1 { frame[0] } else { frame[1] };
-            self.decoded.extend([frame[0], right]);
-        }
-        frames
+        self.decoder.read_stereo(frames, &mut self.decoded)
     }
 }
 
@@ -286,9 +267,4 @@ fn resample(r: &mut Fft<f32>, decoded: &[f32], got: usize, frames: usize, out: &
         _ => 0,
     };
     out.truncate(start + written * STEREO);
-}
-
-/// `secs` as a duration: none below 0, and past any end above every length.
-pub fn secs(secs: f64) -> Duration {
-    Duration::try_from_secs_f64(secs.max(0.0)).unwrap_or(Duration::MAX)
 }

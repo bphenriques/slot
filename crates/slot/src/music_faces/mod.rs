@@ -9,13 +9,14 @@ mod text_view;
 use slot_gfx::{Compositor, TexId};
 use slot_input::Millis;
 use slot_music::{text, Body, Legend, RowIcon, RowText};
-use slot_ui::{
-    marquee_offset, music_cap_ring_face, music_caret_face, music_heart_face, music_hint_face,
-    music_letter_face, music_line_face, music_moon_face, music_paragraph_face, music_ring_face,
-    music_row_face, music_row_heart_face, music_status_face, music_tint_ink, music_title_w,
-    music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme, UndoFace,
-    MUSIC_STATUS,
+use slot_ui::music::{
+    marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
+    music_heart_face, music_hint_face, music_letter_face, music_line_face, music_moon_face,
+    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_status_face,
+    music_tint_ink, music_title_w, music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces,
+    MusicTheme, MUSIC_STATUS,
 };
+use slot_ui::UndoFace;
 
 use crate::app::App;
 use motion::Motion;
@@ -84,6 +85,9 @@ struct Line {
     /// The face's size, and the window of it uploaded.
     size: Option<(u32, u32)>,
     shown: Option<(u32, u32)>,
+    /// Scrolling, how long after it was last drawn it next moves; and the frame it was drawn in.
+    next: Option<Millis>,
+    frame: u64,
 }
 
 impl Line {
@@ -110,10 +114,12 @@ impl Line {
                 face => self.full = face,
             }
         }
+        self.next = None;
         let (full_w, h) = self.size?;
         let w = width.min(full_w);
         if let Some(full) = &self.full {
             let x = scroll.map_or(0, |ms| marquee_offset(full.w - w, ms));
+            self.next = scroll.and_then(|ms| marquee_next(full.w - w, ms));
             if self.shown != Some((x, w)) {
                 let face = music_window(full, x, w);
                 put(compositor, &mut self.tex, face.w, face.h, &face.rgba);
@@ -208,9 +214,10 @@ impl Glyphs {
     }
 }
 
-/// Lines that keep their place while the screen is shown, each reused by its index.
+/// Lines that keep their place while the screen is shown, each reused by its index; and the
+/// frame being drawn, to know which of them are in it.
 #[derive(Default)]
-struct Lines(Vec<Line>);
+struct Lines(Vec<Line>, u64);
 
 impl Lines {
     fn sync(
@@ -225,11 +232,24 @@ impl Lines {
         if self.0.len() <= i {
             self.0.resize_with(i + 1, Line::default);
         }
+        self.0[i].frame = self.1;
         self.0[i].sync(compositor, theme, spec, width, scroll)
+    }
+
+    /// A frame begins: lines drawn in it are told from those left from before.
+    fn begin(&mut self) {
+        self.1 += 1;
+    }
+
+    /// How long after this frame the soonest of its scrolling lines moves.
+    fn next(&self) -> Option<Millis> {
+        let drawn = self.0.iter().filter(|l| l.frame == self.1);
+        drawn.filter_map(|l| l.next).min()
     }
 }
 
-/// When the line in focus started scrolling: a new highlight or track starts it over.
+/// When the line in focus started scrolling, on the marquee's beat: a new highlight or track
+/// starts it over.
 #[derive(Default)]
 struct Scroll {
     focus: Option<(Option<usize>, String)>,
@@ -240,7 +260,7 @@ impl Scroll {
     fn ms(&mut self, focus: (Option<usize>, String), now: Millis) -> Millis {
         if self.focus.as_ref() != Some(&focus) {
             self.focus = Some(focus);
-            self.since = now;
+            self.since = marquee_start(now);
         }
         now.saturating_sub(self.since)
     }
@@ -308,9 +328,18 @@ impl MusicText {
     fn draw(&mut self, app: &mut App, compositor: &mut Compositor) -> bool {
         let Some(screen) = app.music_screen() else {
             self.motion.hide();
+            app.music_hidden();
             return false;
         };
         let now = app.now();
+        for lines in [
+            &mut self.header,
+            &mut self.lines,
+            &mut self.values,
+            &mut self.paragraphs,
+        ] {
+            lines.begin();
+        }
         let (canvas, theme) = (app.canvas(), app.music_theme());
         self.theme = theme;
         self.motion.show(&screen, now);
@@ -401,6 +430,17 @@ impl MusicText {
             letter,
             ring,
         });
+        // When it next moves of itself: next frame while anything is on its way, else at the
+        // soonest scrolling line's next step, else not until something changes.
+        let next = [&self.header, &self.lines, &self.values, &self.paragraphs]
+            .into_iter()
+            .filter_map(Lines::next)
+            .min();
+        let wake = match self.motion.moving(now) {
+            true => Some(now),
+            false => next.map(|ms| now + ms),
+        };
+        app.music_drawn(wake);
         true
     }
 }
@@ -428,10 +468,12 @@ mod tests {
             "on while it stands"
         );
         assert_eq!(
-            scroll.ms((None, "Up Next: Two".into()), 4500),
+            scroll.ms((None, "Up Next: Two".into()), 4520),
             0,
             "a new one from its start"
         );
+        // Begun between beats, it counts from the beat before, to step with the rest.
+        assert_eq!(scroll.ms((None, "Up Next: One".into()), 4530), 10);
     }
     use slot_ui::{Canvas, LEGEND_GAP};
 

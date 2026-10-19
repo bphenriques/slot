@@ -2,9 +2,12 @@
 //! hears an [`Event`]. A player knows files and transport and nothing else; what an album or a
 //! book is, and what plays next, are slot's.
 //!
-//! [`Handle`] is the player's face: decoding with rodio into ALSA, or into any [`Output`].
+//! [`Handle`] is the player's face: decoding with symphonia into ALSA, or into any [`Output`].
 
 mod alsa;
+#[cfg(test)]
+mod bench;
+mod decode;
 mod engine;
 mod level;
 mod stretch;
@@ -94,6 +97,20 @@ pub struct Status {
     /// Whether the device may still be heard: from the first write until it is let go, its
     /// last sound faded out. Paused, the state says so at once; this, once it is quiet.
     pub sounding: bool,
+    /// What the writer has done since it began.
+    pub work: Work,
+}
+
+/// The writer's work since it began, in nanoseconds of its own thread's time, never its waiting:
+/// decoding the files, mixing them to what plays, and writing that to the device, of which
+/// `library` in the device's own library (ALSA's), the rest the output's own. The performance
+/// log tells it as shares of a core, to see where the player's goes on the device.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub struct Work {
+    pub decode: u64,
+    pub mix: u64,
+    pub write: u64,
+    pub library: u64,
 }
 
 impl Handle {

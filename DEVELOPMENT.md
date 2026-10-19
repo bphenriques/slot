@@ -12,7 +12,7 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 | Where | What |
 |---|---|
 | `crates/slot-music` | The player's behaviour, no drawing, tested without a device: `music/` (`Music`: the state and its shell, by concern: `act`, `loading`, `art`, `books`, `lyrics`, `pocket`, `worker`), `library/` (scan, tags, cache, pictures, playlists), `playback/` (player, queue, fades, Recently Played), `books/`, `browse/` (views, keys, rows), `screens/` (each screen as data), `lyrics.rs`, `settings.rs`, `text.rs`. |
-| `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (rodio decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
+| `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (symphonia decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
 | `crates/slot-player/soundtouch` | SoundTouch 2.3.2 sources (LGPL-2.1), built by `build.rs` with `cc`. |
 | `crates/slot-music/src/store` | Everything kept on the card: one writer, each file's format (`Kept`). |
 | `crates/slot-ui/src/music` | The kit that draws: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour). |
@@ -63,7 +63,19 @@ cmp dist-device/System/slot "$C/System/slot" && sync       # verify, then unmoun
 To measure on the device: Music › Settings › Debug › Performance Log On, use the player a while
 (screen on and off, playing and paused, a book), then read `Logs/music-perf.log` on the card:
 one line every 10 s with frames a second, the music frame, screen and draw times (average and
-longest, in microseconds), each thread's share of one core, memory, and what was shown.
+longest, in microseconds), each thread's share of one core, the player's own (decoding, mixing,
+writing, and of the writing, ALSA's library's), the processor's clock (its average over the line
+where the kernel keeps that, and its governor: a share of a core is more work at a slower
+clock), memory, and what was shown, with the song playing.
+
+Measured so (2026-10-18, one song, the lid closed, a share of one core): decoding a packet at a
+time rather than rodio's sample at a time took decoding from 2.95% to 2.08%. FFmpeg 6.1's
+`mp3float`, Muse's, with its NEON, plugged in as symphonia's decoder (the same sound to within
+2.5e-6 on ten kinds of MP3), took 2.31% on the device, 32% faster on x86 but 11% slower on the
+A53, so symphonia stays. Of the writing (1.0%), ALSA's library took 0.1% and the dither most of
+the rest: one draw a sample for its two uniform values instead of two draws took it to 0.6%, the
+player's thread from 3.4% to 3.0%. The clock was at its lowest, 480 MHz, nearly throughout:
+3% there is about 1% at its 1512 MHz, where Muse's ~1% was likely measured.
 
 Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 `task log:device`). Player settings live in `Config/music.txt`.
@@ -104,7 +116,7 @@ device build is plain release, and these are the hardware's and BaseOS's.
 | The speaker's amplifier switches off with the sound device, heard as a click however quietly the sound ends. | A click on every pause, the fade-out logged clean each time. | `slot-player/src/alsa.rs`, `KEPT_PAUSED`: a pause keeps the device on silence 3 s. |
 | BaseOS has no mixer: one opener of the codec at a time. | slot's own sound busy while music plays, and the other way round. | Music owns the device while it plays and lets it go after (`MIXER.md` for the plan beyond). |
 | The device takes 44.1 kHz as well as 48 kHz. | "sound at 44100 Hz" in `slot.log`. | `Output::set_rate`: a file plays at its own rate, resampled only when refused. |
-| The place the device says it is at moves in steps, behind what it is reading. | A click when all it held was taken back. | `alsa.rs`, `taken_back`: 50 ms is left to play out. |
+| The place the device says it is at moves in steps, behind what it is reading. | A click when all it held was taken back; and the place said going back a little after each write, the bar redrawn twice as often as it moves. | `alsa.rs`, `taken_back`: 50 ms is left to play out; `engine.rs`, `Writer::write`: what is said heard never goes back. |
 | The codec's level is `lineout volume` on `hw:0`, 0 to 31 at 1.5 dB a step, as plorpOS found. | Music played straight to the codec, at slot's volume. | `slot/src/audio/line_out.rs`, followed through music's fades. |
 | Two shoulders squeezed together come in as one moment, in either order. | The button trace with the performance log on. | `music/controller.rs`: any two of them are the pocket combo. |
 
@@ -118,7 +130,7 @@ Now Playing lit, ~22% (the frame ~9%, the GPU driver ~8%). Next, in order:
 
 1. Draw only what changed: the lit screens are most of the cost, and are drawn whole each frame.
 2. Phase 2, the mixer (`music/MIXER.md`).
-3. Release notes and licences: SoundTouch's is in `licenses/`; list rodio, symphonia, rubato
+3. Release notes and licences: SoundTouch's is in `licenses/`; list symphonia, rubato
    and lofty with the other third-party crates.
 
 A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to

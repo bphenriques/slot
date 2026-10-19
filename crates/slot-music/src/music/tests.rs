@@ -618,6 +618,60 @@ fn under_the_lid_a_trigger_plays_or_pauses_a_shoulder_changes_song_and_locked_ne
 }
 
 #[test]
+fn it_is_due_to_change_only_while_it_moves_or_plays_where_it_is_seen() {
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
+    assert!(
+        rig.music.due_in().is_none(),
+        "nothing playing: only what comes in changes it"
+    );
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A]);
+    assert!(rig.now_playing().status.playing);
+    let due = rig
+        .music
+        .due_in()
+        .expect("a song playing, its time and bar seen moving");
+    assert!(!due.is_zero() && due <= Duration::from_secs(1), "{due:?}");
+    rig.music.set_dark(true);
+    assert!(rig.music.due_in().is_none(), "playing unseen");
+    // Locked in the dark, the motor buzzes it, frame by frame, and then is still.
+    rig.down(Button::L2);
+    rig.down(Button::R2);
+    rig.wait(600);
+    rig.up(Button::R2);
+    rig.up(Button::L2);
+    assert!(
+        rig.music.pocket.locked && rig.music.due_in() == Some(Duration::ZERO),
+        "buzzing"
+    );
+    // The motor is read each frame, as slot does, for a second.
+    let buzzed = |rig: &mut Rig| {
+        for _ in 0..60 {
+            rig.wait(16);
+            rig.music.rumble();
+        }
+    };
+    buzzed(&mut rig);
+    assert!(rig.music.due_in().is_none(), "buzzed");
+    rig.down(Button::L2);
+    rig.down(Button::R2);
+    rig.wait(600);
+    rig.up(Button::R2);
+    rig.up(Button::L2);
+    buzzed(&mut rig);
+    rig.music.set_dark(false);
+    rig.keys(&[Button::A]);
+    assert!(!rig.now_playing().status.playing);
+    assert!(rig.music.due_in().is_none(), "paused, shown");
+    // Played on, once its fade in is done.
+    rig.keys(&[Button::A, Button::B]);
+    rig.wait(1000);
+    assert!(
+        rig.music.player.state() == PlayState::Playing && rig.music.due_in().is_none(),
+        "a list shows nothing of it moving"
+    );
+}
+
+#[test]
 fn the_pocket_combo_tapped_does_nothing_and_neither_key_acts_alone() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
     rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
@@ -985,4 +1039,137 @@ fn locked_the_combo_tapped_does_nothing_and_only_held_unlocks() {
     assert!(rig.music.pocket.locked);
     combo(&mut rig, 600);
     assert!(!rig.music.pocket.locked, "held, it unlocks");
+}
+
+/// How many of the frames in `secs` showed a screen other than the one before: the frames worth
+/// drawing. Playing, the player moves on with the clock, as a real one does.
+fn seen_changes(rig: &mut Rig, secs: u64) -> usize {
+    let mut last = rig.screen();
+    let mut changed = 0;
+    for _ in 0..secs * 1000 / FRAME.as_millis() as u64 {
+        {
+            let status = &mut rig.fake.0.borrow_mut().status;
+            if status.state == PlayState::Playing {
+                status.at += FRAME.as_secs_f64();
+            }
+        }
+        rig.frames(FRAME);
+        let screen = rig.screen();
+        changed += usize::from(screen != last);
+        last = screen;
+    }
+    changed
+}
+
+/// Plays on `ms` milliseconds, one at a time, the song heard at `speed`, as the frontend's loop
+/// would: resting until the moment `due_in` names, then looking, and asking again. The screen
+/// must never change while the loop rests but in the millisecond `due_in` aims past a step. Says
+/// how many changes there were, and how many wakes found nothing new.
+fn rests_never_late(rig: &mut Rig, ms: u64, speed: f64) -> (usize, usize) {
+    let mut last = rig.screen();
+    let mut wake = rig.music.due_in().map(|d| rig.waited.get() + d);
+    let (mut changes, mut idle) = (0, 0);
+    for _ in 0..ms {
+        {
+            let status = &mut rig.fake.0.borrow_mut().status;
+            if status.state == PlayState::Playing {
+                status.at += 0.001 * speed;
+            }
+        }
+        rig.frames(Duration::from_millis(1));
+        let (screen, now) = (rig.screen(), rig.waited.get());
+        let woken = wake.is_some_and(|at| at <= now);
+        if screen != last {
+            changes += 1;
+            let late = wake.is_none_or(|at| at > now + STEP_PAST);
+            assert!(!late, "changed at {now:?} while resting until {wake:?}");
+        } else if woken {
+            idle += 1;
+        }
+        if woken || screen != last {
+            wake = rig.music.due_in().map(|d| now + d);
+        }
+        last = screen;
+    }
+    (changes, idle)
+}
+
+#[test]
+fn resting_until_the_next_change_is_never_late_on_a_screen_that_follows_the_song() {
+    // A song: its time and bar.
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A]);
+    rig.heard(10.3, 240.0);
+    let (changes, idle) = rests_never_late(&mut rig, 5000, 1.0);
+    eprintln!("song: {changes} changes, {idle} idle wakes");
+    assert!(
+        changes > 20 && idle <= changes / 4,
+        "{changes} changes, {idle} idle"
+    );
+    // Paused, the sleep timer counting down in the corner.
+    rig.menu("Sleep Timer");
+    rig.keys(&[Button::Right, Button::Right, Button::B, Button::A]);
+    assert!(!rig.now_playing().status.playing);
+    let (changes, _) = rests_never_late(&mut rig, 3000, 1.0);
+    assert!(changes >= 2, "the countdown: {changes}");
+    // The lyrics, line by line, and followed again a while after scrolling by hand.
+    let lrc = rig._card.path().join("Music/X/A/01 one.lrc");
+    std::fs::write(
+        &lrc,
+        "[00:19.25]One\n[00:20.10]Two\n[00:21.70]Three\n[00:30.00]Four\n",
+    )
+    .unwrap();
+    let t = rig.music.player.current().unwrap();
+    let read = crate::lyrics::read(&rig.music.library.tracks[t].path);
+    let generation = rig.music.generation;
+    rig.music
+        .update(Msg::Worker(generation, Done::Lyrics(t, read)));
+    rig.keys(&[Button::A]);
+    rig.music.browser.push(View::Lyrics, 0);
+    rig.heard(19.0, 240.0);
+    let (changes, _) = rests_never_late(&mut rig, 3000, 1.0);
+    assert!(changes >= 3, "line by line: {changes}");
+    rig.keys(&[Button::Down]);
+    let (changes, _) = rests_never_late(&mut rig, 5000, 1.0);
+    assert!(changes >= 1, "followed again: {changes}");
+    // A book at 1.5 times, in a chapter: the chapter's time and bar, the time left, its end.
+    let mut rig = Rig::new(&BOOK);
+    rig.play_book();
+    rig.heard(100.0, 600.0);
+    let part = rig.music.player.current().unwrap();
+    let chapter = |start: f64, title: &str| crate::books::chapters::Chapter {
+        start,
+        title: title.into(),
+    };
+    let chapters = vec![chapter(0.0, "One"), chapter(102.7, "Two")];
+    rig.music.player.set_chapters(part, chapters);
+    rig.music.player.set_speed(1.5);
+    let (changes, idle) = rests_never_late(&mut rig, 5000, 1.5);
+    eprintln!("book: {changes} changes, {idle} idle wakes");
+    assert!(
+        changes > 20 && idle <= changes / 4,
+        "{changes} changes, {idle} idle"
+    );
+}
+
+#[test]
+fn work_budget_a_screen_changes_only_as_often_as_what_it_shows_can_be_seen_to() {
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A]);
+    assert!(rig.now_playing().status.playing);
+    rig.heard(0.0, 240.0);
+    // Playing a four-minute song: the time each second and the bar each thousandth, not every
+    // frame. The numbers are printed for comparing builds (`task perf:ab`).
+    let playing = seen_changes(&mut rig, 10);
+    eprintln!("budget: Now Playing, playing 10 s: {playing} changes");
+    assert!(playing <= 10 + 42, "{playing} changes in 10 s");
+    rig.keys(&[Button::A]);
+    assert!(!rig.now_playing().status.playing);
+    let paused = seen_changes(&mut rig, 10);
+    eprintln!("budget: Now Playing, paused 10 s: {paused} changes");
+    assert_eq!(paused, 0, "paused, nothing moves");
+    rig.keys(&[Button::B]);
+    let list = seen_changes(&mut rig, 10);
+    eprintln!("budget: a list, still 10 s: {list} changes");
+    assert_eq!(list, 0, "a list left alone holds still");
 }

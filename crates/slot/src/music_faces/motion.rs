@@ -4,7 +4,10 @@
 
 use slot_input::Millis;
 use slot_music::{RowText, Screen};
-use slot_ui::{music_eased, MusicMotion, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS};
+use slot_ui::music::{
+    marquee_start, music_eased, MusicMotion, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS,
+    MUSIC_SLIDE_MS,
+};
 
 /// Rows moved further than this came from elsewhere, as a new page, and just arrive.
 const MOVED_MAX: usize = 2;
@@ -37,9 +40,10 @@ impl Motion {
         self.shown = None;
     }
 
-    /// How long the screen shown has been up, for a title too long for the header to scroll.
+    /// How long the screen shown has been up, for a title too long for the header to scroll:
+    /// from the marquee's beat, so it steps with the rest.
     pub fn up_for(&self, now: Millis) -> Millis {
-        now.saturating_sub(self.entered.since)
+        now.saturating_sub(marquee_start(self.entered.since))
     }
 
     /// A screen is shown. A new one slides in: deeper from the right, back from the left.
@@ -134,6 +138,18 @@ impl Motion {
         self.art = now;
     }
 
+    /// Whether anything is still on its way `now`: a screen sliding in, the highlight gliding, rows
+    /// sliding, the text view moving or a picture fading in. Moving, it is drawn again next frame.
+    pub fn moving(&self, now: Millis) -> bool {
+        let going = |since, over| self.eased(since, now, over) < 1.0;
+        let gliding = |t: &MusicTween, over| t.from != t.to && going(t.since, over);
+        going(self.entered.since, MUSIC_SLIDE_MS)
+            || gliding(&self.bar, MUSIC_GLIDE_MS)
+            || gliding(&self.focus, MUSIC_SLIDE_MS)
+            || (self.moved.iter().any(|&d| d != 0.0) && going(self.moved_at, self.slide))
+            || going(self.art, MUSIC_ART_MS)
+    }
+
     pub fn at(&self, now: Millis) -> MusicMotion {
         MusicMotion {
             enter: self.entered.at(now, MUSIC_SLIDE_MS),
@@ -154,6 +170,26 @@ mod tests {
 
     fn rows(names: &[&str]) -> Vec<RowText> {
         names.iter().map(|&n| RowText::plain(n)).collect()
+    }
+
+    #[test]
+    fn it_is_moving_until_each_motion_has_arrived_and_at_rest_after() {
+        let mut m = Motion::default();
+        let far = 100_000;
+        m.bar(&rows(&["a", "b", "c"]), 0, far);
+        assert!(!m.moving(far), "at rest");
+        m.bar(&rows(&["a", "b", "c"]), 2, far + 10);
+        assert!(m.moving(far + 10), "the highlight glides");
+        assert!(!m.moving(far + 10 + MUSIC_GLIDE_MS), "and arrives");
+        m.bar(&rows(&["a", "c"]), 1, far + 1000);
+        assert!(m.moving(far + 1000), "a row taken out, the rest slide up");
+        assert!(!m.moving(far + 1000 + MUSIC_SLIDE_MS));
+        m.new_art(far + 2000);
+        assert!(
+            m.moving(far + 2000 + MUSIC_ART_MS / 2),
+            "a picture fades in"
+        );
+        assert!(!m.moving(far + 2000 + MUSIC_ART_MS));
     }
 
     #[test]

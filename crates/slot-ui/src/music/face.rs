@@ -7,7 +7,7 @@ use super::slot::{
     MENU_PX,
 };
 use super::{
-    MusicTheme, FIT_MIN, LETTER_BOX, LETTER_PX, MARQUEE_PX_PER_S, MARQUEE_REST_MS, MARQUEE_STEP,
+    MusicTheme, FIT_MIN, LETTER_BOX, LETTER_PX, MARQUEE_BEAT_MS, MARQUEE_REST_MS, MARQUEE_STEP,
     PART_GAP, RING_PX, RING_STROKE, SECOND_PX, SMALL_H, SMALL_PX, STATUS_PX,
 };
 
@@ -301,6 +301,38 @@ fn recolour_caps(face: &mut UndoFace, caps: u32, fill: [u8; 3], letter: [u8; 3])
     }
 }
 
+/// How long after `ms` the line `overflow` px too long next moves, as `marquee_offset` moves it:
+/// none for a line that fits. Drawn only then, a scrolling line costs a frame a step, not one a
+/// frame, and none while it rests; and every change falls on the beat.
+pub fn marquee_next(overflow: u32, ms: u64) -> Option<u64> {
+    if overflow == 0 {
+        return None;
+    }
+    let travel = marquee_travel(overflow);
+    let period = 2 * MARQUEE_REST_MS + travel;
+    let (t, end) = (ms % period, MARQUEE_REST_MS + travel);
+    let next = match t < end {
+        // The next beat on the way, the last bringing it to its end.
+        true => {
+            MARQUEE_REST_MS
+                + (t.saturating_sub(MARQUEE_REST_MS) / MARQUEE_BEAT_MS + 1) * MARQUEE_BEAT_MS
+        }
+        // At its end, it rests, then starts over.
+        false => period,
+    };
+    Some(next - t)
+}
+
+/// When a line starting to scroll `now` starts: on the beat, so it steps with the rest.
+pub fn marquee_start(now: u64) -> u64 {
+    now - now % MARQUEE_BEAT_MS
+}
+
+/// How long a line `overflow` px too long takes to scroll its length: whole beats.
+fn marquee_travel(overflow: u32) -> u64 {
+    u64::from(overflow.div_ceil(MARQUEE_STEP)) * MARQUEE_BEAT_MS
+}
+
 /// Columns `x` to `x + w` of `face`: the visible part of a long line.
 pub fn music_window(face: &UndoFace, x: u32, w: u32) -> UndoFace {
     let x = x.min(face.w.saturating_sub(w));
@@ -317,12 +349,12 @@ pub fn marquee_offset(overflow: u32, ms: u64) -> u32 {
     if overflow == 0 {
         return 0;
     }
-    let travel = overflow as u64 * 1000 / MARQUEE_PX_PER_S;
+    let travel = marquee_travel(overflow);
     match ms % (2 * MARQUEE_REST_MS + travel) {
         t if t < MARQUEE_REST_MS => 0,
         t if t < MARQUEE_REST_MS + travel => {
-            let px = ((t - MARQUEE_REST_MS) * MARQUEE_PX_PER_S / 1000) as u32;
-            px - px % MARQUEE_STEP
+            let steps = ((t - MARQUEE_REST_MS) / MARQUEE_BEAT_MS) as u32;
+            (steps * MARQUEE_STEP).min(overflow)
         }
         _ => overflow,
     }
@@ -423,11 +455,55 @@ mod tests {
     }
 
     #[test]
+    fn a_scrolling_line_says_when_it_next_moves_and_never_moves_before() {
+        assert_eq!(marquee_next(0, 5_000), None, "a line that fits never moves");
+        for overflow in [1, 2, 3, 7, 120, 121] {
+            let travel = marquee_travel(overflow);
+            let period = 2 * MARQUEE_REST_MS + travel;
+            let mut wakes = 0;
+            let mut ms = 0;
+            while ms < 2 * period {
+                let wait = marquee_next(overflow, ms).unwrap();
+                let at = marquee_offset(overflow, ms);
+                for d in 1..wait {
+                    assert_eq!(
+                        marquee_offset(overflow, ms + d),
+                        at,
+                        "{overflow} px at {ms} + {d}"
+                    );
+                }
+                (ms, wakes) = (ms + wait, wakes + 1);
+            }
+            // A wake a step, and one at each end, not one a frame.
+            let steps = u64::from(overflow / MARQUEE_STEP) + 3;
+            assert!(wakes <= 2 * steps, "{overflow} px: {wakes} wakes");
+        }
+    }
+
+    #[test]
+    fn every_long_line_moves_only_on_the_one_beat_so_they_step_together() {
+        // Two lines, of other lengths, begun at other moments: each changes only on the beat.
+        for (overflow, begun) in [(120, 1_000), (37, 4_321), (1, 77)] {
+            let start = marquee_start(begun);
+            for now in start + 1..start + 20_000 {
+                let (was, is) = (now - 1 - start, now - start);
+                if marquee_offset(overflow, was) != marquee_offset(overflow, is) {
+                    assert_eq!(now % MARQUEE_BEAT_MS, 0, "{overflow} px moved at {now}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_long_line_rests_scrolls_rests_and_starts_over() {
         assert_eq!(marquee_offset(0, 5_000), 0);
         assert_eq!(marquee_offset(120, 0), 0);
-        assert_eq!(marquee_offset(120, MARQUEE_REST_MS + 1000), 60);
-        let travel = 120 * 1000 / MARQUEE_PX_PER_S;
+        assert_eq!(
+            marquee_offset(120, MARQUEE_REST_MS + 1000),
+            50,
+            "50 px a second"
+        );
+        let travel = marquee_travel(120);
         assert_eq!(marquee_offset(120, MARQUEE_REST_MS + travel + 10), 120);
         assert_eq!(marquee_offset(120, 2 * MARQUEE_REST_MS + travel), 0);
     }

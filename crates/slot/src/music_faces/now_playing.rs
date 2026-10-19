@@ -5,10 +5,10 @@
 use slot_gfx::Compositor;
 use slot_input::Millis;
 use slot_music::{NowPlayingBody, Repeat, Status};
-use slot_ui::{
-    music_text_width, music_tint, music_title_w, Canvas, LineInk, MusicFace, MusicTint,
-    NowPlayingFaces,
+use slot_ui::music::{
+    music_text_width, music_tint, music_title_w, LineInk, MusicFace, MusicTint, NowPlayingFaces,
 };
+use slot_ui::Canvas;
 
 use super::{put, Glyphs, MusicText, Spec};
 use crate::app::App;

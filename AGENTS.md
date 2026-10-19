@@ -41,7 +41,9 @@ with tests; new looks go in the kit. Upstream slot's own files change only at on
   screen's `press` and `held`. Update `music/CONTROLS.md` with any key change.
 - Comments read as plain sentences saying what something is for, in the existing voice.
 - Every behaviour change comes with a test (see Tests).
-- A battery device: nothing polls while idle, nothing works harder than it must.
+- A battery device: nothing polls while idle, nothing works harder than it must. The music
+  screen is drawn only when a frame would show something new (`music/DRAWING.md`), so a
+  `Screen` says only what is seen, never finer, and the `work_budget_…` tests hold it so.
 
 ## Tests
 

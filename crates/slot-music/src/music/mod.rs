@@ -21,7 +21,7 @@ mod worker;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::books::chapters::Chapter;
 use crate::browse::keys::Keys;
@@ -234,7 +234,7 @@ impl Music {
         let (status, inbox) = (self.shell.engine.status(), self.inbox());
         self.frame(status, inbox, game);
         self.run();
-        self.note_frame(began);
+        self.note_frame(began, status.work);
     }
 
     /// A frame of the state, given what came in: the player as it is now, and the messages.
@@ -267,11 +267,16 @@ impl Music {
     }
 
     /// While the performance log runs: how long this frame took, and what was shown.
-    fn note_frame(&self, began: Instant) {
+    fn note_frame(&self, began: Instant, work: slot_player::Work) {
         let Some(perf) = &self.shell.perf else {
             return;
         };
         perf.stats.poll.add(began.elapsed());
+        *perf
+            .stats
+            .player
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = work;
         // The song playing by its file, to tell which a cost went with.
         let song = self
             .player
@@ -424,6 +429,22 @@ impl Music {
         self.player.audible()
     }
 
+    /// How long until it changes of itself: at once, frame by frame, while the motor buzzes or
+    /// the sound fades; on a screen that follows the song (Now Playing, a book's, the lyrics),
+    /// when that next shows it moved on. None, until something comes in: the frontend may rest
+    /// until then.
+    pub fn due_in(&self) -> Option<Duration> {
+        if self.pocket.buzzing() || self.transport.fade.is_some() {
+            return Some(Duration::ZERO);
+        }
+        // A millisecond past the step: on it to the last bit, a time may still round short.
+        let steps = (!self.dark)
+            .then(|| crate::screens::steps_in(self))
+            .flatten();
+        let after = |s: f64| Duration::try_from_secs_f64(s.max(0.0)).unwrap_or(Duration::MAX);
+        steps.map(|s| after(s).saturating_add(STEP_PAST))
+    }
+
     /// Whether music carries on with the screen off (`screen_off = play`).
     pub fn plays_screen_off(&self) -> bool {
         self.settings.play_screen_off
@@ -498,3 +519,7 @@ impl Music {
 
 #[cfg(test)]
 mod tests;
+
+/// How far past a step of the song a frame is drawn for it: too little to see, enough that the
+/// step has surely come.
+const STEP_PAST: Duration = Duration::from_millis(1);

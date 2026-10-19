@@ -49,6 +49,21 @@ pub(crate) fn open_queue(b: &mut Browser, cx: &Context) {
     b.push(View::Queue, cx.queue.at);
 }
 
+/// Seconds until a song playing shows it moved on: its time's next second, its bar's next
+/// step, as `screen` shows them.
+pub(crate) fn steps_in(music: &Music) -> Option<f64> {
+    let player = &music.player;
+    if player.current().is_none() || player.state() != PlayState::Playing {
+        return None;
+    }
+    let ((at, len), rate) = (player.time(), f64::from(player.speed()));
+    let time = super::whole_in(at, rate);
+    let bar = (len > 0.0)
+        .then(|| super::whole_in(at / len * 1000.0 + 0.5, rate * 1000.0 / len))
+        .flatten();
+    [time, bar].into_iter().flatten().reduce(f64::min)
+}
+
 pub(crate) fn screen(music: &Music) -> Screen {
     if music.gone {
         return Screen::message(text::NOW_PLAYING, text::NO_PLAYER);
@@ -84,7 +99,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
             favorite: lib.is_favorite(track),
             sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
-        progress: (len > 0.0).then(|| (bar / len).clamp(0.0, 1.0) as f32),
+        progress: super::fraction(bar, len),
         marks: Vec::new(),
         place: text::of(n, of),
         time: text::elapsed(at, len),

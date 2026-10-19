@@ -205,7 +205,8 @@ fn a_pause_keeps_the_moment_heard_and_playing_on_goes_on_from_it() {
     );
 }
 
-/// An output that plays as `Capture` does and keeps what it was told to do with the device.
+/// An output that plays as `Capture` does and keeps what it was told to do with the device; its
+/// library, as ALSA's would, takes `LIBRARY` nanoseconds in all.
 #[derive(Clone, Default)]
 struct Told {
     capture: Capture,
@@ -260,7 +261,13 @@ impl Output for Told {
     fn release(&mut self) {
         self.tell("release");
     }
+
+    fn library_time(&self) -> u64 {
+        LIBRARY
+    }
 }
+
+const LIBRARY: u64 = 42;
 
 #[test]
 fn a_pause_keeps_the_device_going_on_silence_a_while_so_it_is_not_heard_letting_go() {
@@ -742,6 +749,9 @@ struct Played {
     /// Every frame truly heard, across flushes; and whether it was let go of for good.
     heard: u64,
     gone: bool,
+    /// What it says it has played moves on a period at a time, as a real driver's does; none
+    /// is smoothly.
+    period: u64,
 }
 
 const HOLDS: f64 = 0.3;
@@ -755,6 +765,12 @@ impl Played {
         self.before + by_now.min(self.given)
     }
 
+    /// What it says it has played: as far as its last period.
+    fn reported(&self) -> u64 {
+        let played = self.played() - self.before;
+        self.before + played - played % self.period.max(1)
+    }
+
     /// Stops where it is, dropping what it holds.
     fn stop(&mut self) {
         let played = self.played();
@@ -764,6 +780,13 @@ impl Played {
 }
 
 impl Device {
+    /// A device that says what it has played a period of `frames` at a time.
+    fn by_periods(frames: u64) -> Self {
+        let device = Self::default();
+        device.0.lock().unwrap().period = frames;
+        device
+    }
+
     /// Seconds truly heard, across every stop.
     fn heard(&self) -> f64 {
         let p = self.0.lock().unwrap();
@@ -796,7 +819,7 @@ impl Output for Device {
 
     fn delay(&mut self) -> u64 {
         let p = self.0.lock().unwrap();
-        p.given - (p.played() - p.before)
+        p.given - (p.reported() - p.before)
     }
 
     fn flush(&mut self) {
@@ -833,6 +856,24 @@ fn the_place_said_is_what_the_device_has_played_never_ahead_of_it() {
         std::thread::sleep(Duration::from_millis(17));
     }
     assert!(worst < 0.02, "off by {worst:.3} s at most");
+    handle.send(Command::Stop);
+}
+
+#[test]
+fn the_place_never_goes_back_while_playing_though_the_device_tells_it_a_period_at_a_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav(dir.path(), "a.wav", 2.0, 48_000, 2);
+    // About 21 ms a period, as the device's driver tells it.
+    let handle = Handle::on(Device::by_periods(1024));
+    handle.send(play(&path, 0.0));
+    settle(&handle, |s| s.state == PlayState::Playing && s.at > 0.0);
+    let mut seen = Vec::new();
+    for _ in 0..300 {
+        seen.push(handle.status().at);
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    let back = seen.windows(2).filter(|p| p[1] < p[0]).count();
+    assert_eq!(back, 0, "went back {back} times in {} reads", seen.len());
     handle.send(Command::Stop);
 }
 
@@ -939,4 +980,37 @@ fn leveling_plays_a_song_at_its_replaygain_and_off_as_recorded() {
         (level(slot_player::Leveling::Album) - 0.25).abs() < 1e-2,
         "the album's"
     );
+}
+
+#[test]
+fn the_work_done_is_counted_while_playing_and_not_while_paused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav(dir.path(), "a.wav", 2.0, 44_100, 2);
+    let (handle, _capture) = player(Some(8.0));
+    assert_eq!(
+        handle.status().work,
+        slot_player::Work::default(),
+        "none yet"
+    );
+    handle.send(play(&path, 0.0));
+    std::thread::sleep(Duration::from_millis(100));
+    handle.send(Command::Pause);
+    let paused = settle(&handle, |s| s.state == PlayState::Paused).work;
+    assert!(
+        paused.decode > 0 && paused.mix > 0 && paused.write > 0,
+        "{paused:?}"
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(handle.status().work, paused, "nothing more while paused");
+}
+
+#[test]
+fn of_the_work_writing_the_device_s_own_library_s_is_told_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = wav(dir.path(), "a.wav", 0.3, 44_100, 2);
+    let handle = Handle::on(Told::default());
+    handle.send(play(&path, 0.0));
+    let playing = settle(&handle, |s| s.work.write > 0);
+    assert_eq!(playing.work.library, LIBRARY, "as the output says");
+    handle.send(Command::Stop);
 }

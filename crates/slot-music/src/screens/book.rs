@@ -61,27 +61,27 @@ pub(crate) fn press_row(b: &mut Browser, row: Row, key: Key) -> Option<Outcome> 
     Some(outcome)
 }
 
-/// Now Playing for `book`, of which `track` plays.
-pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
+/// What a book's Now Playing shows of its time: where in the part it plays, the chapter's
+/// start and end there, how fast; and the whole book's time left and how far through it is, when
+/// its parts' lengths are known, else the part's.
+struct Timing {
+    pos: f64,
+    start: f64,
+    end: f64,
+    speed: f32,
+    left: f64,
+    done: Option<f64>,
+    secs: f64,
+}
+
+fn timing(music: &Music, book: BookId) -> Timing {
     let (lib, player) = (&music.library, &music.player);
-    let (pos, len) = (player.time().0, player.time().1);
-    let (title, start, end, (n, of)) = match player.chapter() {
-        // A chapter with no title of its own is named as its part is.
-        Some(c) => (
-            match c.chapter.title.is_empty() {
-                true => lib.tracks[track].title.clone(),
-                false => c.chapter.title.clone(),
-            },
-            c.chapter.start,
-            c.end,
-            (c.index + 1, player.chapters()),
-        ),
-        None => (lib.tracks[track].title.clone(), 0.0, len, player.place()),
-    };
-    let speed = player.speed();
+    let (pos, len) = player.time();
+    let (start, end) = player
+        .chapter()
+        .map_or((0.0, len), |c| (c.chapter.start, c.end));
     let b = &lib.books[book];
     let (_, part) = music.book().unwrap_or_default();
-    // The whole book's time left and how far through it is, when its parts' lengths are known.
     let (left, done) = match b.secs > 0.0 {
         true => {
             let into = books::into_book(lib, book, part, pos);
@@ -89,6 +89,67 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
         }
         false => (len - pos, None),
     };
+    let speed = player.speed();
+    Timing {
+        pos,
+        start,
+        end,
+        speed,
+        left,
+        done,
+        secs: b.secs,
+    }
+}
+
+/// Seconds until a book playing shows it moved on, as `screen` shows it: the chapter's time
+/// and bar, the book's share done and time left, and the chapter's end.
+pub(crate) fn steps_in(music: &Music, book: BookId) -> Option<f64> {
+    if music.player.state() != PlayState::Playing {
+        return None;
+    }
+    let t = timing(music, book);
+    let rate = f64::from(t.speed);
+    let (into, chapter) = (t.pos - t.start, t.end - t.start);
+    let bar = (chapter > 0.0)
+        .then(|| super::whole_in(into / chapter * 1000.0 + 0.5, rate * 1000.0 / chapter));
+    let done = t
+        .done
+        .map(|d| super::whole_in(d * 100.0 + 0.5, rate * 100.0 / t.secs));
+    let steps = [
+        super::whole_in(into, rate),
+        bar.flatten(),
+        done.flatten(),
+        super::whole_in(t.left.max(0.0) / rate, -1.0),
+        Some((t.end - t.pos).max(0.0) / rate),
+    ];
+    steps.into_iter().flatten().reduce(f64::min)
+}
+
+/// Now Playing for `book`, of which `track` plays.
+pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
+    let (lib, player) = (&music.library, &music.player);
+    let Timing {
+        pos,
+        start,
+        end,
+        speed,
+        left,
+        done,
+        ..
+    } = timing(music, book);
+    let (title, (n, of)) = match player.chapter() {
+        // A chapter with no title of its own is named as its part is.
+        Some(c) => (
+            match c.chapter.title.is_empty() {
+                true => lib.tracks[track].title.clone(),
+                false => c.chapter.title.clone(),
+            },
+            (c.index + 1, player.chapters()),
+        ),
+        None => (lib.tracks[track].title.clone(), player.place()),
+    };
+    let (_, part) = music.book().unwrap_or_default();
+    let b = &lib.books[book];
     // The bookmarks in the chapter playing, along its bar.
     let marks = music.books.shelf.bookmarks(lib, book).iter();
     let marks = marks
@@ -107,7 +168,7 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
             favorite: false,
             sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
-        progress: (end > start).then(|| ((pos - start) / (end - start)).clamp(0.0, 1.0) as f32),
+        progress: super::fraction(pos - start, end - start),
         marks,
         place: text::of(n, of),
         time: text::elapsed(pos - start, end - start),

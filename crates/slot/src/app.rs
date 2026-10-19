@@ -409,8 +409,9 @@ pub struct App {
     radio: Box<dyn RadioJobs>,
     state_writer: crate::state_writer::StateWriter,
     music: Option<slot_music::Music>,
-    music_faces: slot_ui::MusicFaces,
+    music_faces: slot_ui::music::MusicFaces,
     music_on_wake: bool,
+    music_frames: music::Frames,
 }
 
 const FACE_AHEAD: i32 = 8;
@@ -556,8 +557,9 @@ impl App {
             last_led: None,
             powering_off: false,
             music: None,
-            music_faces: slot_ui::MusicFaces::default(),
+            music_faces: slot_ui::music::MusicFaces::default(),
             music_on_wake: false,
+            music_frames: music::Frames::default(),
         }
     }
 
@@ -568,7 +570,7 @@ impl App {
         crate::boot_time::mark("scan");
         let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
-        app.music = Some(slot_music::Music::spawn(root, slot_ui::ART_BOX));
+        app.music = Some(slot_music::Music::spawn(root, slot_ui::music::ART_BOX));
         app.state = read_slot_state(root);
         app.radio.ask(RadioJob::Home(app.state.home_wifi_enabled));
         app.restock_recents();

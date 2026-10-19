@@ -330,3 +330,31 @@ fn a_hat_axis_is_traced_as_the_axis_it_is() {
     assert!(line.contains("hat0y"), "{line}");
     assert!(!line.contains("ignored"), "{line}");
 }
+
+#[test]
+fn a_button_wakes_a_resting_frontend_at_once_rather_than_at_the_next_lid_reading() {
+    use slot_input::InputSource;
+    let d = input_tree();
+    let press = [packet(EV_KEY, CODE_R1, 1), packet(EV_SYN, 0, 0)].concat();
+    fs::write(d.path().join("dev/input/event1"), press).unwrap();
+    let card = tempfile::tempdir().unwrap();
+    let mut input = slot::input::DeviceInput::open_in(
+        &d.path().join("dev/input"),
+        &d.path().join("sys/class/input"),
+        card.path(),
+        false,
+    );
+    let began = std::time::Instant::now();
+    input.rest(std::time::Duration::MAX);
+    assert!(
+        began.elapsed() < std::time::Duration::from_millis(100),
+        "{:?}",
+        began.elapsed()
+    );
+    // What woke it is there to read, though the reader may still be putting it down.
+    let mut read = Vec::new();
+    while read.is_empty() && began.elapsed() < std::time::Duration::from_secs(1) {
+        read = input.poll(0);
+    }
+    assert!(read.contains(&RawEvent::Down(Btn::R1)), "{read:?}");
+}

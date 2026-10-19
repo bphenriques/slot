@@ -50,6 +50,8 @@ pub(crate) struct Stats {
     pub what: Mutex<String>,
     /// Files the player was told to open: a song played, skipped to or gone on into.
     pub opened: AtomicU64,
+    /// The player's work as it last said, to tell where its share of a core went.
+    pub player: Mutex<slot_player::Work>,
 }
 
 /// The log, running: its thread stops when this is dropped, the channel it waits on closing.
@@ -82,12 +84,15 @@ fn write(path: &PathBuf, stats: &Stats, stopped: &Receiver<()>) {
         let _ = std::fs::create_dir_all(dir);
     }
     let mut was = cpu();
+    let mut worked = slot_player::Work::default();
     let mut since = Instant::now();
     // Asleep the while between lines; woken early only to stop.
     while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(EVERY) {
         let secs = since.elapsed().as_secs_f64();
         let now = cpu();
-        let line = line(stats, &was, &now, secs);
+        let work = *stats.player.lock().unwrap_or_else(PoisonError::into_inner);
+        let line = line(stats, (&was, &now), (worked, work), secs);
+        worked = work;
         (was, since) = (now, Instant::now());
         let file = std::fs::OpenOptions::new()
             .create(true)
@@ -99,10 +104,32 @@ fn write(path: &PathBuf, stats: &Stats, stopped: &Receiver<()>) {
     }
 }
 
-fn line(stats: &Stats, was: &Cpu, now: &Cpu, secs: f64) -> String {
+/// What the player did between `worked` and `work`, `secs` apart, each as a share of one core:
+/// of its writing, how much was in ALSA's library.
+fn shares(worked: slot_player::Work, work: slot_player::Work, secs: f64) -> String {
+    let share = |was: u64, is: u64| is.saturating_sub(was) as f64 / (secs * 1e9) * 100.0;
+    format!(
+        "decode {:.2}% mix {:.2}% write {:.2}% (alsa {:.2}%)",
+        share(worked.decode, work.decode),
+        share(worked.mix, work.mix),
+        share(worked.write, work.write),
+        share(worked.library, work.library),
+    )
+}
+
+/// A line of the log: the timings, what the player did since `worked` (its decoding, mixing and
+/// writing, each a share of one core), each thread's share, and the memory held.
+fn line(
+    stats: &Stats,
+    (was, now): (&Cpu, &Cpu),
+    (worked, work): (slot_player::Work, slot_player::Work),
+    secs: f64,
+) -> String {
+    let player = shares(worked, work, secs);
     let (poll, poll_max, frames) = stats.poll.take();
     let (screen, screen_max, _) = stats.screen.take();
-    let (glue, glue_max, _) = stats.glue.take();
+    // The faces are built only for a frame drawn: their count is the frames drawn.
+    let (glue, glue_max, drawn) = stats.glue.take();
     let opened = stats.opened.swap(0, Ordering::Relaxed);
     let what = stats
         .what
@@ -115,16 +142,18 @@ fn line(stats: &Stats, was: &Cpu, now: &Cpu, secs: f64) -> String {
         .map(|(name, &ticks)| {
             let used = ticks.saturating_sub(was.threads.get(name).copied().unwrap_or(0));
             let share = used as f64 / now.per_sec / secs * 100.0;
-            format!("{name}={share:.1}%")
+            format!("{name}={share:.2}%")
         })
         .collect();
     format!(
-        "{} {secs:.0}s {what} | {:.0} fps | music {poll}us (max {poll_max}) screen {screen}us \
-         (max {screen_max}) draw {glue}us (max {glue_max}) | opened {opened} | sound {} | cpu {} \
+        "{} {secs:.0}s {what} | {:.0} fps, {:.0} drawn | music {poll}us (max {poll_max}) screen {screen}us \
+         (max {screen_max}) draw {glue}us (max {glue_max}) | opened {opened} | sound {} | player {player} | clock {} | cpu {} \
          | rss {} MB",
         slot_store::stamp_now(),
         frames as f64 / secs,
+        drawn as f64 / secs,
         sound(),
+        clock(was, now),
         threads.join(" "),
         now.rss_mb,
     )
@@ -170,13 +199,21 @@ fn hw_params(text: &str) -> Option<String> {
     ))
 }
 
-/// Each thread's processor time so far, by its name, in clock ticks; and the memory held.
+/// Each thread's processor time so far, by its name, in clock ticks; the memory held; and the
+/// processor's clock: how long it has run at each speed, where the kernel keeps that, the speed
+/// now, and the governor choosing it, as a share of a core means more work at a slower clock.
 #[derive(Default)]
 struct Cpu {
     threads: BTreeMap<String, u64>,
     per_sec: f64,
     rss_mb: u64,
+    speeds: BTreeMap<u64, u64>,
+    khz: Option<u64>,
+    governor: String,
 }
+
+/// Where the first core's clock is told: the four of the H700 share it.
+const CPUFREQ: &str = "/sys/devices/system/cpu/cpu0/cpufreq";
 
 fn cpu() -> Cpu {
     let mut threads = BTreeMap::new();
@@ -193,10 +230,42 @@ fn cpu() -> Cpu {
         .ok()
         .and_then(|s| s.split_whitespace().nth(1)?.parse().ok())
         .unwrap_or(0);
+    let read =
+        |name: &str| std::fs::read_to_string(Path::new(CPUFREQ).join(name)).unwrap_or_default();
     Cpu {
         threads,
         per_sec,
         rss_mb: pages * 4096 / (1 << 20),
+        speeds: time_in_state(&read("stats/time_in_state")),
+        khz: read("scaling_cur_freq").trim().parse().ok(),
+        governor: read("scaling_governor").trim().to_string(),
+    }
+}
+
+/// How long the clock has run at each speed, in kHz, from `time_in_state`: a speed and a time
+/// a line.
+fn time_in_state(text: &str) -> BTreeMap<u64, u64> {
+    let pair = |line: &str| {
+        let mut fields = line.split_whitespace().map(|f| f.parse::<u64>().ok());
+        Some((fields.next()??, fields.next()??))
+    };
+    text.lines().filter_map(pair).collect()
+}
+
+/// The clock between `was` and `now`, in MHz: its average, where the kernel keeps how long it
+/// ran at each speed, else the speed now; and the governor choosing it.
+fn clock(was: &Cpu, now: &Cpu) -> String {
+    let ran = |khz: &u64, t: &u64| t.saturating_sub(was.speeds.get(khz).copied().unwrap_or(0));
+    let total: u64 = now.speeds.iter().map(|(k, t)| ran(k, t)).sum();
+    let weighted: u64 = now.speeds.iter().map(|(k, t)| k * ran(k, t)).sum();
+    let speed = match (total, now.khz) {
+        (1.., _) => format!("{} MHz average", weighted / total / 1000),
+        (0, Some(khz)) => format!("{} MHz now", khz / 1000),
+        (0, None) => "unknown".into(),
+    };
+    match now.governor.as_str() {
+        "" => speed,
+        governor => format!("{speed}, {governor}"),
     }
 }
 
@@ -216,6 +285,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_player_s_work_is_told_as_shares_of_a_core_since_the_last_line() {
+        let work = |decode, mix, write, library| slot_player::Work {
+            decode,
+            mix,
+            write,
+            library,
+        };
+        let told = shares(
+            work(1_000_000_000, 0, 0, 0),
+            work(1_400_000_000, 10_000_000, 2_000_000_000, 600_000_000),
+            10.0,
+        );
+        assert_eq!(told, "decode 4.00% mix 0.10% write 20.00% (alsa 6.00%)");
+        assert_eq!(
+            shares(work(5, 5, 5, 5), work(0, 0, 0, 0), 10.0),
+            "decode 0.00% mix 0.00% write 0.00% (alsa 0.00%)",
+            "a player begun again counts from nothing"
+        );
+    }
+
+    #[test]
     fn a_thread_s_name_and_time_are_read_from_its_stat_line() {
         let stat = "123 (slot-player o) S 1 2 3 4 5 6 7 8 9 10 40 2 0 0 20 0 9 0 99";
         assert_eq!(thread_ticks(stat), Some(("slot-player o".into(), 42)));
@@ -227,6 +317,27 @@ mod tests {
         let open = "access: RW_INTERLEAVED\nformat: S16_LE\nsubformat: STD\nchannels: 2\nrate: 44100 (44100/1)\nperiod_size: 1024\n";
         assert_eq!(hw_params(open).as_deref(), Some("S16_LE 44100 Hz 2 ch"));
         assert_eq!(hw_params("closed\n"), None);
+    }
+
+    #[test]
+    fn the_clock_is_its_average_since_the_last_line_or_else_its_speed_now() {
+        let at = |text: &str, khz, governor: &str| Cpu {
+            speeds: time_in_state(text),
+            khz,
+            governor: governor.into(),
+            ..Cpu::default()
+        };
+        let was = at("480000 100\n1008000 50\n", None, "ondemand");
+        // 3 s at 480 MHz and 1 s at 1008 since: 612 on average.
+        let now = at("480000 400\n1008000 150\n", Some(1_008_000), "ondemand");
+        assert_eq!(clock(&was, &now), "612 MHz average, ondemand");
+        let bare = at("", Some(816_000), "");
+        assert_eq!(
+            clock(&Cpu::default(), &bare),
+            "816 MHz now",
+            "where no times are kept"
+        );
+        assert_eq!(clock(&Cpu::default(), &Cpu::default()), "unknown");
     }
 
     #[test]
