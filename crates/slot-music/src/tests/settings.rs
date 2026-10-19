@@ -14,29 +14,24 @@ fn music_settings_flip_with_left_and_right() {
         rows.zip(page.values.iter().cloned()).collect()
     };
     let on = |name: &str, value: &str| (name.to_string(), Some(value.to_string()));
-    // A page of a menu's rows: listening first, then looks.
+    // A page of a menu's rows: the Sound page first, the settings, then the library and how many
+    // songs it holds.
     assert_eq!(
         shown(&page),
         [
-            on("Screen Off", "Pause"),
-            on("Pocket Lock", "On"),
-            on("Pocket Vibration", "On"),
             ("Sound".to_string(), None),
+            on("Screen Off", "Pause"),
             on("List Size", "Normal"),
             on("Dynamic Color", "On"),
             on("Theme", "Slot"),
+            on("Update Library", "1 song"),
+            ("Rebuild Library".to_string(), None),
         ]
     );
     // The sound settings on a page of their own.
     let own_cx = cx(&lib, QueueView::default(), Settings::default());
-    let page = b.page(&own_cx);
-    assert_eq!(shown(&page)[3], ("Sound".to_string(), None));
     let mut sound = Browser::default();
-    for key in TO_SETTINGS
-        .into_iter()
-        .chain([Key::Down; 3])
-        .chain([Key::A])
-    {
+    for key in TO_SETTINGS.into_iter().chain([Key::A]) {
         sound.press(&own_cx, key);
     }
     assert_eq!(sound.view(), View::Sound);
@@ -51,8 +46,15 @@ fn music_settings_flip_with_left_and_right() {
     );
     sound.press(&own_cx, Key::B);
     assert_eq!(sound.view(), View::Settings, "B back to the rest");
+    // Update Library acts on A, its count only told: no arrows to change it.
+    for key in [Key::Down; 5] {
+        sound.press(&own_cx, key);
+    }
+    assert_eq!(sound.row(&own_cx), Some(crate::Row::Rescan));
+    let legend = crate::screens::legend(&sound, &own_cx);
+    assert_eq!(legend, crate::screens::Legend::Update);
     assert_eq!(
-        press(&mut b, &lib, &[Key::Right]),
+        press(&mut b, &lib, &[Key::Down, Key::Right]),
         Outcome::Change(crate::Setting::ScreenOff, 1)
     );
     press(&mut b, &lib, &[Key::B]);

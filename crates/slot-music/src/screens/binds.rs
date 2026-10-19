@@ -202,6 +202,11 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
             binds.extend(repeat(&MOVES));
             binds
         }
+        Legend::Update => {
+            let mut binds = vec![tap(Key::B, Word::Back), tap(Key::A, Word::Update)];
+            binds.extend(repeat(&MOVES));
+            binds
+        }
         // Rebuild acts only when A is held, as it takes long; the hint says so in its words.
         Legend::Hold => {
             let mut binds = vec![

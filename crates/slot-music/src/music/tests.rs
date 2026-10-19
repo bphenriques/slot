@@ -1335,13 +1335,15 @@ fn the_sleep_timer_counts_down_in_every_screen_s_corner_over_a_list_s_count() {
 }
 
 #[test]
-fn settings_list_the_keys_the_hints_leave_out_and_a_page_of_help() {
+fn settings_help_lists_the_keys_the_hints_leave_out_and_tips_to_read() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3"]);
     rig.to("Settings");
     rig.keys(&[Button::A]);
-    // Last come Controls, Help and Debug: Up from the first goes round to them.
+    // Last come Integrations, Help and Advanced: Up from the first goes round to them.
     rig.keys(&[Button::Up, Button::Up]);
-    rig.to(text::CONTROLS);
+    rig.to(text::HELP);
+    rig.keys(&[Button::A]);
+    assert_eq!(rig.rows(), [text::CONTROLS, text::TIPS]);
     rig.keys(&[Button::A]);
     assert_eq!(rig.screen().title, text::CONTROLS);
     let Body::List(table) = rig.screen().body else {
@@ -1357,7 +1359,7 @@ fn settings_list_the_keys_the_hints_leave_out_and_a_page_of_help() {
     );
     assert_eq!(rig.screen().corner, "", "no count");
     rig.keys(&[Button::B]);
-    rig.to(text::HELP);
+    rig.to(text::TIPS);
     rig.keys(&[Button::A]);
     let focus = |rig: &Rig| match rig.screen().body {
         Body::Text(text) => text.focus,
@@ -1369,11 +1371,15 @@ fn settings_list_the_keys_the_hints_leave_out_and_a_page_of_help() {
     rig.hold(Button::Down, 3000);
     assert_eq!(
         focus(&rig),
-        text::HELP_TEXT.len() - 1,
+        text::TIPS_TEXT.len() - 1,
         "to the last, and no further"
     );
-    rig.keys(&[Button::B]);
+    rig.keys(&[Button::B, Button::B]);
     assert_eq!(rig.screen().title, "Music Settings");
+    // Integrations, beside it, holds the scrobbler log.
+    rig.to(text::INTEGRATIONS);
+    rig.keys(&[Button::A]);
+    assert_eq!(rig.rows(), ["Scrobbler Log"]);
 }
 
 #[test]
@@ -1484,7 +1490,7 @@ fn the_shoulders_skip_the_song_where_there_are_no_letters_to_jump_by() {
 #[test]
 fn detailed_log_is_kept_and_turns_the_log_s_detail_on_and_off() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3"]);
-    rig.music.browser.push(View::Debug, 1);
+    rig.music.browser.push(View::Advanced, 1);
     rig.music.act(Press::Tap(Key::A));
     assert!(rig.music.settings.log);
     let asked = rig.music.out.iter().filter_map(|e| match e {

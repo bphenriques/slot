@@ -32,8 +32,8 @@ pub enum View {
     /// The sound settings slot's player has, a page of Music Settings; and the audiobooks'.
     Sound,
     BookSettings,
-    /// What helps say how the device does: the logs, and the last sound error.
-    Debug,
+    /// What helps say how the device does: the performance log and the detailed log.
+    Advanced,
     Artists,
     Artist(ArtistId),
     Albums,
@@ -65,9 +65,10 @@ pub enum View {
     SongInfo(TrackId),
     /// Settings' Integrations page: what the player tells programs outside it.
     Integrations,
-    /// Settings' Controls, the keys the hints leave out, and Help, a page to read.
-    Controls,
+    /// Settings' Help, a menu of Controls, the keys the hints leave out, and Tips, a page to read.
     Help,
+    Controls,
+    Tips,
 }
 
 /// The audiobooks a list holds.
@@ -92,7 +93,8 @@ impl View {
                 | View::Sound
                 | View::BookSettings
                 | View::Integrations
-                | View::Debug
+                | View::Advanced
+                | View::Help
                 | View::PlayingMenu
                 | View::QueueMenu
                 | View::RowMenu(_)
@@ -248,8 +250,6 @@ pub struct Context<'a> {
     pub lyrics: LyricsAt,
     /// Recently Played's songs, newest first.
     pub recent: &'a [TrackId],
-    /// Why the sound last failed: the file, or the device.
-    pub last_error: Option<&'a str>,
     /// The queue plays shuffled.
     pub shuffled: bool,
     /// Chapters read from books' files, by part.
@@ -283,7 +283,6 @@ impl<'a> Context<'a> {
             back: None,
             lyrics: LyricsAt::default(),
             recent: &[],
-            last_error: None,
             shuffled: false,
             chapters: &NO_CHAPTERS,
             eq: None,
@@ -394,7 +393,7 @@ impl Browser {
     pub fn at_end(&self, cx: &Context, key: Key) -> bool {
         let n = match self.view() {
             View::Lyrics => cx.lyrics.lines,
-            View::Help => text::HELP_TEXT.len(),
+            View::Tips => text::TIPS_TEXT.len(),
             view => rows(cx, view).len(),
         };
         match key {
@@ -443,7 +442,7 @@ impl Browser {
             (View::NowPlaying, Some(_)) => return screens::book::press(cx, key),
             (View::NowPlaying, None) => return screens::now_playing::press(self, cx, key),
             (View::Lyrics, _) => return screens::lyrics::press(self, cx, key),
-            (View::Help, _) => return screens::help::press(self, key),
+            (View::Tips, _) => return screens::help::press(self, key),
             _ => {}
         }
         let rows = rows(cx, self.view());

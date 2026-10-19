@@ -42,7 +42,13 @@ crossfade = 0
 skip_silence = off
 boost = 0
 
-# Pocket mode: L1 + R1 or L2 + R2 together, tapped, play or pause and, held, lock the music's
-# other keys, so nothing changes in a pocket: on or off. A lock buzzes unless pocket_buzz = off.
-pocket = on
-pocket_buzz = on
+
+# The equalizer's preset, by its name in music-eq.txt, or off.
+eq = off
+
+# Songs listened to go into .scrobbler.log, for a Last.fm uploader: on or off.
+scrobbler = off
+
+# Advanced: the performance log, and the detailed log: on or off.
+perf = off
+log = off

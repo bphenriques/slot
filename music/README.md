@@ -1,8 +1,8 @@
 # Music
 
 The hints at the bottom of each screen say what the buttons do there; "Play (Next)" is a tap
-and a hold, and a ring fills while a key is held. Settings › Controls lists the keys the hints
-leave out, and Settings › Help the rest in a few lines. This page is what the screens cannot
+and a hold, and a ring fills while a key is held. Settings › Help › Controls lists the keys
+the hints leave out, and Help › Tips the rest in a few lines. This page is what the screens cannot
 say: where things go on the card, and how the player behaves.
 
 ## On the card
@@ -18,7 +18,7 @@ say: where things go on the card, and how the player behaves.
 - `Config/music-eq.txt`: your equalizer presets; copy `music-eq.txt.example` to start.
 - `Config/audiobooks.txt`: each book's place, speed and bookmarks.
 - `.scrobbler.log`: songs listened to, for a Last.fm uploader, with Settings › Integrations on.
-- `Logs/slot.log`: what went wrong, and with Settings › Debug › Detailed Log, what happened.
+- `Logs/slot.log`: what went wrong, and with Settings › Advanced › Detailed Log, what happened.
 
 Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis and WAV.
 
@@ -43,7 +43,7 @@ Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis 
 ## Pocket and screen off
 
 - Two of L1, R1, L2 and R2 held together on Now Playing, or with the lid closed, lock the other
-  keys, or unlock them; a buzz says which (Pocket Lock and Pocket Vibration in Settings).
+  keys, or unlock them; a buzz says which.
 - With Screen Off set to Keep Playing, music goes on with the lid closed: L1 and R1 skip (in a
   book, jump), held they seek; L2 and R2 play or pause, held in a book they bookmark. Paused,
   slot powers off after its screen-off time.

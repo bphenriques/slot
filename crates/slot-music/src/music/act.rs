@@ -22,7 +22,7 @@ impl Music {
         match press {
             Press::Tap(Key::Pocket) => return false,
             Press::Held(Key::Pocket) => {
-                self.pocket.toggle(self.settings.pocket_buzz, self.now.at);
+                self.pocket.toggle(self.now.at);
                 self.tell(Notice::Locked(self.pocket.locked));
                 return false;
             }
@@ -82,7 +82,7 @@ impl Music {
             // Marked with the lid closed, a buzz says so, as nothing is seen.
             Outcome::Bookmark => {
                 if self.dark {
-                    self.pocket.buzz(self.settings.pocket_buzz, 1, self.now.at);
+                    self.pocket.buzz(1, self.now.at);
                 }
                 self.add_bookmark()
             }

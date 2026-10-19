@@ -6,7 +6,7 @@ use crate::browse::{Browser, Key, Outcome};
 use crate::{text, Music};
 
 pub(crate) fn press(b: &mut Browser, key: Key) -> Outcome {
-    let last = text::HELP_TEXT.len() - 1;
+    let last = text::TIPS_TEXT.len() - 1;
     match key {
         Key::Up => b.set_at(b.at().saturating_sub(1)),
         Key::Down => b.set_at((b.at() + 1).min(last)),
@@ -20,7 +20,7 @@ pub(crate) fn press(b: &mut Browser, key: Key) -> Outcome {
 
 pub(crate) fn screen(music: &Music) -> Screen {
     let body = TextBody {
-        lines: text::HELP_TEXT.map(String::from).to_vec(),
+        lines: text::TIPS_TEXT.map(String::from).to_vec(),
         lit: None,
         focus: music.browser.at(),
     };

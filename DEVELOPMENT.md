@@ -60,7 +60,7 @@ nix-shell --run "task sync:card CARD=$C"                   # adds and replaces; 
 cmp dist-device/System/slot "$C/System/slot" && sync       # verify, then unmount
 ```
 
-To measure on the device: Music › Settings › Debug › Performance Log On, use the player a while
+To measure on the device: Music › Settings › Advanced › Performance Log On, use the player a while
 (screen on and off, playing and paused, a book), then read `Logs/music-perf.log` on the card:
 one line every 10 s with frames a second, the music frame, screen, compare (telling whether a
 frame is new) and draw times (average and longest, in microseconds), each thread's share of one
@@ -83,7 +83,7 @@ against 0.12%, the player's thread 3.2% against 3.0%, likely as the mapped buffe
 the half second kept for a pause's fade is read back out of it; so the write stays as it is.
 
 Logging: `log::warn!` for what went wrong, always written; `log::info!` for what happens, only
-with Debug › Detailed Log on (`log = on`), so a user asked for help turns it on and sends
+with Advanced › Detailed Log on (`log = on`), so a user asked for help turns it on and sends
 `Logs/slot.log`. Nothing prints directly (`rules.rs` holds it so); the launcher keeps the last
 session's log as `slot.log.1`, and the performance log moves to `music-perf.log.1` past 1 MB.
 
@@ -98,7 +98,7 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 - Logic emits values (`Outcome`, `Notice`, `Legend`); `slot-ui` and the frontend only draw.
 - Buttons: a tap does one thing, a hold another, shown as "Tap (Held)"; hints never change
   while held (the corner ring shows the hold). START menus hold only what no button does.
-  Put any key change in Settings › Controls (`text.rs`'s `KEYS`); `music/README.md` only says what
+  Put any key change in Settings › Help › Controls (`text.rs`'s `KEYS`); `music/README.md` only says what
   the screens cannot.
 - Comments and docs in the existing voice: plain sentences saying what something is for.
 - Tests for behaviour (`crates/slot-music/src/tests/`, a module an area; the music as a whole in `src/music/tests.rs`, `crates/slot-player/tests/player.rs`,
@@ -139,11 +139,9 @@ Everything is committed up to `570cfd0`. Measured on the device (`Logs/music-per
 the clock mostly at 480 MHz): playing, the player's thread is ~3% of a core (decoding 2.1%, mixing
 0.3%, writing 0.6%); with the lid closed the frame loop wakes ~7 times a second and is ~0.4%; Now
 Playing lit with a title scrolling, the music screen is drawn only on the frames that change (~23
-a second), the frame loop ~5%. Next, in order:
-
-1. Phase 2, the mixer (`music/MIXER.md`).
-2. Release notes and licences: SoundTouch's is in `licenses/`; list symphonia, rubato
-   and lofty with the other third-party crates.
+a second), the frame loop ~5%. Next: release notes and licences (SoundTouch's is in
+`licenses/`; list symphonia, rubato and lofty with the other third-party crates). Phase 2, the
+mixer, is held (`music/MIXER.md`).
 
 A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to
 delete.

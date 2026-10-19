@@ -158,8 +158,6 @@ pub struct Music {
     pub(crate) equalizer: Presets,
     /// What the scrobbler log was told of the song playing.
     scrobbler: Scrobbler,
-    /// Why the sound last failed, for the Debug page.
-    last_error: Option<String>,
     /// The screen is off: only the shoulders act.
     dark: bool,
     /// The screen blanked by SELECT held, until a button: every key acts, as with it on.
@@ -242,7 +240,6 @@ impl Music {
             recent: Recent::default(),
             equalizer,
             scrobbler: Scrobbler::default(),
-            last_error: None,
             dark: false,
             blank: false,
         }
@@ -393,14 +390,13 @@ impl Music {
             }
             // The device stopped, not the file: paused where it was, and the corner says so.
             Event::Lost(why) => {
-                self.last_error = Some(why);
+                log::warn!("{why}");
                 self.tell(Notice::NoSound);
             }
             event => {
                 // A song that cannot be played is skipped; the corner says why the music moved
                 // on.
-                if let Event::Error(why) = &event {
-                    self.last_error = Some(why.clone());
+                if matches!(event, Event::Error(_)) {
                     self.tell(Notice::Unplayable);
                 }
                 let ends = self.ends_book(&event);
@@ -532,7 +528,6 @@ impl Music {
             back: self.books.back.map(|s| s.pos),
             lyrics: self.lyrics_at(),
             recent: &self.recent.tracks,
-            last_error: self.last_error.as_deref(),
             shuffled: self.player.shuffled(),
             chapters: &self.chapters,
             eq: self.equalizer.name(self.settings.eq),

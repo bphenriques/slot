@@ -29,9 +29,7 @@ pub enum Row {
     BookSettings,
     Rescan,
     Rebuild,
-    /// The Debug page, and what it holds besides a setting.
-    Debug,
-    LastError,
+    Advanced,
     Setting(Setting),
     PlayAll,
     Shuffle,
@@ -73,11 +71,12 @@ pub enum Row {
     SaveQueue,
     ClearQueue,
     Info(Info),
-    /// Settings' Integrations, Controls and Help pages; and a row of Controls: a heading of
-    /// `KEYS`, or one of its keys.
+    /// Settings' Integrations and Help pages, and Help's Controls and Tips; and a row of
+    /// Controls: a heading of `KEYS`, or one of its keys.
     Integrations,
-    Controls,
     Help,
+    Controls,
+    Tips,
     Key {
         group: usize,
         key: Option<usize>,
@@ -183,29 +182,25 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
             let n = cx.shelf.bookmarks(lib, book).len();
             rows.extend((0..n).map(Row::Bookmark));
         }
-        // Listening first, then the Sound and Audiobooks pages, then looks.
+        // The Sound and Audiobooks pages, the settings on this one, the library, then the pages
+        // seldom wanted.
         View::Settings => {
-            let (listening, looks) = Setting::ALL.split_at(3);
-            rows.extend(listening.iter().copied().map(Row::Setting));
             rows.push(Row::Sound);
             rows.extend((!lib.books.is_empty()).then_some(Row::BookSettings));
-            rows.extend(looks.iter().copied().map(Row::Setting));
+            rows.extend(Setting::ALL.map(Row::Setting));
             rows.extend([
                 Row::Rescan,
                 Row::Rebuild,
-                Row::Controls,
+                Row::Integrations,
                 Row::Help,
-                Row::Debug,
+                Row::Advanced,
             ]);
         }
+        View::Help => rows.extend([Row::Controls, Row::Tips]),
         View::Sound => rows.extend(Setting::SOUND.map(Row::Setting)),
         View::BookSettings => rows.extend(Setting::BOOKS.map(Row::Setting)),
         View::Integrations => rows.extend(Setting::INTEGRATIONS.map(Row::Setting)),
-        View::Debug => rows.extend([
-            Row::Setting(Setting::PerfLog),
-            Row::Setting(Setting::Log),
-            Row::LastError,
-        ]),
+        View::Advanced => rows.extend([Row::Setting(Setting::PerfLog), Row::Setting(Setting::Log)]),
         View::Controls => {
             for (group, (_, keys)) in text::KEYS.iter().enumerate() {
                 rows.push(Row::Key { group, key: None });
@@ -263,7 +258,7 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         View::RowMenu(_) => rows.extend([Row::Chapters, Row::StartOver, Row::Finished]),
         View::SongInfo(_) => rows.extend(Info::ALL.map(Row::Info)),
         // Now Playing, or text to read: no rows.
-        View::NowPlaying | View::Lyrics | View::Help => {}
+        View::NowPlaying | View::Lyrics | View::Tips => {}
     }
     rows
 }
@@ -542,7 +537,8 @@ pub(crate) fn value(cx: &Context, row: Row) -> Option<String> {
         )),
         Row::Speed => Some(text::speed(cx.queue.speed)),
         Row::ShuffleQueue => Some(text::on_off(cx.shuffled).into()),
-        Row::LastError => Some(cx.last_error.unwrap_or(text::NONE).to_string()),
+        // How many songs the library holds, beside reading it again.
+        Row::Rescan => Some(text::songs(cx.lib.tracks_by_title.len())),
         _ => None,
     }
 }

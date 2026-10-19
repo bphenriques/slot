@@ -72,8 +72,6 @@ impl Settings {
             skip_silence: is("skip_silence", "on"),
             boost: number("boost", &BOOSTS),
             // Once a choice of pair, now either, unless off.
-            pocket: !is("pocket", "off"),
-            pocket_buzz: !is("pocket_buzz", "off"),
             perf: is("perf", "on"),
             log: is("log", "on"),
             scrobbler: is("scrobbler", "on"),
@@ -98,8 +96,6 @@ impl Settings {
             ("crossfade", crossfade.as_str()),
             ("skip_silence", pick(self.skip_silence, "on", "off")),
             ("boost", boost.as_str()),
-            ("pocket", pick(self.pocket, "on", "off")),
-            ("pocket_buzz", pick(self.pocket_buzz, "on", "off")),
             ("perf", pick(self.perf, "on", "off")),
             ("log", pick(self.log, "on", "off")),
             ("scrobbler", pick(self.scrobbler, "on", "off")),

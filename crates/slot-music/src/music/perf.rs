@@ -1,4 +1,4 @@
-//! The performance log, from the Debug page: while it is on, frame timings are kept, and a
+//! The performance log, from the Advanced page: while it is on, frame timings are kept, and a
 //! thread of its own writes a line every few seconds to `Logs/music-perf.log` on the card, with
 //! each thread's share of the processor from `/proc`, to say where the time goes on the device.
 //! Off, nothing is kept and no thread runs.

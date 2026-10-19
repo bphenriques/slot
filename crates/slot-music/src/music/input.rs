@@ -1,7 +1,7 @@
 //! The controller's buttons as they go down and up: read into keys, the pocket combo and
 //! SELECT's skips among them, then each key acting as the screen shown, or the dark, has it.
 
-use super::controller::{Input, Read};
+use super::controller::{Button, Input, Read};
 use super::Music;
 use crate::browse::keys::Mode;
 use crate::browse::{Key, View};
@@ -12,13 +12,16 @@ impl Music {
     /// whether they are held, some act as they are let go, and some repeat.
     pub fn input(&mut self, input: Input) -> bool {
         self.stamp();
-        // Blank, a button lights the screen again, and acts as it would.
-        if matches!(input, Input::Down(_)) {
-            self.blank = false;
+        // Blank, a button lights the screen again, and acts as it would; SELECT, which blanked
+        // it, only lights it, so it is not seen down and its letting go does nothing.
+        if let Input::Down(button) = input {
+            if std::mem::take(&mut self.blank) && button == Button::Select {
+                return false;
+            }
         }
         // The pocket combo is for a pocket: Now Playing, or the lid closed; elsewhere the
         // shoulders are a list's.
-        let pocket = self.settings.pocket && (self.dark || self.browser.view() == View::NowPlaying);
+        let pocket = self.dark || self.browser.view() == View::NowPlaying;
         let read = self.controller.read(input, pocket);
         // With Detailed Log on, each button as it came and as it was read, to see the device's
         // own order and timing.

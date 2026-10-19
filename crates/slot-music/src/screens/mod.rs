@@ -67,6 +67,8 @@ pub enum Legend {
     Settings,
     /// A START menu, which may hold a setting.
     Menu,
+    /// Update Library, which reads the card again for what changed.
+    Update,
     /// Rebuild Library, which acts only when A is held, as it takes long.
     Hold,
     Back,
@@ -102,6 +104,7 @@ impl Legend {
         let on = [false, true];
         let mut all = vec![Legend::Carry, Legend::Settings, Legend::Menu];
         all.extend([
+            Legend::Update,
             Legend::Hold,
             Legend::Back,
             Legend::Chapters,
@@ -274,10 +277,11 @@ impl Music {
             | View::Sound
             | View::BookSettings
             | View::Integrations
-            | View::Debug => list::rows_screen(self),
+            | View::Help
+            | View::Advanced => list::rows_screen(self),
             View::Queue => queue::screen(self),
             View::Lyrics => lyrics::screen(self),
-            View::Help => help::screen(self),
+            View::Tips => help::screen(self),
             View::Controls => list::table(self),
             View::NowPlaying => now_playing::screen(self),
             View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_) => {
@@ -384,24 +388,27 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             },
             _ => Legend::Back,
         },
-        // Rebuild Library acts only when A is held; the pages it opens open; Last Error is only
-        // told.
-        View::Settings | View::Sound | View::BookSettings | View::Integrations | View::Debug => {
-            match row {
-                Some(Row::Rebuild) => Legend::Hold,
-                Some(
-                    Row::Sound
-                    | Row::BookSettings
-                    | Row::Integrations
-                    | Row::Controls
-                    | Row::Help
-                    | Row::Debug,
-                ) => Legend::Menu,
-                Some(Row::LastError) => Legend::Back,
-                _ => Legend::Settings,
-            }
-        }
-        View::SongInfo(_) | View::Controls | View::Help => Legend::Back,
+        // Rebuild Library acts only when A is held; the pages it opens open.
+        View::Settings
+        | View::Sound
+        | View::BookSettings
+        | View::Integrations
+        | View::Help
+        | View::Advanced => match row {
+            Some(Row::Rescan) => Legend::Update,
+            Some(Row::Rebuild) => Legend::Hold,
+            Some(
+                Row::Sound
+                | Row::BookSettings
+                | Row::Integrations
+                | Row::Help
+                | Row::Controls
+                | Row::Tips
+                | Row::Advanced,
+            ) => Legend::Menu,
+            _ => Legend::Settings,
+        },
+        View::SongInfo(_) | View::Controls | View::Tips => Legend::Back,
         View::PlayingMenu | View::QueueMenu | View::RowMenu(_) => Legend::Menu,
         View::BookChapters(_) => Legend::Chapters,
         View::Bookmarks(_) => Legend::Bookmarks,

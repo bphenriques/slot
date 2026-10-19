@@ -16,18 +16,15 @@ pub(crate) struct PocketLock {
 }
 
 impl PocketLock {
-    /// Locks, or unlocks, buzzing from `now` to say so when `buzz`: once to lock, twice to
-    /// unlock.
-    pub fn toggle(&mut self, buzz: bool, now: Instant) {
+    /// Locks, or unlocks, buzzing from `now` to say so: once to lock, twice to unlock.
+    pub fn toggle(&mut self, now: Instant) {
         self.locked ^= true;
-        self.buzz(buzz, if self.locked { 1 } else { 2 }, now);
+        self.buzz(if self.locked { 1 } else { 2 }, now);
     }
 
-    /// Buzzes `times` from `now`, when `buzz`: to say what was done unseen.
-    pub fn buzz(&mut self, buzz: bool, times: u32, now: Instant) {
-        if buzz {
-            self.buzz = Some((now, times));
-        }
+    /// Buzzes `times` from `now`: to say what was done unseen.
+    pub fn buzz(&mut self, times: u32, now: Instant) {
+        self.buzz = Some((now, times));
     }
 
     /// Whether the motor still has buzzing to do.

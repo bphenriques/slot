@@ -15,9 +15,10 @@ pub const MUSIC: &str = "Music";
 pub const NOW_PLAYING: &str = "Now Playing";
 pub const QUEUE: &str = "Queue";
 pub const SAVED_QUEUE: &str = "Saved Queue";
-pub const DEBUG: &str = "Debug";
+pub const ADVANCED: &str = "Advanced";
 pub const CONTROLS: &str = "Controls";
 pub const HELP: &str = "Help";
+pub const TIPS: &str = "Tips";
 pub const INTEGRATIONS: &str = "Integrations";
 
 /// Settings' Controls: the keys the hints leave out, by where they act, each with what it does.
@@ -74,15 +75,15 @@ pub const KEYS: [(&str, &[(&str, &str)]); 7] = [
     ),
 ];
 
-/// Settings' Help: what the screens do not say, a paragraph each.
-pub const HELP_TEXT: [&str; 7] = [
+/// Settings › Help › Tips: what the screens do not say, a paragraph each.
+pub const TIPS_TEXT: [&str; 7] = [
     "Songs go in Music, audiobooks in Audiobooks: a folder per book, or one .m4b.",
     "Playlists are .m3u files in Music/Playlists. Y adds a song to Favorites.",
     "Lyrics come from an .lrc file beside the song, or from its tags. X on Now Playing shows them.",
     "A hint like Play (Next) is tap to play, hold to play next. A ring fills while you hold.",
     "With Screen Off set to Keep Playing, music goes on with the lid closed, and the shoulders still work.",
     "A book picks up where you left it, a few seconds back after a long pause.",
-    "Asked for a log? Turn on Settings, Debug, Detailed Log, play a while, then send Logs/slot.log from the card.",
+    "Asked for a log? Turn on Settings, Advanced, Detailed Log, play a while, then send Logs/slot.log from the card.",
 ];
 pub const NONE: &str = "None";
 pub const RECENTLY_PLAYED: &str = "Recently Played";
@@ -116,10 +117,11 @@ pub fn title(view: View) -> Option<&'static str> {
         View::Settings => "Music Settings",
         View::Sound => SOUND,
         View::BookSettings => BOOKS,
-        View::Debug => DEBUG,
+        View::Advanced => ADVANCED,
         View::Controls => CONTROLS,
         View::Integrations => INTEGRATIONS,
         View::Help => HELP,
+        View::Tips => TIPS,
         View::Artists => "Artists",
         View::Albums => "Albums",
         View::Tracks => "Songs",
@@ -154,11 +156,11 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         Row::BookSettings => BOOKS,
         Row::Rescan => "Update Library",
         Row::Rebuild => "Rebuild Library",
-        Row::Debug => DEBUG,
+        Row::Advanced => ADVANCED,
         Row::Controls => CONTROLS,
         Row::Integrations => INTEGRATIONS,
         Row::Help => HELP,
-        Row::LastError => "Last Error",
+        Row::Tips => TIPS,
         Row::Books => BOOKS,
         Row::Continue => CONTINUE,
         Row::BookList(list) => book_list(list),
@@ -180,8 +182,6 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             Setting::Equalizer => "Equalizer",
             Setting::Crossfade => "Crossfade",
             Setting::SkipSilence => "Skip Silence",
-            Setting::Pocket => "Pocket Lock",
-            Setting::PocketBuzz => "Pocket Vibration",
             Setting::PerfLog => "Performance Log",
             Setting::Log => "Detailed Log",
             Setting::Scrobbler => "Scrobbler Log",
@@ -265,12 +265,10 @@ pub fn setting(
         Setting::Color => on_off(settings.color),
         Setting::Mono => on_off(settings.mono),
         Setting::SkipSilence => on_off(settings.skip_silence),
-        Setting::PocketBuzz => on_off(settings.pocket_buzz),
         Setting::PerfLog => on_off(settings.perf),
         Setting::Equalizer => eq.map_or_else(|| on_off(false), str::to_string),
         Setting::Log => on_off(settings.log),
         Setting::Scrobbler => on_off(settings.scrobbler),
-        Setting::Pocket => on_off(settings.pocket),
         Setting::Crossfade => match settings.crossfade {
             0 => "Off".into(),
             s => format!("{s} s"),
@@ -362,6 +360,19 @@ pub fn book_left(x: f32, done: Option<f64>, left: f64) -> String {
         Some(done) => format!("{} · {} · {} left", speed(x), percent(done), clock(left)),
         None => format!("{} · {} left", speed(x), clock(left)),
     }
+}
+
+/// How many songs the library holds: "1,234 songs".
+pub fn songs(n: usize) -> String {
+    let digits = n.to_string();
+    let mut grouped = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    format!("{grouped} {}", if n == 1 { "song" } else { "songs" })
 }
 
 /// Minutes as a sleep timer says them: 15 min, 1 h.
@@ -528,6 +539,7 @@ pub(crate) enum Word {
     PlayNext,
     PlayLine,
     Chapters,
+    Update,
     Bookmarks,
     Bookmark,
     List,
@@ -562,6 +574,7 @@ fn word(word: Word) -> &'static str {
         Word::PlayNext => "Play Next",
         Word::PlayLine => "Play Line",
         Word::Chapters => CHAPTERS,
+        Word::Update => "Update",
         Word::Bookmarks => BOOKMARKS,
         Word::Bookmark => "Bookmark",
         Word::List => "List",
@@ -613,6 +626,14 @@ fn book_list(list: BookList) -> &'static str {
 mod tests {
     use super::*;
     use crate::screens::{MainHold, Target};
+
+    #[test]
+    fn a_song_count_reads_in_thousands() {
+        assert_eq!(songs(1), "1 song");
+        assert_eq!(songs(999), "999 songs");
+        assert_eq!(songs(1234), "1,234 songs");
+        assert_eq!(songs(1_234_567), "1,234,567 songs");
+    }
 
     #[test]
     fn a_held_key_s_ring_goes_round_its_own_hint_or_in_the_corner_without_one() {

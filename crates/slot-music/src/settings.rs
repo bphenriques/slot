@@ -32,18 +32,13 @@ pub struct Settings {
     /// For books: pauses cut short (`skip_silence = on`), and dB louder (`boost = 0`, 3 or 6).
     pub skip_silence: bool,
     pub boost: u32,
-    /// Whether L1 + R1 or L2 + R2 together, tapped, play or pause and, held, lock the music's
-    /// keys, as in a pocket (`pocket = on`, the default); and whether a lock buzzes
-    /// (`pocket_buzz = on`).
-    pub pocket: bool,
-    pub pocket_buzz: bool,
-    /// Whether the performance log runs (`perf = on`), on the Debug page.
+    /// Whether the performance log runs (`perf = on`), on the Advanced page.
     pub perf: bool,
     /// Whether songs listened to go into `.scrobbler.log` for a Last.fm uploader
     /// (`scrobbler = on`), on the Integrations page.
     pub scrobbler: bool,
     /// Whether `Logs/slot.log` tells what happens as well as what went wrong (`log = on`), on the
-    /// Debug page: for someone asked to send it.
+    /// Advanced page: for someone asked to send it.
     pub log: bool,
 }
 
@@ -52,8 +47,6 @@ pub struct Settings {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Setting {
     ScreenOff,
-    Pocket,
-    PocketBuzz,
     Jump,
     Mono,
     Equalizer,
@@ -67,7 +60,7 @@ pub enum Setting {
     SleepTimer,
     Color,
     Theme,
-    /// On the Debug page.
+    /// On the Advanced page.
     PerfLog,
     Log,
     /// On the Integrations page.
@@ -75,11 +68,9 @@ pub enum Setting {
 }
 
 impl Setting {
-    /// Music Settings' own: listening, then looks, the Sound and Audiobooks pages between.
-    pub const ALL: [Setting; 6] = [
+    /// Music Settings' own, after its Sound and Audiobooks pages.
+    pub const ALL: [Setting; 4] = [
         Setting::ScreenOff,
-        Setting::Pocket,
-        Setting::PocketBuzz,
         Setting::ListSize,
         Setting::Color,
         Setting::Theme,
@@ -190,8 +181,6 @@ impl Default for Settings {
             eq: 0,
             skip_silence: false,
             boost: 0,
-            pocket: true,
-            pocket_buzz: true,
             perf: false,
             log: false,
             scrobbler: false,
@@ -220,8 +209,6 @@ impl Settings {
             Setting::Crossfade => self.crossfade = cycle(&FADES, self.crossfade, by),
             Setting::SkipSilence => self.skip_silence ^= true,
             Setting::Boost => self.boost = cycle(&BOOSTS, self.boost, by),
-            Setting::Pocket => self.pocket ^= true,
-            Setting::PocketBuzz => self.pocket_buzz ^= true,
             Setting::PerfLog => self.perf ^= true,
             // Stepped by the music, which knows the presets.
             Setting::Equalizer => {}

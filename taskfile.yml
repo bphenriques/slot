@@ -479,6 +479,9 @@ tasks:
       files, so games, saves and config already on the card stay
     requires:
       vars: [CARD]
+    preconditions:
+      - sh: test -n '{{.CARD}}' && test -d '{{.CARD}}' && test '{{.CARD}}' != /
+        msg: CARD must be the mounted card's folder
     cmds:
       - task: dist:device
       - rsync -rt --modify-window=1 --itemize-changes dist-device/ '{{.CARD}}/'

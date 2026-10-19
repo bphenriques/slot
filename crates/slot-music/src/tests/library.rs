@@ -44,17 +44,17 @@ fn a_track_reads_without_its_number_unless_the_number_is_the_title() {
 fn rescan_reads_what_changed_and_rebuild_everything_near_the_end_of_settings() {
     let (_d, lib) = library(&["X/A/01 one.mp3"]);
     let mut b = Browser::default();
-    // Settings, then up round to Debug, the last, and on to Rebuild.
+    // Settings, then up round to Advanced, the last, and on to Rebuild.
     assert_eq!(
         press(&mut b, &lib, &[Key::Up, Key::A, Key::Up, Key::A]),
         Outcome::None
     );
-    assert_eq!(b.view(), View::Debug, "the Debug page, last");
+    assert_eq!(b.view(), View::Advanced, "the Advanced page, last");
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(rows, ["Performance Log", "Detailed Log", "Last Error"]);
+    assert_eq!(rows, ["Performance Log", "Detailed Log"]);
     press(&mut b, &lib, &[Key::B]);
-    // Up past Help and Controls, to Rebuild.
+    // Up past Help and Integrations, to Rebuild.
     assert_eq!(
         press(&mut b, &lib, &[Key::Up, Key::Up, Key::Up, Key::A]),
         Outcome::Tell(Notice::Hold("A")),
