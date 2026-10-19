@@ -982,6 +982,7 @@ fn leveling_plays_a_song_at_its_replaygain_and_off_as_recorded() {
     );
 }
 
+#[cfg(feature = "perf")]
 #[test]
 fn the_work_done_is_counted_while_playing_and_not_while_paused() {
     let dir = tempfile::tempdir().unwrap();
@@ -1004,6 +1005,7 @@ fn the_work_done_is_counted_while_playing_and_not_while_paused() {
     assert_eq!(handle.status().work, paused, "nothing more while paused");
 }
 
+#[cfg(feature = "perf")]
 #[test]
 fn of_the_work_writing_the_device_s_own_library_s_is_told_apart() {
     let dir = tempfile::tempdir().unwrap();

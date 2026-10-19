@@ -12,6 +12,7 @@ use crate::browse::View;
 use crate::library::{BookId, TrackId};
 use crate::playback::queue::Queue;
 use crate::settings::cycle;
+use crate::store::queue::SavedQueue;
 use crate::store::Kept;
 use crate::text::Notice;
 use slot_player::{Command, Event, PlayState};
@@ -56,7 +57,7 @@ impl Music {
     /// Plays `book` from `pos` into its `part`, at its speed, the music's queue set aside.
     fn open_book(&mut self, book: BookId, part: usize, pos: f64) -> Option<Command> {
         if self.book().is_none() {
-            self.books.aside = self.player.take();
+            self.books.aside = self.player.set_aside();
         }
         let lib = &self.library;
         let parts = lib.albums[lib.books[book].album].tracks.len();
@@ -93,11 +94,14 @@ impl Music {
 
     /// The music's queue, its place and the seconds into it, for saving: the queue file never
     /// holds a book.
-    pub(crate) fn music_snapshot(&self) -> (&[TrackId], usize, f64) {
+    pub(crate) fn music_snapshot(&self) -> SavedQueue {
         match (self.book(), &self.books.aside) {
-            (None, _) => self.player.snapshot(),
-            (Some(_), Some((queue, pos))) => (queue.tracks(), queue.at(), *pos),
-            (Some(_), None) => (&[], 0, 0.0),
+            (None, _) => {
+                let (queue, pos) = self.player.snapshot();
+                SavedQueue::of(queue, pos)
+            }
+            (Some(_), Some((queue, pos))) => SavedQueue::of(queue, *pos),
+            (Some(_), None) => SavedQueue::default(),
         }
     }
 
@@ -113,13 +117,16 @@ impl Music {
             .clone();
         let part = place.part.min(parts.len().saturating_sub(1));
         let plays_on = playing == Some(self.library.tracks[parts[part]].path.as_path());
-        self.books.aside = self.player.take();
+        self.books.aside = self.player.set_aside();
         self.player.set_speed(place.speed);
         if plays_on {
-            self.player.restore(parts, part, place.pos, true)
+            self.player
+                .restore(Queue::new(parts, part, None), place.pos, true)
         } else {
             let at = place.pos - rewind(self.now.wall.saturating_sub(place.when));
-            let stop = self.player.put(Queue::new(parts, part, None), at.max(0.0));
+            let stop = self
+                .player
+                .put_back(Queue::new(parts, part, None), at.max(0.0));
             self.send(stop);
         }
         plays_on
@@ -183,7 +190,7 @@ impl Music {
         self.books.shelf.set_place(&self.library, book, place);
         self.books.shelf.set_current(&self.library, None);
         if let Some((queue, pos)) = self.books.aside.take() {
-            let stop = self.player.put(queue, pos);
+            let stop = self.player.put_back(queue, pos);
             self.send(stop);
         }
     }
@@ -303,7 +310,7 @@ impl Music {
         let playing = self.player.current().filter(|_| self.book().is_some());
         // Read before it played, they are the player's as it starts.
         if let Some(track) = playing.filter(|&t| self.player.chapters_of() != Some(t)) {
-            if let Some(chapters) = self.chapters.of(track) {
+            if let Some(chapters) = self.ahead.chapters.of(track) {
                 self.player.set_chapters(track, chapters.clone());
             }
         }
@@ -319,7 +326,7 @@ impl Music {
                 }
             }
         }
-        for part in self.chapters.want(&wanted) {
+        for part in self.ahead.chapters.want(&wanted) {
             let path = self.library.tracks[part].path.clone();
             self.work(Job::Chapters { track: part, path });
         }
@@ -330,7 +337,7 @@ impl Music {
     /// moved.
     pub(crate) fn chapters_read(&mut self, track: TrackId, chapters: Vec<Chapter>) {
         let follow = self.left_row() == Some(self.browser.at());
-        self.chapters.put(track, chapters);
+        self.ahead.chapters.put(track, chapters);
         if let Some(at) = self.left_row().filter(|_| follow) {
             self.browser.set_at(at);
         }

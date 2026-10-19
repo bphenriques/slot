@@ -11,10 +11,9 @@ fn the_main_screen_keeps_its_rows_whether_or_not_anything_plays() {
         page.rows,
         [
             "Shuffle Library",
+            "Library",
             "Playlists",
-            "Artists",
-            "Albums",
-            "Songs",
+            "Audiobooks",
             "Settings"
         ]
     );
@@ -94,7 +93,7 @@ fn shoulders_jump_by_letter_and_left_right_by_page() {
     press(&mut b, &lib, &[Key::L1]);
     assert_eq!(at(&b), "Abba");
     press(&mut b, &lib, &[Key::Right]);
-    assert_eq!(at(&b), artists[Settings::default().list_size.page()]);
+    assert_eq!(at(&b), artists[crate::browse::LIST_ROWS]);
     press(&mut b, &lib, &[Key::Left]);
     assert_eq!(at(&b), "Abba");
 }
@@ -105,7 +104,12 @@ fn b_backs_out_one_level_and_leaves_from_the_top() {
     let mut b = Browser::default();
     press(&mut b, &lib, &TO_ARTISTS);
     assert_eq!(b.view(), View::Artists);
-    assert_eq!(press(&mut b, &lib, &[Key::B]), Outcome::None);
+    assert_eq!(press(&mut b, &lib, &[Key::B]), Outcome::None, "to Library");
+    assert_eq!(
+        press(&mut b, &lib, &[Key::B]),
+        Outcome::None,
+        "to the Music menu"
+    );
     assert_eq!(press(&mut b, &lib, &[Key::B]), Outcome::Leave);
 }
 
@@ -236,12 +240,14 @@ fn rows_name_their_context_dim_and_mark_what_plays() {
 #[test]
 fn the_main_screen_counts_what_its_rows_lead_to() {
     let (_d, lib) = library(&["X/A/01 one.mp3", "X/B/01 two.mp3"]);
-    let page = Browser::default().page(&cx(&lib, QueueView::default(), Settings::default()));
+    let mut b = Browser::default();
+    press(&mut b, &lib, &[Key::Down, Key::A]);
+    let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     let values: Vec<Option<&str>> = page.values.iter().map(Option::as_deref).collect();
     assert_eq!(
         values,
-        [None, None, Some("1"), Some("2"), Some("2"), None],
-        "Now Playing, Playlists, Artists, Albums, Songs, Settings"
+        [Some("1"), Some("2"), Some("2")],
+        "Library: Artists, Albums, Songs; no Genres or Years with none tagged"
     );
 }
 
@@ -335,7 +341,7 @@ fn shuffle_deals_what_the_list_shows() {
     press(
         &mut b,
         &lib,
-        &[Key::Down, Key::Down, Key::Down, Key::A, Key::Down],
+        &[Key::Down, Key::A, Key::Down, Key::A, Key::Down],
     );
     assert_eq!(
         b.page(&cx(&lib, QueueView::default(), s)).rows[1],
@@ -354,29 +360,6 @@ fn shuffle_deals_what_the_list_shows() {
     let q = p.queue().tracks.to_vec();
     let a_together = q.windows(2).any(|w| *w == ids(&[0, 1])[..]);
     assert!(a_together, "album A plays whole and in order: {q:?}");
-}
-
-#[test]
-fn the_list_size_sets_how_many_rows_a_page_holds() {
-    use crate::ListSize;
-    assert_eq!(
-        [ListSize::Small, ListSize::Normal, ListSize::Large].map(ListSize::page),
-        [10, 8, 7]
-    );
-    let mut settings = Settings::default();
-    settings.change(crate::Setting::ListSize, 1);
-    assert_eq!(settings.list_size, ListSize::Large);
-    settings.change(crate::Setting::ListSize, 1);
-    assert_eq!(settings.list_size, ListSize::Large, "it stops at the ends");
-    let d = tempfile::tempdir().unwrap();
-    let s = Settings {
-        list_size: ListSize::Small,
-        ..Settings::default()
-    };
-    let store = Store::open(d.path());
-    store.save_settings(&s, &Settings::default());
-    store.flush();
-    assert_eq!(store.settings().list_size, ListSize::Small);
 }
 
 #[test]
@@ -505,6 +488,10 @@ fn home_goes_all_the_way_back_to_where_the_cursor_was() {
     b.home();
     assert_eq!(b.view(), View::Main);
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
+    assert_eq!(page.rows[page.selected], "Library");
+    // Library opens again on the row it was left on, as players keep their library's tab.
+    press(&mut b, &lib, &[Key::A]);
+    let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!(page.rows[page.selected], "Albums");
 }
 
@@ -522,7 +509,7 @@ fn start_opens_a_menu_only_for_what_no_key_does() {
         &lib,
         &[Key::A, Key::Down, Key::Down, Key::Down, Key::Start],
     );
-    assert_eq!(b.view(), View::RowMenu(crate::Row::Track(TrackId(1))));
+    assert_eq!(b.view(), View::SongMenu(TrackId(1)));
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!(page.rows, ["Go to", "Go to", "Song Info"]);
     press(&mut b, &lib, &[Key::Up, Key::A]);
@@ -655,21 +642,20 @@ fn a_held_on_the_music_menu_shuffles_a_list_or_plays_on_the_latest_book() {
         shelf: &shelf,
         ..Context::new(&lib, at(0))
     };
-    // Shuffle Library, Playlists, Audiobooks, Artists, Albums, Songs.
+    // Shuffle Library, then Library, which held shuffles every song.
     let mut b = Browser::default();
-    for _ in 0..5 {
-        b.press(&cx, Key::Down);
-    }
+    b.press(&cx, Key::Down);
     assert_eq!(b.mode(&cx, Key::A), Mode::Hold);
     let Outcome::Play {
         tracks, shuffle, ..
     } = b.held(&cx, Key::A)
     else {
-        panic!("Songs held plays");
+        panic!("Library held plays");
     };
     assert_eq!((tracks.len(), shuffle), (2, Shuffle::Tracks));
     assert_eq!(b.view(), View::NowPlaying);
     let mut b = Browser::default();
+    b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     assert_eq!(
@@ -681,6 +667,7 @@ fn a_held_on_the_music_menu_shuffles_a_list_or_plays_on_the_latest_book() {
     );
     // In Audiobooks' lists, Y lists a book's bookmarks.
     let mut b = Browser::default();
+    b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     b.press(&cx, Key::A);

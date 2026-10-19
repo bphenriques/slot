@@ -55,7 +55,7 @@ macro_rules! ids {
     )*};
 }
 
-ids!(TrackId => Track, AlbumId => Album, ArtistId => Artist, BookId => Book);
+ids!(TrackId => Track, AlbumId => Album, ArtistId => Artist, BookId => Book, GenreId => Genre);
 
 /// The files listed, those slot-player decodes: MP3; AAC or Apple Lossless in MP4 (.m4a, an
 /// .m4b book) or alone; FLAC; Vorbis or FLAC in Ogg; WAV. Not Opus, which it has no decoder for.
@@ -91,6 +91,12 @@ pub struct Track {
     /// The book it is a part of, and how long it plays, in seconds: 0 unless a book's.
     pub book: Option<BookId>,
     pub secs: f64,
+}
+
+/// A genre, as the songs' tags name it, and its albums by name.
+pub struct Genre {
+    pub name: String,
+    pub albums: Vec<AlbumId>,
 }
 
 /// An audiobook: its title, author, parts and picture are kept as an album's are.
@@ -129,6 +135,10 @@ pub struct Library {
     pub music_artists: Vec<ArtistId>,
     /// The audiobooks, by title.
     pub books: Vec<Book>,
+    /// The genres the songs are tagged with, by name.
+    pub genres: Vec<Genre>,
+    /// The albums that say when they came out, oldest first: Years, by decade.
+    pub albums_by_year: Vec<AlbumId>,
 }
 
 /// A song's fields once its tags and folders are put together.
@@ -140,6 +150,7 @@ struct Song {
     disc: u32,
     track: u32,
     year: u32,
+    genre: String,
     path: PathBuf,
     modified: u64,
     added: u64,
@@ -191,6 +202,7 @@ impl Song {
             modified: r.modified,
             added: r.added,
             year: r.tags.year,
+            genre: r.tags.genre.clone(),
             secs: r.tags.secs,
             path: r.path,
         }
@@ -220,7 +232,13 @@ impl Library {
         // Album artist, then album, each by its name in any case.
         type Albums = HashMap<String, (String, Vec<Song>)>;
         let mut grouped: HashMap<String, (String, Albums)> = HashMap::new();
-        for song in records.into_iter().map(|r| Song::of(&music, r)) {
+        let shared = shared_artists(&records);
+        for song in records.into_iter().map(|r| {
+            let shared = shared.get(&album_key(&r)).cloned();
+            let mut song = Song::of(&music, r);
+            song.album_artist = shared.unwrap_or(song.album_artist);
+            song
+        }) {
             let (_, albums) = grouped
                 .entry(song.album_artist.to_lowercase())
                 .or_insert_with(|| (song.album_artist.clone(), HashMap::new()));
@@ -233,6 +251,8 @@ impl Library {
         let mut artists: Vec<(String, Albums)> = grouped.into_values().collect();
         artists.sort_by_cached_key(|(name, _)| sort_key(name));
         let mut lib = Library::default();
+        // Each album's genres, as its songs name them, gathered into the library's once all are in.
+        let mut album_genres: Vec<(AlbumId, Vec<String>)> = Vec::new();
         for (name, albums) in artists {
             let artist = ArtistId(lib.artists.len());
             // By year, as players list an artist's albums; those that do not say, after, by name.
@@ -243,7 +263,12 @@ impl Library {
             });
             let ids = albums
                 .into_iter()
-                .map(|(name, songs)| lib.add_album(name, artist, songs))
+                .map(|(name, songs)| {
+                    let genres = split_genres(songs.iter().map(|s| s.genre.as_str()));
+                    let album = lib.add_album(name, artist, songs);
+                    album_genres.push((album, genres));
+                    album
+                })
                 .collect();
             lib.artists.push(Artist { name, albums: ids });
         }
@@ -258,6 +283,11 @@ impl Library {
             .sort_by_key(|&a| std::cmp::Reverse((lib.albums[a].added, lib.albums[a].changed)));
         lib.albums_by_added.truncate(RECENT_ALBUMS);
         lib.music_artists = (0..lib.artists.len()).map(ArtistId).collect();
+        lib.albums_by_year = (0..lib.albums.len()).map(AlbumId).collect();
+        lib.albums_by_year.retain(|&a| lib.albums[a].year > 0);
+        lib.albums_by_year
+            .sort_by_cached_key(|&a| (lib.albums[a].year, sort_key(&lib.albums[a].name)));
+        lib.genres = genres(&lib, &album_genres);
         lib.add_books(&books, book_records);
         lib.playlists = crate::store::playlists::read(root, &lib);
         lib
@@ -386,6 +416,85 @@ impl Library {
     pub fn album_of(&self, track: TrackId) -> &Album {
         &self.albums[self.tracks[track].album]
     }
+}
+
+/// The genres `tags` name, each once in any case, in the order first named: a tag may name
+/// several, as "Rock; Pop" or "Rock/Pop" do.
+fn split_genres<'a>(tags: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut genres: Vec<String> = Vec::new();
+    for genre in tags.flat_map(|t| t.split([';', '/', '\0'])).map(str::trim) {
+        if !genre.is_empty() && !genres.iter().any(|g| g.eq_ignore_ascii_case(genre)) {
+            genres.push(genre.to_string());
+        }
+    }
+    genres
+}
+
+/// The genres of `albums`, each with its albums by name: one genre for names alike in any
+/// case, spelled as the first album to name it does, a capital first letter winning.
+fn genres(lib: &Library, albums: &[(AlbumId, Vec<String>)]) -> Vec<Genre> {
+    let mut by_name: HashMap<String, Genre> = HashMap::new();
+    for (album, names) in albums {
+        for name in names {
+            let genre = by_name.entry(name.to_lowercase()).or_insert_with(|| Genre {
+                name: name.clone(),
+                albums: Vec::new(),
+            });
+            let capital = |s: &str| s.starts_with(char::is_uppercase);
+            if capital(name) && !capital(&genre.name) {
+                genre.name = name.clone();
+            }
+            genre.albums.push(*album);
+        }
+    }
+    let mut genres: Vec<Genre> = by_name.into_values().collect();
+    genres.sort_by_cached_key(|g| sort_key(&g.name));
+    for genre in &mut genres {
+        genre
+            .albums
+            .sort_by_cached_key(|&a| sort_key(&lib.albums[a].name));
+    }
+    genres
+}
+
+/// What finds an album's songs together before their artists are known: their folder, and
+/// their album's name in any case.
+fn album_key(r: &Record) -> (PathBuf, String) {
+    let folder = r.path.parent().map(Path::to_path_buf).unwrap_or_default();
+    (folder, r.tags.album.to_lowercase())
+}
+
+/// The artist each album with no album artist tags but songs by several is filed under, as
+/// players file one: the artist most of its songs share, so a song "feat." another stays on
+/// it; else Various Artists, a compilation.
+fn shared_artists(records: &[Record]) -> HashMap<(PathBuf, String), String> {
+    let mut albums: HashMap<(PathBuf, String), Vec<&Record>> = HashMap::new();
+    for r in records.iter().filter(|r| !r.tags.album.is_empty()) {
+        albums.entry(album_key(r)).or_default().push(r);
+    }
+    albums
+        .into_iter()
+        .filter(|(_, songs)| songs.iter().all(|r| r.tags.album_artist.is_empty()))
+        .filter_map(|(key, songs)| {
+            let mut counts: HashMap<String, (usize, &str)> = HashMap::new();
+            for r in songs.iter().filter(|r| !r.tags.artist.is_empty()) {
+                let artist = &r.tags.artist;
+                counts.entry(artist.to_lowercase()).or_insert((0, artist)).0 += 1;
+            }
+            if counts.len() < 2 {
+                return None;
+            }
+            let (most, artist) = counts
+                .into_values()
+                .max_by_key(|&(n, a)| (n, std::cmp::Reverse(a)))?;
+            let shared = if most * 2 > songs.len() {
+                artist.to_string()
+            } else {
+                text::VARIOUS_ARTISTS.to_string()
+            };
+            Some((key, shared))
+        })
+        .collect()
 }
 
 /// The year an album came out: its songs' earliest, as a reissue keeps the first's; 0 when none

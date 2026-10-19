@@ -3,7 +3,8 @@
 
 use super::worker::{Done, Job};
 use super::{Effect, Music};
-use crate::browse::View;
+use crate::browse::rows;
+use crate::browse::{per_page, View};
 use crate::library::covers::{self, Art, Covers};
 use crate::library::AlbumId;
 
@@ -17,6 +18,20 @@ pub(crate) struct Pictures {
     seen: bool,
     next: Option<AlbumId>,
     ahead: Option<Art>,
+    /// The page whose thumbnails were asked for, the albums its rows start with, and those
+    /// read: asked again only as the page changes.
+    page: Option<Page>,
+    wanted: Vec<AlbumId>,
+    pub(crate) thumbs: Vec<Art>,
+}
+
+/// A page of a list, as far as its thumbnails go: the screen, which page of it, and how long
+/// the queue is, whose rows move as it is edited.
+#[derive(Copy, Clone, PartialEq)]
+struct Page {
+    view: View,
+    page: usize,
+    queued: usize,
 }
 
 impl Default for Pictures {
@@ -28,6 +43,9 @@ impl Default for Pictures {
             seen: false,
             next: None,
             ahead: None,
+            page: None,
+            wanted: Vec::new(),
+            thumbs: Vec::new(),
         }
     }
 }
@@ -70,6 +88,37 @@ impl Music {
             }
         }
         self.pictures.seen = self.browser.view() == View::NowPlaying && !self.dark;
+        self.want_thumbs();
+    }
+
+    /// Asks for the thumbnails of the page shown, as it changes, and lets go of the rest.
+    fn want_thumbs(&mut self) {
+        let view = self.browser.view();
+        let page = Page {
+            view,
+            page: self.browser.at() / per_page(view),
+            queued: self.player.queue().tracks.len(),
+        };
+        if self.pictures.page == Some(page) {
+            return;
+        }
+        self.pictures.page = Some(page);
+        let cx = self.context();
+        let rows = rows::rows(&cx, view);
+        let per = per_page(view);
+        let wanted: Vec<AlbumId> = rows
+            .iter()
+            .skip(page.page * per)
+            .take(per)
+            .filter_map(|&row| rows::album(&cx, view, row))
+            .collect();
+        self.pictures.thumbs.retain(|t| wanted.contains(&t.album));
+        let read: Vec<AlbumId> = self.pictures.thumbs.iter().map(|t| t.album).collect();
+        for &album in wanted.iter().filter(|a| !read.contains(a)) {
+            let thumb = covers::thumb(&self.root, &self.library, album);
+            self.work(Job::Thumb { album, thumb });
+        }
+        self.pictures.wanted = wanted;
     }
 
     /// What the worker did, for this library: a label made, or a picture read.
@@ -77,6 +126,12 @@ impl Music {
         match done {
             Done::Made(album) => {
                 self.pictures.covers.made();
+                // Made while its row is shown: its thumbnail, too.
+                let read = self.pictures.thumbs.iter().any(|t| t.album == album);
+                if self.pictures.wanted.contains(&album) && !read {
+                    let thumb = covers::thumb(&self.root, &self.library, album);
+                    self.work(Job::Thumb { album, thumb });
+                }
                 if self.pictures.shown == Some(album)
                     && self.pictures.art.as_ref().map(|a| a.album) != Some(album)
                 {
@@ -88,6 +143,10 @@ impl Music {
             }
             Done::Loaded(album, art) if self.pictures.next == Some(album) => {
                 self.pictures.ahead = art
+            }
+            Done::Thumb(album, Some(art)) if self.pictures.wanted.contains(&album) => {
+                self.pictures.thumbs.retain(|t| t.album != album);
+                self.pictures.thumbs.push(art);
             }
             _ => {}
         }

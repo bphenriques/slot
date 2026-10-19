@@ -32,7 +32,7 @@ impl Music {
     /// Acts on held keys, runs the sleep timer and ends fades.
     pub(super) fn tick(&mut self) {
         let now = self.now.at;
-        if let Some(press) = self.keys.due(now) {
+        if let Some(press) = self.buttons.keys.due(now) {
             self.act(press);
         }
         let ends = self
@@ -115,9 +115,11 @@ impl Music {
         self.keep_queue();
     }
 
-    /// Tells the player the sound for what plays, when it changes or the player is new: a book is
-    /// never crossfaded, and only a book skips silence and is boosted.
+    /// Tells the player the sound for what plays, each part as it changes, all of it to a player
+    /// new: a book is never crossfaded, nor a song into the next on its album, played in order,
+    /// as Plexamp keeps an album gapless; only a book skips silence and is boosted.
     pub(super) fn tell_sound(&mut self) {
+        let along = self.player.follows_on_album(&self.library);
         let s = &self.settings;
         let level = s.level(self.player.shuffled());
         let sound = if self.book().is_some() {
@@ -131,7 +133,7 @@ impl Music {
             }
         } else {
             Sound {
-                crossfade: s.crossfade,
+                crossfade: if along { 0 } else { s.crossfade },
                 skip_silence: false,
                 boost: 0,
                 level,
@@ -139,22 +141,28 @@ impl Music {
                 eq: s.eq,
             }
         };
-        if self.transport.sound == Some(sound) {
-            return;
-        }
-        self.transport.sound = Some(sound);
+        let was = self.transport.sound.replace(sound);
         let boost = 10f32.powf(sound.boost as f32 / 20.0);
-        self.out.extend(
-            [
+        let told = [
+            (
+                changed(was, sound, |s| s.level),
                 Command::Level(sound.level),
+            ),
+            (
+                changed(was, sound, |s| s.crossfade),
                 Command::Crossfade(f64::from(sound.crossfade)),
+            ),
+            (
+                changed(was, sound, |s| s.skip_silence),
                 Command::SkipSilence(sound.skip_silence),
-                Command::Boost(boost),
-                Command::Mono(sound.mono),
-                Command::Equalizer(self.equalizer.bands(sound.eq)),
-            ]
-            .map(Effect::Player),
-        );
+            ),
+            (changed(was, sound, |s| s.boost), Command::Boost(boost)),
+            (changed(was, sound, |s| s.mono), Command::Mono(sound.mono)),
+        ];
+        let told = told.into_iter().filter(|(new, _)| *new).map(|(_, c)| c);
+        let eq = changed(was, sound, |s| s.eq)
+            .then(|| Command::Equalizer(self.equalizer.bands(sound.eq)));
+        self.out.extend(told.chain(eq).map(Effect::Player));
     }
 
     /// Puts the song playing first in Recently Played once it has played a while.
@@ -187,4 +195,9 @@ impl Music {
             });
         }
     }
+}
+
+/// Whether `part` of the sound differs from what it `was`, or there was none: a player new.
+fn changed<T: PartialEq>(was: Option<Sound>, now: Sound, part: impl Fn(Sound) -> T) -> bool {
+    was.is_none_or(|was| part(was) != part(now))
 }

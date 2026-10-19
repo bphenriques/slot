@@ -12,6 +12,7 @@ mod engine;
 mod input;
 mod loading;
 mod lyrics;
+#[cfg(feature = "perf")]
 mod perf;
 mod pocket;
 mod read_ahead;
@@ -24,8 +25,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::books::chapters::Chapter;
-use crate::browse::keys::Keys;
-use crate::browse::{Browser, Context, Key};
+use crate::browse::{Browser, Context};
 use crate::library::TrackId;
 use crate::library::{scan, Library};
 use crate::lyrics::Lyrics;
@@ -34,7 +34,7 @@ use crate::playback::recent::Recent;
 pub(crate) use read_ahead::ReadAhead;
 
 use crate::integrations::scrobbler::Scrobbler;
-use crate::settings::{Settings, Theme};
+use crate::settings::Settings;
 use crate::store::equalizer::Presets;
 use crate::store::queue::SavedQueue;
 use crate::store::settings::SETTINGS_FILE;
@@ -42,11 +42,10 @@ use crate::store::{Card, Kept, Store};
 use crate::text::Notice;
 use art::Pictures;
 use books::Books;
-use controller::Controller;
 pub use controller::{Button, Input};
 use engine::{Engine, Start};
+use input::Buttons;
 use loading::{spawn_scan, Found, Scan};
-use pocket::PocketLock;
 use slot_player::{Command, Event, Handle, PlayState};
 use transport::Transport;
 use worker::{Done, Job, Worker};
@@ -70,9 +69,28 @@ pub(crate) enum Effect {
     /// Give the worker a job, under the library's generation it was asked in.
     Work(u32, Job),
     /// Start the performance log, or stop it.
+    #[cfg(feature = "perf")]
     PerfLog(bool),
     /// Log what happens as well as what went wrong, or only that.
     Log(bool),
+}
+
+/// What is shown for a moment, and since when: a notice in the corner, and the letter a list
+/// last jumped to, large.
+#[derive(Default)]
+pub(crate) struct Flash {
+    pub(crate) notice: Option<(Notice, Instant)>,
+    pub(crate) letter: Option<(char, Instant)>,
+}
+
+/// What is read ahead for what plays, off the frame: the lyrics of the song playing and the
+/// next, and the song they were last shown for, to start a new one's from the top; the
+/// chapters of the book's part playing and the next.
+#[derive(Default)]
+struct Ahead {
+    lyrics: ReadAhead<Option<Lyrics>>,
+    lyrics_for: Option<TrackId>,
+    chapters: ReadAhead<Vec<Chapter>>,
 }
 
 /// What reaches the state from outside between frames.
@@ -80,6 +98,8 @@ enum Msg {
     Player(Event),
     Library(Found),
     Worker(u32, Done),
+    /// A write to the card failed.
+    SaveFailed,
 }
 
 /// The outside as the state sees it, read once as something comes in: the moment, for what is
@@ -113,6 +133,7 @@ struct Shell {
     store: Store,
     worker: Worker,
     /// The performance log, while it runs.
+    #[cfg(feature = "perf")]
     perf: Option<perf::PerfLog>,
 }
 
@@ -136,22 +157,12 @@ pub struct Music {
     generation: u32,
     /// The time, as it was when something last came in.
     pub(crate) now: Now,
-    pub(crate) notice: Option<(Notice, Instant)>,
-    /// The letter a list last jumped to, shown large for a moment.
-    pub(crate) letter: Option<(char, Instant)>,
-    /// The key down: tapped, held or repeating.
-    pub(crate) keys: Keys<Key>,
-    /// The buttons down, read into keys.
-    controller: Controller,
-    /// When the last button came, for the performance log's trace of them.
-    last_input: Option<Instant>,
-    pub(crate) pocket: PocketLock,
-    /// The lyrics of the song playing and the next, read ahead; and the song the lyrics were
-    /// last shown for, to start a new one's from the top.
-    lyrics: ReadAhead<Option<Lyrics>>,
-    lyrics_for: Option<TrackId>,
-    /// The chapters of the book's part playing and the next, read ahead.
-    chapters: ReadAhead<Vec<Chapter>>,
+    /// What is shown for a moment: a notice in the corner, the letter a list jumped to.
+    pub(crate) flash: Flash,
+    /// The buttons, read into keys, and the pocket lock.
+    pub(crate) buttons: Buttons,
+    /// The lyrics and chapters read ahead for what plays.
+    ahead: Ahead,
     /// The songs played last.
     pub(crate) recent: Recent,
     /// The equalizer's presets, from the card.
@@ -160,22 +171,24 @@ pub struct Music {
     scrobbler: Scrobbler,
     /// The screen is off: only the shoulders act.
     dark: bool,
-    /// The screen blanked by SELECT held, until a button: every key acts, as with it on.
-    blank: bool,
 }
 
 impl Music {
-    /// `art_px` is the size album pictures are shrunk to. Made, and polled, on the frame loop's
-    /// thread, which the worker wakes as it has something to show.
-    pub fn spawn(root: &Path, art_px: u32) -> Music {
-        let start: Start = Box::new(|| Box::new(Handle::slot()));
-        Music::with(root, art_px, start, Box::new(system_now))
+    /// `art_px` is the size album pictures are shrunk to, `thumb_px` a list row's thumbnails;
+    /// `player` starts the player to play
+    /// through, the device's (`Handle::slot`) or one on any output (`Handle::on`), the frontend's
+    /// to choose: the music knows no device. Made, and polled, on the frame loop's thread, which
+    /// the worker wakes as it has something to show.
+    pub fn spawn(root: &Path, art_px: u32, thumb_px: u32, player: fn() -> Handle) -> Music {
+        let start: Start = Box::new(move || Box::new(player()));
+        Music::with(root, (art_px, thumb_px), start, Box::new(system_now))
     }
 
-    /// As `spawn`, playing through what `start` starts, its time from `clock`.
+    /// As `spawn`, pictures shrunk to `px` (Now Playing's, a row's), playing through what
+    /// `start` starts, its time from `clock`.
     pub(crate) fn with(
         root: &Path,
-        art_px: u32,
+        (art_px, thumb_px): (u32, u32),
         start: Start,
         clock: Box<dyn Fn() -> Now>,
     ) -> Music {
@@ -192,10 +205,17 @@ impl Music {
         if crate::store::queue::saved(root) {
             player.wait_for_saved();
         }
+        // The first start opens on Help, once.
+        let (mut browser, mut out) = (Browser::default(), Vec::new());
+        if !settings.help_seen {
+            browser.push(crate::browse::View::Help, 0);
+            settings.help_seen = true;
+            out.push(Effect::Setting("help", "seen".into()));
+        }
         let progress = Arc::new(scan::Progress::default());
         Music {
             root: root.to_path_buf(),
-            out: Vec::new(),
+            out,
             library: Library::default(),
             scan: Scan {
                 rx: Some(spawn_scan(root, false, progress.clone())),
@@ -204,6 +224,8 @@ impl Music {
                 recent_text: Some(store.read(Recent::FILE)),
                 replaying: None,
                 play_when_read: false,
+                places: Vec::new(),
+                queue_saved: None,
                 progress,
             },
             books: Books {
@@ -217,31 +239,25 @@ impl Music {
                 clock,
                 store,
                 // Made on the frame loop, which rests by parking: the worker wakes it.
-                worker: Worker::spawn(art_px, std::thread::current()),
+                worker: Worker::spawn(art_px, thumb_px, std::thread::current()),
+                #[cfg(feature = "perf")]
                 perf: settings.perf.then(|| perf::PerfLog::start(root)),
             },
             pictures: Pictures::default(),
-            browser: Browser::default(),
+            browser,
             player,
             transport: Transport::default(),
             settings,
             gone: false,
             generation: 0,
             now,
-            notice: None,
-            letter: None,
-            keys: Keys::default(),
-            controller: Controller::default(),
-            last_input: None,
-            pocket: PocketLock::default(),
-            chapters: ReadAhead::default(),
-            lyrics: ReadAhead::default(),
-            lyrics_for: None,
+            flash: Flash::default(),
+            buttons: Buttons::default(),
+            ahead: Ahead::default(),
             recent: Recent::default(),
             equalizer,
             scrobbler: Scrobbler::default(),
             dark: false,
-            blank: false,
         }
     }
 
@@ -249,11 +265,13 @@ impl Music {
     /// fading, timed or held, only the pictures go on.
     pub fn poll(&mut self, game: bool) {
         // The frame's own time, for the perf log; the state's, read once.
+        #[cfg(feature = "perf")]
         let began = Instant::now();
         self.stamp();
         let (status, inbox) = (self.shell.engine.status(), self.inbox());
         self.frame(status, inbox, game);
         self.run();
+        #[cfg(feature = "perf")]
         self.note_frame(began, status.work);
     }
 
@@ -287,6 +305,7 @@ impl Music {
     }
 
     /// While the performance log runs: how long this frame took, and what was shown.
+    #[cfg(feature = "perf")]
     fn note_frame(&self, began: Instant, work: slot_player::Work) {
         let Some(perf) = &self.shell.perf else {
             return;
@@ -316,8 +335,10 @@ impl Music {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = what;
     }
 
+    #[cfg_attr(not(feature = "perf"), allow(unused_variables))]
     /// While the performance log runs: how long the frontend took to draw this frame's screen.
     pub fn note_draw(&self, took: std::time::Duration) {
+        #[cfg(feature = "perf")]
         if let Some(perf) = &self.shell.perf {
             perf.stats.glue.add(took);
         }
@@ -325,14 +346,18 @@ impl Music {
 
     /// While the performance log runs: how long the frontend took to tell whether a frame shows
     /// anything new, building what it would show to compare with the last.
+    #[cfg_attr(not(feature = "perf"), allow(unused_variables))]
     pub fn note_compare(&self, took: std::time::Duration) {
+        #[cfg(feature = "perf")]
         if let Some(perf) = &self.shell.perf {
             perf.stats.compare.add(took);
         }
     }
 
     /// While the performance log runs: how long building `screen` took.
+    #[cfg_attr(not(feature = "perf"), allow(unused_variables))]
     pub(crate) fn note_screen(&self, took: std::time::Duration) {
+        #[cfg(feature = "perf")]
         if let Some(perf) = &self.shell.perf {
             perf.stats.screen.add(took);
         }
@@ -351,8 +376,17 @@ impl Music {
             match rx.try_recv() {
                 Ok(found) => inbox.push(Msg::Library(found)),
                 Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => self.scan.rx = None,
+                Err(TryRecvError::Disconnected) => {
+                    self.scan.rx = None;
+                    // Gone before a library came: it failed, and is waited on no more.
+                    if !self.scan.ready {
+                        inbox.push(Msg::Library(Found::Failed));
+                    }
+                }
             }
+        }
+        if self.shell.store.failed() {
+            inbox.push(Msg::SaveFailed);
         }
         let done = self.shell.worker.done();
         inbox.extend(done.map(|(generation, done)| Msg::Worker(generation, done)));
@@ -364,8 +398,8 @@ impl Music {
         self.player.state() != PlayState::Playing
             && self.transport.fade.is_none()
             && self.transport.sleep.left(self.now.at).is_none()
-            && !self.keys.held()
-            && !self.pocket.buzzing()
+            && !self.buttons.keys.held()
+            && !self.buttons.pocket.buzzing()
     }
 
     fn update(&mut self, msg: Msg) {
@@ -374,10 +408,12 @@ impl Music {
             Msg::Library(found) => self.on_found(found),
             Msg::Worker(generation, done) if generation == self.generation => match done {
                 Done::Chapters(track, chapters) => self.chapters_read(track, chapters),
-                Done::Lyrics(track, lyrics) => self.lyrics.put(track, lyrics),
+                Done::Lyrics(track, lyrics) => self.ahead.lyrics.put(track, lyrics),
                 done => self.on_art(done),
             },
             Msg::Worker(..) => {}
+            // Said each time, so a card full or locked is not mistaken for one that keeps.
+            Msg::SaveFailed => self.tell(Notice::CantSave),
         }
     }
 
@@ -400,7 +436,7 @@ impl Music {
                     self.tell(Notice::Unplayable);
                 }
                 let ends = self.ends_book(&event);
-                let command = self.player.on(&self.library, event);
+                let command = self.player.on_event(&self.library, event);
                 self.send(command);
                 if ends {
                     self.finish_book();
@@ -416,6 +452,7 @@ impl Music {
             match effect {
                 Effect::Player(command) => {
                     log::info!("{command:?}");
+                    #[cfg(feature = "perf")]
                     if let (
                         Some(perf),
                         Command::Play { .. } | Command::Cue { .. } | Command::Next(Some(_)),
@@ -432,6 +469,7 @@ impl Music {
                 Effect::Setting(key, value) => shell.store.set(SETTINGS_FILE, key, value),
                 Effect::Append { file, header, line } => shell.store.append(file, header, line),
                 Effect::Work(generation, job) => shell.worker.send(generation, job),
+                #[cfg(feature = "perf")]
                 Effect::PerfLog(on) => {
                     shell.perf = on.then(|| perf::PerfLog::start(&self.root));
                 }
@@ -460,20 +498,15 @@ impl Music {
     /// when that next shows it moved on. None, until something comes in: the frontend may rest
     /// until then.
     pub fn due_in(&self) -> Option<Duration> {
-        if self.pocket.buzzing() || self.transport.fade.is_some() {
+        if self.buttons.pocket.buzzing() || self.transport.fade.is_some() {
             return Some(Duration::ZERO);
         }
         // A millisecond past the step: on it to the last bit, a time may still round short.
-        let steps = (!self.dark && !self.blank)
+        let steps = (!self.dark)
             .then(|| crate::screens::steps_in(self))
             .flatten();
         let after = |s: f64| Duration::try_from_secs_f64(s.max(0.0)).unwrap_or(Duration::MAX);
         steps.map(|s| after(s).saturating_add(STEP_PAST))
-    }
-
-    /// Whether SELECT held blanked the screen: off until a button, which then acts as it would.
-    pub fn blank(&self) -> bool {
-        self.blank
     }
 
     /// Whether music carries on with the screen off (`screen_off = play`).
@@ -481,14 +514,9 @@ impl Music {
         self.settings.play_screen_off
     }
 
-    /// The Theme setting: slot's appearance, or always dark or light.
-    pub fn theme(&self) -> Theme {
-        self.settings.theme
-    }
-
     /// Shows `notice` in the corner for a moment.
     fn tell(&mut self, notice: Notice) {
-        self.notice = Some((notice, self.now.at));
+        self.flash.notice = Some((notice, self.now.at));
     }
 
     /// Tells the player `command`. A player gone, its thread failed, is started again to play.
@@ -529,8 +557,9 @@ impl Music {
             lyrics: self.lyrics_at(),
             recent: &self.recent.tracks,
             shuffled: self.player.shuffled(),
-            chapters: &self.chapters,
+            chapters: &self.ahead.chapters,
             eq: self.equalizer.name(self.settings.eq),
+            thumbs: &self.pictures.thumbs,
             now: self.now.at,
         }
     }

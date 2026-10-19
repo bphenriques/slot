@@ -18,6 +18,8 @@ pub struct Tags {
     pub disc: u32,
     pub track: u32,
     pub year: u32,
+    /// Its genre as tagged, perhaps several: "Rock; Pop".
+    pub genre: String,
     /// How long it plays, in seconds: read for audiobooks, whose progress needs it.
     pub secs: u32,
 }
@@ -55,6 +57,7 @@ pub fn read(path: &Path, timed: bool) -> Tags {
         disc: tag.disk().unwrap_or(0),
         track: tag.track().unwrap_or(0),
         year: tag.date().map_or(0, |d| u32::from(d.year)),
+        genre: text(tag.genre()),
         secs,
     }
 }

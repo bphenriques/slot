@@ -9,36 +9,31 @@ use crate::playback::fade::Sleep;
 use crate::playback::player::Repeat;
 use crate::screens::binds::binds;
 use crate::screens::Legend;
-use crate::settings::{ListSize, Setting, Settings, Theme};
+use crate::settings::{Setting, Settings};
 
 pub const MUSIC: &str = "Music";
 pub const NOW_PLAYING: &str = "Now Playing";
 pub const QUEUE: &str = "Queue";
 pub const SAVED_QUEUE: &str = "Saved Queue";
 pub const ADVANCED: &str = "Advanced";
-pub const CONTROLS: &str = "Controls";
 pub const HELP: &str = "Help";
-pub const TIPS: &str = "Tips";
-pub const INTEGRATIONS: &str = "Integrations";
 
-/// Settings' Controls: the keys the hints leave out, by where they act, each with what it does.
-pub const KEYS: [(&str, &[(&str, &str)]); 7] = [
+/// Help's keys: those the hints leave out, by where they act, each with what it does.
+pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
     (
         "Everywhere",
         &[
             ("START held", "Play or pause"),
             ("SELECT", "Now Playing, then the queue"),
-            ("SELECT held", "Blank the screen"),
             ("SELECT + L1 / R1", "Previous / next song"),
             ("B held", "Back to the Music menu"),
             ("MENU", "Back to slot"),
         ],
     ),
-    ("Menus and Settings", &[("L1 / R1", "Previous / next song")]),
     (
         "Lists",
         &[
-            ("L1 / R1", "Previous / next letter"),
+            ("L1 / R1", "Previous / next letter, or page"),
             ("Left / Right", "Previous / next page"),
         ],
     ),
@@ -75,23 +70,41 @@ pub const KEYS: [(&str, &[(&str, &str)]); 7] = [
     ),
 ];
 
-/// Settings › Help › Tips: what the screens do not say, a paragraph each.
-pub const TIPS_TEXT: [&str; 7] = [
+/// Help's first lines: what the screens do not say, a paragraph each.
+pub const TIPS_TEXT: [&str; 6] = [
+    "A hint like Play (Next) is a tap, and in brackets a hold. A ring fills while you hold.",
     "Songs go in Music, audiobooks in Audiobooks: a folder per book, or one .m4b.",
     "Playlists are .m3u files in Music/Playlists. Y adds a song to Favorites.",
-    "Lyrics come from an .lrc file beside the song, or from its tags. X on Now Playing shows them.",
-    "A hint like Play (Next) is tap to play, hold to play next. A ring fills while you hold.",
-    "With Screen Off set to Keep Playing, music goes on with the lid closed, and the shoulders still work.",
-    "A book picks up where you left it, a few seconds back after a long pause.",
+    "Lyrics come from an .lrc file beside the song, or its tags. X on Now Playing shows them.",
     "Asked for a log? Turn on Settings, Advanced, Detailed Log, play a while, then send Logs/slot.log from the card.",
+    "This page is in Settings, Help. B closes it. The keys the hints leave out follow.",
 ];
+
+/// Help, a line each: the tips, then each place's keys under its name.
+pub fn help() -> Vec<String> {
+    let mut lines: Vec<String> = TIPS_TEXT.map(String::from).to_vec();
+    for (place, keys) in KEYS {
+        lines.push(place.to_string());
+        lines.extend(keys.iter().map(|(key, does)| format!("{key}: {does}")));
+    }
+    lines
+}
 pub const NONE: &str = "None";
 pub const RECENTLY_PLAYED: &str = "Recently Played";
+pub const LIBRARY: &str = "Library";
+pub const GENRES: &str = "Genres";
+pub const YEARS: &str = "Years";
 pub const RESUME: &str = "Resume";
 pub const SHUFFLE_LIBRARY: &str = "Shuffle Library";
 pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
 pub const UNKNOWN_ALBUM: &str = "Unknown Album";
-pub const NO_MUSIC: &str = "No music in the Music folder";
+/// Who an album of songs by several artists, its tags naming none for it, is filed under.
+pub const VARIOUS_ARTISTS: &str = "Various Artists";
+/// What a library or audiobooks screen says with nothing to list: where to put it.
+pub const NO_MUSIC: &str = "Put songs in the card's Music folder";
+pub const NO_BOOKS: &str = "Put books in the card's Audiobooks folder";
+/// The Music menu's corner on a card with neither.
+pub const NOTHING_YET: &str = "No music or books";
 pub const QUEUE_EMPTY: &str = "Nothing up next";
 pub const NO_PLAYER: &str = "No sound device";
 pub const NOTHING_PLAYING: &str = "Nothing playing";
@@ -112,16 +125,16 @@ pub const NO_BOOKMARKS: &str = "No bookmarks: Y marks the moment";
 pub fn title(view: View) -> Option<&'static str> {
     Some(match view {
         View::Main => MUSIC,
+        View::Library => LIBRARY,
+        View::Genres => GENRES,
+        View::Years => YEARS,
         View::Lyrics => LYRICS,
         View::Queue => QUEUE,
         View::Settings => "Music Settings",
         View::Sound => SOUND,
         View::BookSettings => BOOKS,
         View::Advanced => ADVANCED,
-        View::Controls => CONTROLS,
-        View::Integrations => INTEGRATIONS,
         View::Help => HELP,
-        View::Tips => TIPS,
         View::Artists => "Artists",
         View::Albums => "Albums",
         View::Tracks => "Songs",
@@ -133,11 +146,16 @@ pub fn title(view: View) -> Option<&'static str> {
         View::Playlists => "Playlists",
         View::RecentlyAdded => "Recently Added",
         View::RecentlyPlayed => RECENTLY_PLAYED,
-        View::PlayingMenu | View::RowMenu(_) => NOW_PLAYING,
+        View::PlayingMenu | View::SongMenu(_) | View::BookMenu(_) => NOW_PLAYING,
         View::QueueMenu => QUEUE,
         View::SongInfo(_) => "Song Info",
         View::NowPlaying => NOW_PLAYING,
-        View::Artist(_) | View::Album(_) | View::Playlist(_) | View::Author(_) => return None,
+        View::Artist(_)
+        | View::Album(_)
+        | View::Playlist(_)
+        | View::Author(_)
+        | View::Genre(_)
+        | View::Decade(_) => return None,
     })
 }
 
@@ -145,26 +163,11 @@ pub fn title(view: View) -> Option<&'static str> {
 pub fn row(row: Row, view: View) -> Option<&'static str> {
     Some(match row {
         Row::NowPlaying => NOW_PLAYING,
-        Row::Artists => "Artists",
-        Row::Albums => "Albums",
-        Row::Tracks => "Songs",
-        Row::Playlists => "Playlists",
-        Row::RecentlyAdded => "Recently Added",
-        Row::RecentlyPlayed => RECENTLY_PLAYED,
-        Row::Settings => "Settings",
-        Row::Sound => SOUND,
-        Row::BookSettings => BOOKS,
+        // Named as the page it opens; Settings, short of its title.
+        Row::Open(View::Settings) => "Settings",
+        Row::Open(view) => return title(view),
         Row::Rescan => "Update Library",
-        Row::Rebuild => "Rebuild Library",
-        Row::Advanced => ADVANCED,
-        Row::Controls => CONTROLS,
-        Row::Integrations => INTEGRATIONS,
-        Row::Help => HELP,
-        Row::Tips => TIPS,
-        Row::Books => BOOKS,
         Row::Continue => CONTINUE,
-        Row::BookList(list) => book_list(list),
-        Row::Authors => AUTHORS,
         Row::StartOver => "Start Over",
         Row::Chapters => CHAPTERS,
         Row::Bookmarks => BOOKMARKS,
@@ -188,10 +191,8 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             Setting::Boost => "Volume Boost",
             Setting::Leveling => "Volume Leveling",
             Setting::Repeat => "Repeat",
-            Setting::ListSize => "List Size",
             Setting::SleepTimer => "Sleep Timer",
             Setting::Color => "Dynamic Color",
-            Setting::Theme => "Theme",
         },
         Row::PlayAll => "Play All",
         Row::Shuffle => match view {
@@ -200,7 +201,9 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             _ => "Shuffle Songs",
         },
         // Named by the library, or by whether the song playing is a favorite.
-        Row::Artist(_)
+        Row::Genre(_)
+        | Row::Decade(_)
+        | Row::Artist(_)
         | Row::Album(_)
         | Row::Author(_)
         | Row::Track(_)
@@ -209,7 +212,6 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         | Row::Playlist(_)
         | Row::Book(_)
         | Row::BookChapter { .. }
-        | Row::Key { .. }
         | Row::Bookmark(_)
         | Row::Back
         | Row::Finished
@@ -251,12 +253,6 @@ pub fn setting(
     let pick = |on: bool, yes: &str, no: &str| if on { yes } else { no }.to_string();
     match setting {
         Setting::ScreenOff => pick(settings.play_screen_off, "Keep Playing", "Pause"),
-        Setting::ListSize => match settings.list_size {
-            ListSize::Small => "Small",
-            ListSize::Normal => "Normal",
-            ListSize::Large => "Large",
-        }
-        .into(),
         Setting::SleepTimer => match sleep {
             None => on_off(false),
             Some(Sleep::Minutes(m)) => minutes(m),
@@ -285,12 +281,6 @@ pub fn setting(
             Repeat::One => "One",
         }
         .into(),
-        Setting::Theme => match settings.theme {
-            Theme::Slot => "Slot",
-            Theme::Dark => "Dark",
-            Theme::Light => "Light",
-        }
-        .into(),
     }
 }
 
@@ -304,8 +294,6 @@ pub enum Notice {
     Next(usize),
     /// The player could not play a song.
     Unplayable,
-    /// A key was let go on a row where it acts only when held.
-    Hold(&'static str),
     /// START held paused or played, away from Now Playing.
     Paused,
     Playing,
@@ -324,6 +312,8 @@ pub enum Notice {
     NoSound,
     /// The queue was kept as a playlist.
     Saved,
+    /// A write to the card failed: it is full, or locked.
+    CantSave,
     /// Up or Down on Now Playing stepped the repeat round, or shuffled the queue or put it back.
     Repeat(Repeat),
     Shuffle(bool),
@@ -335,7 +325,6 @@ pub fn notice(notice: &Notice) -> String {
         Notice::Added(n) => format!("{QUEUE} +{n}"),
         Notice::Next(n) => format!("Play Next +{n}"),
         Notice::Unplayable => "Can't play".into(),
-        Notice::Hold(key) => format!("Hold {key}"),
         Notice::Paused => "Paused".into(),
         Notice::Playing => "Playing".into(),
         Notice::Skipped { on: true } => "Next".into(),
@@ -345,6 +334,7 @@ pub fn notice(notice: &Notice) -> String {
         Notice::Bookmarked => "Bookmarked".into(),
         Notice::NoSound => "No sound".into(),
         Notice::Saved => "Saved".into(),
+        Notice::CantSave => "Can't save".into(),
         Notice::Repeat(Repeat::Off) => "Repeat Off".into(),
         Notice::Repeat(Repeat::All) => "Repeat All".into(),
         Notice::Repeat(Repeat::One) => "Repeat One".into(),
@@ -433,6 +423,11 @@ pub fn elapsed(at: f64, len: f64) -> String {
 /// The book's menu row back to where it was before it last moved.
 pub fn back_to(pos: f64) -> String {
     format!("Back to {}", clock(pos))
+}
+
+/// A decade, as Years lists them: 1990s.
+pub fn decade(start: u32) -> String {
+    format!("{start}s")
 }
 
 /// A place among others: 3/12.
@@ -558,7 +553,7 @@ pub(crate) enum Word {
     Jump(u32),
     Speed,
     Change,
-    HoldToRebuild,
+    Rebuild,
 }
 
 fn word(word: Word) -> &'static str {
@@ -594,7 +589,7 @@ fn word(word: Word) -> &'static str {
         Word::Jump(_) => "30 s",
         Word::Speed => "Speed",
         Word::Change => "Change",
-        Word::HoldToRebuild => "Hold to Rebuild",
+        Word::Rebuild => "Rebuild",
     }
 }
 

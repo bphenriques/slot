@@ -1,7 +1,7 @@
-//! Album pictures. After a scan, each album without a current label gets one, a small PNG in
-//! `Labels/Music`, from the front picture its first song carries or else a picture in its
-//! folder (cover.jpg and the like). Albums with neither get a blank label, so they are not
-//! looked at again until their songs change.
+//! Album pictures. After a scan, each album without current labels gets them, two small PNGs in
+//! `Labels/Music`: one at Now Playing's size and one at a list row's, from the front picture its
+//! first song carries or else a picture in its folder (cover.jpg and the like). Albums with
+//! neither get blank labels, so they are not looked at again until their songs change.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,10 @@ pub struct Make {
     pub album: AlbumId,
     pub song: PathBuf,
     pub label: PathBuf,
+    /// Its thumbnail, for a list's row, and when its newest song changed: a label as new is
+    /// the picture already found and shrunk, from which the thumbnail is made.
+    pub thumb: PathBuf,
+    pub changed: u64,
 }
 
 /// Shrunk pictures, beside the cart labels.
@@ -38,18 +42,29 @@ pub fn label(root: &Path, lib: &Library, album: AlbumId) -> PathBuf {
         .join(format!("{:016x}.png", fnv(key.as_bytes())))
 }
 
-/// The albums whose label is missing, or older than their newest song.
+/// An album's thumbnail, beside its label.
+pub fn thumb(root: &Path, lib: &Library, album: AlbumId) -> PathBuf {
+    label(root, lib, album).with_extension("thumb.png")
+}
+
+/// The albums whose label or thumbnail is missing, or older than their newest song.
 pub fn missing(root: &Path, lib: &Library) -> Vec<AlbumId> {
     (0..lib.albums.len())
         .map(AlbumId)
         .filter(|&a| {
-            let made = std::fs::metadata(label(root, lib, a))
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
-            made.is_none_or(|made| made.as_secs() < lib.albums[a].changed)
+            let changed = lib.albums[a].changed;
+            !current(&label(root, lib, a), changed) || !current(&thumb(root, lib, a), changed)
         })
         .collect()
+}
+
+/// Whether the file at `path` is there and no older than `changed`, in seconds.
+fn current(path: &Path, changed: u64) -> bool {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .is_some_and(|made| made.as_secs() >= changed)
 }
 
 /// FNV-1a: a short name that stays the same from build to build.
@@ -93,6 +108,8 @@ impl Covers {
             album,
             song,
             label: label(root, lib, album),
+            thumb: thumb(root, lib, album),
+            changed: lib.albums[album].changed,
         })
     }
 
@@ -102,19 +119,39 @@ impl Covers {
     }
 }
 
-/// Makes `job`'s label, shrunk to fit `px`: on the worker, as it reads the card.
-pub fn make(job: &Make, px: u32) {
+/// Makes `job`'s label, shrunk to fit `px`, and its thumbnail, to fit `thumb_px`: on the worker,
+/// as it reads the card. A label already current is the picture found and shrunk before: the
+/// thumbnail is made from it, and the songs are not read again.
+pub fn make(job: &Make, px: u32, thumb_px: u32) {
     let (song, label) = (&job.song, &job.label);
-    let img = match picture(song) {
-        Some(Ok(img)) => img.thumbnail(px, px).to_rgba8(),
-        Some(Err(e)) => {
-            log::warn!("{}: {e}", song.display());
-            image::RgbaImage::new(1, 1)
+    let kept = current(label, job.changed)
+        .then(|| image::open(label).ok())
+        .flatten()
+        .map(|img| img.to_rgba8());
+    let img = kept.unwrap_or_else(|| {
+        let img = match picture(song) {
+            Some(Ok(img)) => img.thumbnail(px, px).to_rgba8(),
+            Some(Err(e)) => {
+                log::warn!("{}: {e}", song.display());
+                image::RgbaImage::new(1, 1)
+            }
+            None => image::RgbaImage::new(1, 1),
+        };
+        if let Err(e) = file_label(&img, label) {
+            log::warn!("{}: {e}", label.display());
         }
-        None => image::RgbaImage::new(1, 1),
+        img
+    });
+    // A blank stays a blank: no picture to shrink.
+    let small = if img.width() <= 1 {
+        img
+    } else {
+        image::DynamicImage::ImageRgba8(img)
+            .thumbnail(thumb_px, thumb_px)
+            .to_rgba8()
     };
-    if let Err(e) = file_label(&img, label) {
-        log::warn!("{}: {e}", label.display());
+    if let Err(e) = file_label(&small, &job.thumb) {
+        log::warn!("{}: {e}", job.thumb.display());
     }
 }
 
@@ -214,11 +251,21 @@ mod tests {
         let album = |name: &str| AlbumId(lib.albums.iter().position(|a| a.name == name).unwrap());
         let blank = image::RgbaImage::new(1, 1);
         for (name, age) in [("Old", 100), ("Current", 0)] {
-            let path = label(d.path(), &lib, album(name));
-            file_label(&blank, &path).unwrap();
-            aged(&path, age);
+            let a = album(name);
+            for path in [label(d.path(), &lib, a), thumb(d.path(), &lib, a)] {
+                file_label(&blank, &path).unwrap();
+                aged(&path, age);
+            }
         }
-        let mut want = vec![album("Old"), album("None")];
+        // A label current, but no thumbnail beside it: one to make, from the label.
+        let half = d.path().join("Music/A/Half/1 t.mp3");
+        std::fs::create_dir_all(half.parent().unwrap()).unwrap();
+        std::fs::write(&half, b"").unwrap();
+        aged(&half, 50);
+        let lib = Library::scan(d.path());
+        let album = |name: &str| AlbumId(lib.albums.iter().position(|a| a.name == name).unwrap());
+        file_label(&blank, &label(d.path(), &lib, album("Half"))).unwrap();
+        let mut want = vec![album("Old"), album("None"), album("Half")];
         want.sort();
         assert_eq!(missing(d.path(), &lib), want);
     }
@@ -242,9 +289,40 @@ mod tests {
         assert_eq!(covers.progress(), Some((0, 1)));
         let job = covers.next(d.path(), &lib).unwrap();
         assert!(covers.next(d.path(), &lib).is_none(), "one at a time");
-        make(&job, 16);
+        make(&job, 16, 4);
         covers.made();
         assert_eq!(covers.progress(), None);
         assert_eq!(image::open(&path).unwrap().width(), 16, "shrunk to fit");
+        let small = image::open(thumb(d.path(), &lib, AlbumId(0))).unwrap();
+        assert_eq!(
+            (small.width(), small.height()),
+            (4, 2),
+            "and a thumbnail, for a list's row"
+        );
+    }
+
+    #[test]
+    fn a_thumbnail_is_made_from_a_label_already_current_without_reading_the_songs_again() {
+        let d = tempfile::tempdir().unwrap();
+        let folder = d.path().join("Music/A/B");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("01 t.mp3"), b"").unwrap();
+        let lib = Library::scan(d.path());
+        // A label from before thumbnails were: the song itself has no picture to find.
+        let big = image::RgbaImage::from_pixel(16, 16, image::Rgba([200, 0, 0, 255]));
+        file_label(&big, &label(d.path(), &lib, AlbumId(0))).unwrap();
+        let job = Covers::new(vec![AlbumId(0)]).next(d.path(), &lib).unwrap();
+        make(&job, 16, 4);
+        let small = image::open(thumb(d.path(), &lib, AlbumId(0))).unwrap();
+        assert_eq!(
+            (small.width(), small.height()),
+            (4, 4),
+            "from the label, not a blank"
+        );
+        assert_eq!(
+            image::open(&job.label).unwrap().width(),
+            16,
+            "the label kept"
+        );
     }
 }

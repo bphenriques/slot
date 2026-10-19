@@ -11,43 +11,63 @@ use crate::library::TrackId;
 pub struct Queue {
     tracks: Vec<TrackId>,
     at: usize,
-    original: Option<Vec<TrackId>>,
+    /// Shuffled, the order before: each track's place in `tracks`, so a song queued twice is
+    /// never taken for its other copy.
+    original: Option<Vec<usize>>,
     added: usize,
 }
 
 impl Queue {
     /// `tracks` from `at`, shuffled first when there is a `seed`.
-    pub fn new(mut tracks: Vec<TrackId>, at: usize, seed: Option<u64>) -> Queue {
-        let original = seed.map(|seed| {
-            let original = tracks.clone();
-            deal(&mut tracks, seed);
-            original
-        });
-        let at = at.min(tracks.len().saturating_sub(1));
-        Queue {
-            tracks,
-            at,
-            original,
-            added: 0,
+    pub fn new(tracks: Vec<TrackId>, at: usize, seed: Option<u64>) -> Queue {
+        let mut order: Vec<usize> = (0..tracks.len()).collect();
+        if let Some(seed) = seed {
+            deal(&mut order, seed);
         }
+        let mut queue = Queue::dealt(&tracks, order, seed.is_some());
+        queue.at = at.min(queue.tracks.len().saturating_sub(1));
+        queue
     }
 
     /// Groups (albums or artists, `sizes` long) in a shuffled order, each kept whole.
     pub fn groups(tracks: Vec<TrackId>, sizes: &[usize], seed: u64) -> Queue {
-        let mut rest = tracks.as_slice();
-        let mut groups: Vec<&[TrackId]> = sizes
+        let mut start = 0;
+        let mut groups: Vec<std::ops::Range<usize>> = sizes
             .iter()
             .map(|&n| {
-                let (group, after) = rest.split_at(n.min(rest.len()));
-                rest = after;
+                let end = (start + n).min(tracks.len());
+                let group = start..end;
+                start = end;
                 group
             })
             .collect();
         deal(&mut groups, seed);
+        Queue::dealt(&tracks, groups.into_iter().flatten().collect(), true)
+    }
+
+    /// A saved queue: `original`, when it was shuffled, the order before as `Queue::original`
+    /// has it; one that is not each place once is dropped.
+    pub fn restored(tracks: Vec<TrackId>, at: usize, original: Option<Vec<usize>>) -> Queue {
+        let mut queue = Queue::new(tracks, at, None);
+        queue.original = original.filter(|o| {
+            let mut sorted = o.clone();
+            sorted.sort_unstable();
+            sorted.iter().copied().eq(0..queue.tracks.len())
+        });
+        queue
+    }
+
+    /// `tracks` in `order`, one place each, from the start; the order before kept when
+    /// `shuffled`.
+    fn dealt(tracks: &[TrackId], order: Vec<usize>, shuffled: bool) -> Queue {
+        let mut original = vec![0; order.len()];
+        for (to, &from) in order.iter().enumerate() {
+            original[from] = to;
+        }
         Queue {
-            tracks: groups.concat(),
+            tracks: order.iter().map(|&i| tracks[i]).collect(),
             at: 0,
-            original: Some(tracks),
+            original: shuffled.then_some(original),
             added: 0,
         }
     }
@@ -66,6 +86,11 @@ impl Queue {
 
     pub fn shuffled(&self) -> bool {
         self.original.is_some()
+    }
+
+    /// Shuffled, the order before, as places in `tracks`: for saving.
+    pub fn original(&self) -> Option<&[usize]> {
+        self.original.as_deref()
     }
 
     /// The place `by` from here: round the ends when `wrap`, otherwise none past them.
@@ -91,24 +116,20 @@ impl Queue {
 
     /// Shuffles what is not playing behind the track that is, or puts the order back.
     pub fn toggle_shuffle(&mut self, seed: u64) {
-        let current = self.current();
         match self.original.take() {
             Some(original) => {
-                self.tracks = original;
-                self.at = current
-                    .and_then(|t| self.tracks.iter().position(|&q| q == t))
-                    .unwrap_or(0);
+                self.at = original.iter().position(|&p| p == self.at).unwrap_or(0);
+                self.tracks = original.iter().map(|&p| self.tracks[p]).collect();
             }
             None => {
-                let Some(current) = current else {
+                if self.current().is_none() {
                     return;
-                };
-                self.original = Some(self.tracks.clone());
-                let mut rest = std::mem::take(&mut self.tracks);
-                rest.remove(self.at);
+                }
+                let mut rest: Vec<usize> =
+                    (0..self.tracks.len()).filter(|&i| i != self.at).collect();
                 deal(&mut rest, seed);
-                self.tracks = std::iter::once(current).chain(rest).collect();
-                self.at = 0;
+                let order = std::iter::once(self.at).chain(rest).collect();
+                *self = Queue::dealt(&self.tracks, order, true);
             }
         }
         self.added = 0;
@@ -119,15 +140,17 @@ impl Queue {
         if i == self.at || i >= self.tracks.len() {
             return;
         }
-        let track = self.tracks.remove(i);
+        self.tracks.remove(i);
         self.added -= usize::from(i < self.added);
         if i < self.at {
             self.at -= 1;
         }
         if let Some(original) = &mut self.original {
-            if let Some(p) = original.iter().position(|&t| t == track) {
-                original.remove(p);
-            }
+            original.retain(|&p| p != i);
+            original
+                .iter_mut()
+                .filter(|p| **p > i)
+                .for_each(|p| *p -= 1);
         }
     }
 
@@ -145,45 +168,63 @@ impl Queue {
             a if to < a && a <= from => a + 1,
             a => a,
         };
-        self.at = match self.at {
-            a if a == from => to,
-            a if from < a && a <= to => a - 1,
-            a if to <= a && a < from => a + 1,
-            a => a,
+        let moved = |p: usize| match p {
+            p if p == from => to,
+            p if from < p && p <= to => p - 1,
+            p if to <= p && p < from => p + 1,
+            p => p,
         };
+        self.at = moved(self.at);
+        if let Some(original) = &mut self.original {
+            original.iter_mut().for_each(|p| *p = moved(*p));
+        }
+    }
+
+    /// Puts `tracks` in at `at`; shuffled, the order before has them after its `after`th.
+    fn insert(&mut self, at: usize, tracks: &[TrackId], after: impl Fn(&[usize]) -> usize) {
+        self.tracks.splice(at..at, tracks.iter().copied());
+        if let Some(original) = &mut self.original {
+            original
+                .iter_mut()
+                .filter(|p| **p >= at)
+                .for_each(|p| *p += tracks.len());
+            let after = after(original);
+            original.splice(after..after, at..at + tracks.len());
+        }
     }
 
     /// Puts tracks just after the one playing, ahead of what was added before; into an empty
-    /// queue, they wait to be played.
+    /// queue, they wait to be played. The order before has them after the one playing too.
     pub fn play_next(&mut self, tracks: &[TrackId]) {
         let after = (self.at + 1).min(self.tracks.len());
-        self.tracks.splice(after..after, tracks.iter().copied());
-        self.added = self.added.max(after) + tracks.len();
-        if let (Some(original), Some(current)) = (&mut self.original, self.tracks.get(self.at)) {
-            let after = original
+        let current = self.at;
+        let empty = self.tracks.is_empty();
+        self.insert(after, tracks, |original| {
+            original
                 .iter()
-                .position(|t| t == current)
-                .map_or(original.len(), |p| p + 1);
-            original.splice(after..after, tracks.iter().copied());
-        }
+                .position(|&p| p == current && !empty)
+                .map_or(original.len(), |p| p + 1)
+        });
+        self.added = self.added.max(after) + tracks.len();
     }
 
     /// Takes out everything but the one playing, as Clear in a queue does.
     pub fn clear(&mut self) {
         self.tracks = self.current().into_iter().collect();
         self.at = 0;
-        self.original = self.original.take().map(|_| self.tracks.clone());
+        self.original = self
+            .original
+            .take()
+            .map(|_| (0..self.tracks.len()).collect());
         self.added = 0;
     }
 
-    /// Adds tracks after the one playing and what was added before it, ahead of the rest.
+    /// Adds tracks after the one playing and what was added before it, ahead of the rest; the
+    /// order before has them at its end.
     pub fn enqueue(&mut self, tracks: &[TrackId]) {
         let after = self.added.max(self.at + 1).min(self.tracks.len());
-        self.tracks.splice(after..after, tracks.iter().copied());
+        self.insert(after, tracks, <[usize]>::len);
         self.added = after + tracks.len();
-        if let Some(original) = &mut self.original {
-            original.extend_from_slice(tracks);
-        }
     }
 }
 

@@ -307,12 +307,14 @@ fn the_music_s_face_is_all_slot_sees_of_it() {
         })
         .collect();
     exported.sort();
-    // The music itself, the buttons in, the screen out and its parts, the picture and the words.
+    // The music itself, the buttons in, the screen out and its parts, the picture and the words. And
+    // the player it plays through, which the frontend starts, so the music knows no device.
     let face = [
         "AlbumId",
         "Art",
         "Body",
         "Button",
+        "Handle",
         "Hold",
         "Input",
         "Legend",
@@ -326,7 +328,6 @@ fn the_music_s_face_is_all_slot_sees_of_it() {
         "Status",
         "Target",
         "TextBody",
-        "Theme",
         "text",
     ];
     assert_eq!(

@@ -6,13 +6,18 @@ use std::time::Duration;
 
 use slot_gfx::{Draw, Layout};
 use slot_input::{Action, Btn, Millis, RawEvent};
-use slot_music::{AlbumId, Art, Button, Input, Music, Screen, Theme};
-use slot_power::LidPolicy;
+use slot_music::{AlbumId, Art, Button, Input, Music, Screen};
 use slot_store::Shader;
 use slot_ui::music::{MusicFaces, MusicTheme};
 use slot_ui::QuickRow;
 
 use super::{App, Phase};
+
+/// The music, playing through the device's own player: the one place a device is chosen for it.
+pub(super) fn start(root: &std::path::Path) -> Music {
+    use slot_ui::music::{ART_BOX, THUMB_PX};
+    Music::spawn(root, ART_BOX, THUMB_PX, slot_music::Handle::slot)
+}
 
 impl App {
     pub(super) fn open_music(&mut self) {
@@ -54,7 +59,6 @@ impl App {
             music.poll(game);
             rumble = music.rumble();
         }
-        self.light_music();
         if let Some(strength) = rumble {
             self.set_rumble(strength);
         }
@@ -73,23 +77,6 @@ impl App {
     pub(super) fn flush_music(&mut self) {
         if let Some(music) = &mut self.music {
             music.flush();
-        }
-    }
-
-    /// The screen off while the music is blanked, as the lid closed has it, the brightness kept;
-    /// on again as soon as it is not.
-    fn light_music(&mut self) {
-        let blank = self.music.as_ref().is_some_and(Music::blank);
-        if blank == self.music_frames.blank {
-            return;
-        }
-        self.music_frames.blank = blank;
-        if let Some(power) = &mut self.power {
-            if blank {
-                power.on_close();
-            } else {
-                power.on_open();
-            }
         }
     }
 
@@ -163,10 +150,6 @@ impl App {
     /// keeping that one up: the lid closed, or the music screen with nothing new to show and
     /// nothing on its way.
     fn holds_still(&self) -> bool {
-        // Blanked, nothing is seen: the panel off, the frame up stays.
-        if self.music_frames.blank {
-            return true;
-        }
         match &self.music_frames.drawn {
             Some(Drawn::Music { shown, wake }) if self.music_shown() => {
                 let began = std::time::Instant::now();
@@ -257,10 +240,14 @@ impl App {
         self.music.as_ref()?.art()
     }
 
+    /// The thumbnails the shown list's rows start with, as read.
+    pub fn music_thumbs(&self) -> &[Art] {
+        self.music.as_ref().map_or(&[], Music::thumbs)
+    }
+
     /// The music screens' colours: the Theme setting, which may follow slot's appearance.
     pub fn music_theme(&self) -> MusicTheme {
-        let theme = self.music.as_ref().map_or(Theme::Slot, Music::theme);
-        MusicTheme::of(theme.light(self.light()))
+        MusicTheme::of(self.light())
     }
 
     pub fn set_music_faces(&mut self, faces: MusicFaces) {
@@ -341,8 +328,6 @@ pub struct NextFrame {
 pub(super) struct Frames {
     drawn: Option<Drawn>,
     down: Vec<Btn>,
-    /// The screen turned off for the music blanked.
-    blank: bool,
 }
 
 /// What was last drawn, where it can stay up: the music screen, and when it next moves of
@@ -377,7 +362,7 @@ mod tests {
     fn the_music_screen_holds_still_until_it_would_show_something_new() {
         let d = tempfile::tempdir().unwrap();
         let mut app = App::new(Vec::new());
-        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
+        app.music = Some(start(d.path()));
         app.phase = Phase::Music;
         assert!(!app.holds_still(), "not yet drawn");
         app.music_drawn(None);
@@ -401,7 +386,7 @@ mod tests {
     fn game_buttons_are_the_music_s_while_it_takes_the_keys_and_slot_keeps_its_own() {
         let d = tempfile::tempdir().unwrap();
         let mut app = App::new(Vec::new());
-        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
+        app.music = Some(start(d.path()));
         let down = RawEvent::Down(Btn::R2);
         assert!(!app.music_button(down), "rewind and fast forward elsewhere");
         app.phase = Phase::Music;
@@ -430,7 +415,7 @@ mod tests {
     fn the_loop_rests_held_still_until_its_next_step_and_never_with_a_button_down() {
         let d = tempfile::tempdir().unwrap();
         let mut app = App::new(Vec::new());
-        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
+        app.music = Some(start(d.path()));
         app.phase = Phase::Music;
         let next = |app: &App| app.next_frame();
         assert_eq!(
@@ -482,34 +467,6 @@ mod tests {
                 rest: Some(Duration::MAX)
             },
             "the lid closed"
-        );
-    }
-
-    #[test]
-    fn the_music_blanked_holds_its_frame_until_a_button_lights_it() {
-        let d = tempfile::tempdir().unwrap();
-        let mut app = App::new(Vec::new());
-        app.music = Some(Music::spawn(d.path(), slot_ui::music::ART_BOX));
-        app.phase = Phase::Music;
-        // SELECT held, on the music's own clock, until it blanks.
-        app.music_button(RawEvent::Down(Btn::Select));
-        let began = std::time::Instant::now();
-        while !app.music_frames.blank && began.elapsed() < std::time::Duration::from_secs(3) {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            app.poll_music();
-        }
-        app.music_button(RawEvent::Up(Btn::Select));
-        assert!(app.music_frames.blank, "blanked");
-        app.music_drawn(Some(app.now()));
-        assert!(
-            app.holds_still(),
-            "a line due to scroll, but nothing is seen"
-        );
-        app.music_button(RawEvent::Down(Btn::Down));
-        app.poll_music();
-        assert!(
-            !app.music_frames.blank && !app.holds_still(),
-            "lit, and drawn"
         );
     }
 

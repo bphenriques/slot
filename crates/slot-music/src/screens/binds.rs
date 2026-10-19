@@ -202,16 +202,11 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
             binds.extend(repeat(&MOVES));
             binds
         }
+        // Update Library reads what changed; held, it reads everything again.
         Legend::Update => {
-            let mut binds = vec![tap(Key::B, Word::Back), tap(Key::A, Word::Update)];
-            binds.extend(repeat(&MOVES));
-            binds
-        }
-        // Rebuild acts only when A is held, as it takes long; the hint says so in its words.
-        Legend::Hold => {
             let mut binds = vec![
                 tap(Key::B, Word::Back),
-                acting(tap(Key::A, Word::HoldToRebuild), Mode::Hold),
+                hold(Key::A, Word::Update, Word::Rebuild),
             ];
             binds.extend(repeat(&MOVES));
             binds
@@ -222,13 +217,13 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
             binds
         }
     };
-    // Everywhere: B held goes home, START held pauses or plays, and SELECT held blanks the
-    // screen; a shoulder pressed with SELECT skips instead, taking its tap and its hold.
-    // Unhinted unless a screen says otherwise.
+    // Everywhere: B held goes home and START held pauses or plays; SELECT acts as it is let go,
+    // as a shoulder pressed with it skips instead, taking its tap. Unhinted unless a screen
+    // says otherwise.
     for (key, mode) in [
         (Key::B, Mode::Hold),
         (Key::Start, Mode::Hold),
-        (Key::Select, Mode::Hold),
+        (Key::Select, Mode::Release),
     ] {
         match binds.iter_mut().find(|b| b.key == key) {
             Some(bind) => bind.mode = mode,
@@ -301,8 +296,8 @@ mod tests {
 
     #[test]
     fn a_hint_says_a_hold_only_of_a_key_that_holds_and_a_key_that_holds_says_so() {
-        // Held anywhere, as Controls says: B goes home, START pauses or plays, SELECT blanks.
-        let everywhere = [Key::B, Key::Start, Key::Select];
+        // Held anywhere, as Controls says: B goes home, START pauses or plays.
+        let everywhere = [Key::B, Key::Start];
         // With the lid closed nothing is seen, so nothing is hinted; Controls says it.
         let lit = tables()
             .into_iter()
@@ -316,9 +311,7 @@ mod tests {
                     "{name}: {:?} says a hold it has not",
                     bind.key
                 );
-                // Rebuild says it in so many words: "Hold to Rebuild".
-                let in_words = bind.hint.is_some_and(|(tap, _)| tap == Word::HoldToRebuild);
-                let known = everywhere.contains(&bind.key) || in_words;
+                let known = everywhere.contains(&bind.key);
                 assert!(
                     bind.mode != Mode::Hold || said.is_some() || known,
                     "{name}: {:?} holds, and its hint does not say what",

@@ -10,7 +10,7 @@ mod text_view;
 
 use slot_gfx::{Compositor, TexId};
 use slot_input::Millis;
-use slot_music::{text, Body, Legend, RowText};
+use slot_music::{text, AlbumId, Body, Legend, RowText};
 use slot_ui::music::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_half_w, music_header_title_w, music_heart_face, music_hint_face, music_letter_face,
@@ -292,6 +292,10 @@ pub struct MusicText {
     art_was: Option<now_playing::Picture>,
     /// The textures of pictures let go, for the next to take.
     art_free: Vec<TexId>,
+    /// The thumbnails the shown list's rows start with, by album; and the textures of those
+    /// gone from it, for the next to take.
+    thumbs: Vec<(AlbumId, MusicFace)>,
+    thumb_free: Vec<TexId>,
     /// The hearts list rows show, for the page size it was drawn at.
     row_heart: Styled<(bool, usize)>,
     /// The letter a list jumped to, and the ring a held key fills, by how far, around which
@@ -416,9 +420,15 @@ impl MusicText {
             faces.first().copied()
         });
         let body = match screen.body {
-            Body::List(body) => {
-                BodyFaces::List(list::faces(self, compositor, canvas, body, glyphs, now))
-            }
+            Body::List(body) => BodyFaces::List(list::faces(
+                self,
+                compositor,
+                canvas,
+                body,
+                glyphs,
+                app.music_thumbs(),
+                now,
+            )),
             Body::Message(line) => {
                 BodyFaces::List(list::message(self, compositor, canvas, line, now))
             }

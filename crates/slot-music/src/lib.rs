@@ -23,7 +23,7 @@ pub use playback::player::Repeat;
 pub use screens::{
     Body, Hold, Legend, ListBody, MainHold, NowPlayingBody, Screen, Status, Target, TextBody,
 };
-pub use settings::Theme;
+pub use slot_player::Handle;
 
 // What the tests of the parts reach for, from the crate's root.
 #[cfg(test)]
@@ -36,7 +36,7 @@ pub(crate) use {
     library::{track_number, track_title, BookId, Library, Record, TrackId},
     playback::player::Player,
     playback::queue::Queue,
-    settings::{cycle, ListSize, Setting, Settings},
+    settings::{cycle, Setting, Settings},
     slot_player::{Command, Event, PlayState, Status as PlayerStatus},
 };
 

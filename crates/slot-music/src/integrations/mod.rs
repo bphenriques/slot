@@ -1,4 +1,4 @@
-//! What the player tells programs outside it, each turned on in Settings › Integrations and off
+//! What the player tells programs outside it, each turned on in Settings › Advanced and off
 //! by default. Each is told a song as it counts as listened to, a `Listen`, and says what to
 //! write for it; the shell writes it, off the frame, as it does every file.
 

@@ -21,11 +21,10 @@ fn music_settings_flip_with_left_and_right() {
         [
             ("Sound".to_string(), None),
             on("Screen Off", "Pause"),
-            on("List Size", "Normal"),
             on("Dynamic Color", "On"),
-            on("Theme", "Slot"),
             on("Update Library", "1 song"),
-            ("Rebuild Library".to_string(), None),
+            ("Help".to_string(), None),
+            ("Advanced".to_string(), None),
         ]
     );
     // The sound settings on a page of their own.
@@ -47,7 +46,7 @@ fn music_settings_flip_with_left_and_right() {
     sound.press(&own_cx, Key::B);
     assert_eq!(sound.view(), View::Settings, "B back to the rest");
     // Update Library acts on A, its count only told: no arrows to change it.
-    for key in [Key::Down; 5] {
+    for key in [Key::Down; 3] {
         sound.press(&own_cx, key);
     }
     assert_eq!(sound.row(&own_cx), Some(crate::Row::Rescan));
@@ -68,7 +67,6 @@ fn settings_are_kept_on_the_card_but_the_sleep_timer_is_not() {
     assert_eq!(store.settings(), Settings::default());
     let s = Settings {
         repeat: crate::Repeat::One,
-        up_next: false,
         log: true,
         color: false,
         jump: 15,

@@ -10,6 +10,7 @@ use std::time::Instant;
 use super::{Effect, Music};
 use crate::library::covers::{self, Covers};
 use crate::library::{scan, AlbumId, Library, TrackId};
+use crate::playback::queue::Queue;
 use crate::playback::recent::Recent;
 use crate::store::queue::SavedQueue;
 use crate::store::Kept;
@@ -30,16 +31,22 @@ pub(crate) struct Scan {
     pub(crate) play_when_read: bool,
     /// How far the scan running has got.
     pub(crate) progress: Arc<scan::Progress>,
+    /// What each screen kept through a new library had its cursor on, to find it again.
+    pub(crate) places: Vec<String>,
+    /// When the queue was last saved, to save a song's place now and then as it plays.
+    pub(crate) queue_saved: Option<Instant>,
 }
 
 /// What a scan finds, as it goes.
 pub(crate) enum Found {
     /// The library as the cache had it, to show at once.
-    Cached(Library),
+    Cached(Box<Library>),
     /// The card matched the cache: the library shown stands. The albums still needing a picture.
     Same(Vec<AlbumId>),
     /// The library as the card has it, and the albums still needing a picture.
-    Fresh(Library, Vec<AlbumId>),
+    Fresh(Box<Library>, Vec<AlbumId>),
+    /// The scan ended without a library: it is waited on no more.
+    Failed,
 }
 
 impl Music {
@@ -63,15 +70,21 @@ impl Music {
 
     pub(crate) fn on_found(&mut self, found: Found) {
         match found {
-            Found::Cached(lib) => self.install(lib, Vec::new()),
+            Found::Cached(lib) => self.install(*lib, Vec::new()),
             // The cache was right: the library shown stands, and its pictures can be made.
             Found::Same(missing) => {
                 self.pictures.covers = Covers::new(missing);
                 self.scan.rx = None;
             }
+            // Nothing to show, and the queue on the card kept for a scan that reads it.
+            Found::Failed => {
+                log::warn!("the library could not be read");
+                self.scan.ready = true;
+                self.player.restore(Queue::default(), 0.0, false);
+            }
             Found::Fresh(lib, missing) => {
                 self.scan.rx = None;
-                self.install(lib, missing);
+                self.install(*lib, missing);
             }
         }
     }
@@ -88,13 +101,16 @@ impl Music {
         self.unshow();
     }
 
-    /// The screens and pictures, whose numbers a new library no longer means.
+    /// The screens and pictures, whose numbers a new library no longer means: the screens that
+    /// name nothing by number stay, their cursors to be found again.
     fn unshow(&mut self) {
-        self.browser = Default::default();
+        let mut browser = std::mem::take(&mut self.browser);
+        self.scan.places = browser.unnumber(&self.context());
+        self.browser = browser;
         self.pictures = Default::default();
-        self.lyrics.clear();
-        self.lyrics_for = None;
-        self.chapters.clear();
+        self.ahead.lyrics.clear();
+        self.ahead.lyrics_for = None;
+        self.ahead.chapters.clear();
         self.generation += 1;
     }
 
@@ -116,6 +132,12 @@ impl Music {
         self.pictures.covers = Covers::new(missing);
         self.scan.ready = true;
         self.restore_queue();
+        let (mut browser, places) = (
+            std::mem::take(&mut self.browser),
+            std::mem::take(&mut self.scan.places),
+        );
+        browser.renumber(&self.context(), &places);
+        self.browser = browser;
         if std::mem::take(&mut self.scan.play_when_read) {
             let command = self.toggle();
             self.send(command);
@@ -124,27 +146,31 @@ impl Music {
 
     /// The music's queue as the queue file has it, by path.
     fn queue_text(&self) -> String {
-        let (tracks, at, pos) = self.music_snapshot();
-        let saved = SavedQueue {
-            tracks: tracks.to_vec(),
-            at,
-            pos,
-        };
-        saved.encode(self.card())
+        self.music_snapshot().encode(self.card())
     }
 
-    /// Saves the queue, except while the library is read and the queue looks empty.
+    /// Saves the queue, except while the library is read and the queue looks empty, or while the
+    /// queue read from the card still waits for a library to be put back in.
     pub(crate) fn save_queue(&mut self) {
-        if self.scan.ready {
+        if self.scan.ready && self.scan.queue_text.is_none() {
             let text = self.queue_text();
             self.out.push(Effect::Write(SavedQueue::FILE.into(), text));
         }
     }
 
-    /// Saves the queue when the player reports a change.
+    /// Saves the queue when the player reports a change, and, while a song plays, its place now
+    /// and then, as a book's is: a sudden power cut loses a minute at most.
     pub(crate) fn keep_queue(&mut self) {
-        if self.player.take_changed() {
+        let now = self.now.at;
+        let playing = self.player.state() == PlayState::Playing && self.book().is_none();
+        let due = playing
+            && self
+                .scan
+                .queue_saved
+                .is_none_or(|at| now.saturating_duration_since(at) >= QUEUE_EVERY);
+        if self.player.take_changed() || due {
             self.save_queue();
+            self.scan.queue_saved = Some(now);
         }
     }
 
@@ -153,15 +179,13 @@ impl Music {
     fn restore_queue(&mut self) {
         let replaying = self.scan.replaying.take();
         let text = self.scan.queue_text.take().unwrap_or_default();
-        let SavedQueue {
-            tracks: queue,
-            at,
-            pos,
-        } = SavedQueue::decode(&text, self.card());
-        let current = queue.get(at).map(|&t| self.path(t).to_path_buf());
+        let saved = SavedQueue::decode(&text, self.card());
+        let pos = saved.pos;
+        let queue = saved.queue();
+        let current = queue.current().map(|t| self.path(t).to_path_buf());
         let playing = self.player.state() == PlayState::Playing;
         let plays_on = playing && replaying.is_some() && current == replaying;
-        self.player.restore(queue, at, pos, plays_on);
+        self.player.restore(queue, pos, plays_on);
         // A book playing through a rescan plays on as music does.
         let book = replaying.as_deref().filter(|_| playing && !plays_on);
         let book_plays_on = self.restore_book(book);
@@ -174,6 +198,9 @@ impl Music {
         &self.library.tracks[t].path
     }
 }
+
+/// How often a song's place is saved as it plays.
+const QUEUE_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Reads the library in the background: the cache's at once, then the card's, reading what
 /// changed, or every song when `full`.
@@ -191,8 +218,9 @@ pub(crate) fn spawn_scan(
         .spawn(move || {
             crate::background();
             let started = Instant::now();
-            let shown =
-                !full && scan::cached(&root).is_some_and(|lib| tx.send(Found::Cached(lib)).is_ok());
+            let shown = !full
+                && scan::cached(&root)
+                    .is_some_and(|lib| tx.send(Found::Cached(Box::new(lib))).is_ok());
             frames.unpark();
             let (lib, changed) = scan::scan(&root, full, &progress);
             let missing = covers::missing(&root, &lib);
@@ -200,7 +228,7 @@ pub(crate) fn spawn_scan(
             let _ = tx.send(if shown && !changed {
                 Found::Same(missing)
             } else {
-                Found::Fresh(lib, missing)
+                Found::Fresh(Box::new(lib), missing)
             });
             frames.unpark();
         });

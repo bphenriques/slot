@@ -96,10 +96,17 @@ tasks:
       - cargo clippy -p slot-music -p slot-ui -p slot-input -p slot-player --tests -- -D warnings
       - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
       - cargo test -p slot-music -p slot-ui -p slot-input -p slot-player
+      - cargo clippy -p slot-music -p slot-player --features slot-music/perf --tests -- -D warnings
+      - cargo test -p slot-music -p slot-player --features slot-music/perf
       - cargo test -p slot --no-default-features --features slot/device --lib
       - cargo test -p slot --no-default-features --features slot/device --test evdev
       - git checkout -- crates/slot/tests/prefetch.rs crates/slot/tests/runahead.rs
       - task: footprint
+
+  licenses:music:
+    desc: The license and notice files of every crate the music player links, for System/licenses
+    cmds:
+      - tools/third-party.sh slot-music 'the music player (slot-music, slot-player)' > licenses/slot-music-third-party.txt
 
   coverage:
     desc: How much of the music player's crates the tests run, file by file
@@ -364,7 +371,8 @@ tasks:
       inside an emulated arm64 container
     deps: [network:tools]
     vars:
-      PACKAGES: -p slot -p slot-services --no-default-features --features slot/device
+      FEATURES: '{{.FEATURES | default "slot/device"}}'
+      PACKAGES: -p slot -p slot-services --no-default-features --features {{.FEATURES}}
     cmds:
       - |
         set -eu

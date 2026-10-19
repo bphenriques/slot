@@ -66,6 +66,10 @@ const LEGEND_Y: f32 = 427.0;
 const PROGRESS_Y: f32 = 50.0;
 const PROGRESS_H: f32 = 3.0;
 pub const ART_BOX: u32 = 240;
+/// A list row's album thumbnail, square, inside the highlight of a row of a page of eight, and
+/// the room it takes before the row's text.
+pub const THUMB_PX: u32 = 32;
+const THUMB_ROOM: f32 = THUMB_PX as f32 + 12.0;
 /// The note, or a book, on the square with no picture: two fifths of it across.
 const NO_ART_PX: f32 = ART_BOX as f32 * 0.4;
 /// Now Playing: the room kept under the picture for Up Next, so the screen does not move when
@@ -180,6 +184,9 @@ pub struct ListFaces {
     /// The rows that are favorites, and the heart drawn at their right.
     pub hearts: Vec<bool>,
     pub heart: Option<MusicFace>,
+    /// Whether the rows start with their album's thumbnail, and each one's, once read.
+    pub thumbed: bool,
+    pub thumbs: Vec<Option<MusicFace>>,
 }
 
 /// The track playing: its three lines, picture, state symbols, bar, place and time.

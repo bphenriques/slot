@@ -16,6 +16,8 @@ pub(crate) enum Job {
     Make(Make),
     /// Read an album's label for the screen.
     Load { album: AlbumId, label: PathBuf },
+    /// Read an album's thumbnail, for a list's row.
+    Thumb { album: AlbumId, thumb: PathBuf },
     /// Read a book's part's chapters, an MP4's own or an MP3's.
     Chapters { track: TrackId, path: PathBuf },
     /// Read a song's lyrics, from an `.lrc` beside it or its tags.
@@ -26,6 +28,8 @@ pub(crate) enum Done {
     Made(AlbumId),
     /// An album's picture, or none: it has no picture, or no label yet.
     Loaded(AlbumId, Option<Art>),
+    /// An album's thumbnail, or none.
+    Thumb(AlbumId, Option<Art>),
     Chapters(TrackId, Vec<Chapter>),
     /// A song's lyrics, or none: it has none.
     Lyrics(TrackId, Option<Lyrics>),
@@ -37,9 +41,9 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    /// `px` is the square pictures are shrunk to fit; `frames` is the frame loop's thread, woken
+    /// `px` is the square pictures are shrunk to fit, `thumb_px` a list row's; `frames` is the frame loop's thread, woken
     /// as each job is done, so what it read shows at once rather than at the loop's next wake.
-    pub fn spawn(px: u32, frames: std::thread::Thread) -> Worker {
+    pub fn spawn(px: u32, thumb_px: u32, frames: std::thread::Thread) -> Worker {
         let (jobs, job_rx) = mpsc::channel::<(u32, Job)>();
         let (done_tx, done) = mpsc::channel();
         let spawned = std::thread::Builder::new()
@@ -59,7 +63,7 @@ impl Worker {
                     let Some((generation, job)) = queue.next() else {
                         continue;
                     };
-                    let done = guarded(job, |job| work(job, px));
+                    let done = guarded(job, |job| work(job, px, thumb_px));
                     if done_tx.send((generation, done)).is_err() {
                         return;
                     }
@@ -112,19 +116,21 @@ fn guarded(job: Job, work: impl FnOnce(Job) -> Done) -> Done {
     let nothing = match &job {
         Job::Make(make) => Done::Made(make.album),
         Job::Load { album, .. } => Done::Loaded(*album, None),
+        Job::Thumb { album, .. } => Done::Thumb(*album, None),
         Job::Chapters { track, .. } => Done::Chapters(*track, Vec::new()),
         Job::Lyrics { track, .. } => Done::Lyrics(*track, None),
     };
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(job))).unwrap_or(nothing)
 }
 
-fn work(job: Job, px: u32) -> Done {
+fn work(job: Job, px: u32, thumb_px: u32) -> Done {
     match job {
         Job::Make(make) => {
-            covers::make(&make, px);
+            covers::make(&make, px, thumb_px);
             Done::Made(make.album)
         }
         Job::Load { album, label } => Done::Loaded(album, covers::load(album, &label, px)),
+        Job::Thumb { album, thumb } => Done::Thumb(album, covers::load(album, &thumb, thumb_px)),
         Job::Chapters { track, path } => Done::Chapters(track, chapters::read(&path)),
         Job::Lyrics { track, path } => Done::Lyrics(track, lyrics::read(&path)),
     }
@@ -137,7 +143,7 @@ mod tests {
 
     #[test]
     fn a_job_done_wakes_the_frame_loop_resting_rather_than_wait_for_its_next_wake() {
-        let worker = Worker::spawn(16, std::thread::current());
+        let worker = Worker::spawn(16, 8, std::thread::current());
         let lyrics = Job::Lyrics {
             track: TrackId(1),
             path: PathBuf::from("/no/such/song.mp3"),
@@ -164,7 +170,17 @@ mod tests {
     fn what_a_screen_waits_on_goes_before_the_labels_to_make() {
         let make = |album| {
             let (song, label) = (PathBuf::from("a.mp3"), PathBuf::from("a.png"));
-            (0, Job::Make(Make { album, song, label }))
+            let thumb = PathBuf::from("a.thumb.png");
+            (
+                0,
+                Job::Make(Make {
+                    album,
+                    song,
+                    label,
+                    thumb,
+                    changed: 0,
+                }),
+            )
         };
         let mut queue = Queue::default();
         queue.push(make(AlbumId(0)));

@@ -8,22 +8,12 @@ screen_off = pause
 # How far Left and Right jump in an audiobook, in seconds: 10, 15 or 30.
 jump = 30
 
-# How big library lists and the queue are: small (10 rows a page), normal (8) or large (7).
-# Menus keep slot's own size.
-list = normal
-
 # The repeat mode, set on Now Playing's menu (START): off, all or one.
 repeat = off
-
-# Show the next track under Now Playing: on or off. Only set here.
-up_next = on
 
 # Take Now Playing's colour from the album picture, a faint wash behind the screen and the
 # progress bar: on or off.
 color = on
-
-# The music screens' colours: slot (follow slot's Appearance), dark or light.
-theme = slot
 
 # Both sides alike, for one ear or one speaker: on or off. Music Settings shows it as Mono
 # Audio.
@@ -34,7 +24,8 @@ mono = off
 # Leveling. Songs always follow on with no gap.
 leveling = off
 
-# Seconds a song's end fades into the next: 0, 3 or 6. Never a book's.
+# Seconds a song's end fades into the next: 0, 3 or 6. Only between albums: one played in
+# order stays gapless. Never a book's.
 crossfade = 0
 
 # For audiobooks: pauses cut short (on or off), and dB louder (0, 3 or 6;
@@ -49,6 +40,7 @@ eq = off
 # Songs listened to go into .scrobbler.log, for a Last.fm uploader: on or off.
 scrobbler = off
 
-# Advanced: the performance log, and the detailed log: on or off.
+# Advanced: the detailed log, and, in a build made with the music-perf feature, the
+# performance log: on or off.
 perf = off
 log = off

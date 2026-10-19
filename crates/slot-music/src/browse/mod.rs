@@ -7,18 +7,21 @@ pub mod rows;
 use crate::books::chapters::Chapter;
 use crate::books::Shelf;
 use crate::browse::keys::Mode;
+use crate::library::covers::Art;
 use crate::library::Library;
-use crate::library::{AlbumId, ArtistId, BookId, TrackId};
+use crate::library::{AlbumId, ArtistId, BookId, GenreId, TrackId};
 use crate::music::ReadAhead;
 use crate::playback::fade::Sleep;
 use crate::screens;
 use crate::settings::{Setting, Settings};
-use crate::text::{self, Notice};
+use crate::text;
 use rows::{label, rows, value, Row, RowText};
 use std::time::Instant;
 
 /// Rows on a menu page (the music main screen, settings), at the quick menu's spacing.
 pub const MENU_ROWS: usize = 7;
+/// Rows on a page of a list: the library's lists and the queue.
+pub const LIST_ROWS: usize = 8;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum View {
@@ -34,12 +37,19 @@ pub enum View {
     BookSettings,
     /// What helps say how the device does: the performance log and the detailed log.
     Advanced,
+    /// The library's ways in: artists, albums, songs, genres and years.
+    Library,
     Artists,
     Artist(ArtistId),
     Albums,
     Album(AlbumId),
     Tracks,
     NowPlaying,
+    /// The genres, and a genre's albums; the decades, and a decade's albums by year.
+    Genres,
+    Genre(GenreId),
+    Years,
+    Decade(u32),
     Playlists,
     Playlist(usize),
     /// The albums last added, newest first.
@@ -59,16 +69,14 @@ pub enum View {
     PlayingMenu,
     /// Up Next's and the queue's menu, from START: save it, or clear it.
     QueueMenu,
-    /// The menu for a list's song, album, artist or playlist, from START.
-    RowMenu(Row),
+    /// The menu for a list's song, or its book, from START.
+    SongMenu(TrackId),
+    BookMenu(BookId),
     /// What is known of a song, set as a list.
     SongInfo(TrackId),
-    /// Settings' Integrations page: what the player tells programs outside it.
-    Integrations,
-    /// Settings' Help, a menu of Controls, the keys the hints leave out, and Tips, a page to read.
+    /// Help, a page to read: a few tips, then the keys the hints leave out. Shown on the first
+    /// start, and from Settings.
     Help,
-    Controls,
-    Tips,
 }
 
 /// The audiobooks a list holds.
@@ -83,21 +91,51 @@ pub enum BookList {
 }
 
 impl View {
-    /// Menus keep slot's quick-menu size; lists follow List Size.
+    /// Menus keep slot's quick-menu size; lists have more rows.
     pub fn is_menu(self) -> bool {
         matches!(
             self,
             View::Main
+                | View::Library
                 | View::Books
                 | View::Settings
                 | View::Sound
                 | View::BookSettings
-                | View::Integrations
                 | View::Advanced
-                | View::Help
                 | View::PlayingMenu
                 | View::QueueMenu
-                | View::RowMenu(_)
+                | View::SongMenu(_)
+                | View::BookMenu(_)
+        )
+    }
+
+    /// Whether it names something of the library by its number, which a new library renumbers.
+    fn numbered(self) -> bool {
+        matches!(
+            self,
+            View::Artist(_)
+                | View::Album(_)
+                | View::Playlist(_)
+                | View::Genre(_)
+                | View::Author(_)
+                | View::BookChapters(_)
+                | View::Bookmarks(_)
+                | View::SongMenu(_)
+                | View::BookMenu(_)
+                | View::SongInfo(_)
+        )
+    }
+
+    /// Whether its rows go by name, so the shoulders jump a letter: the library's lists by name.
+    pub(crate) fn by_name(self) -> bool {
+        matches!(
+            self,
+            View::Artists
+                | View::Albums
+                | View::Tracks
+                | View::Genres
+                | View::Authors
+                | View::BookList(BookList::All)
         )
     }
 
@@ -105,7 +143,11 @@ impl View {
     pub fn is_start_menu(self) -> bool {
         matches!(
             self,
-            View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_)
+            View::PlayingMenu
+                | View::QueueMenu
+                | View::SongMenu(_)
+                | View::BookMenu(_)
+                | View::SongInfo(_)
         )
     }
 }
@@ -124,8 +166,8 @@ pub enum Key {
     Y,
     /// START: the menu for what is shown; held, it pauses.
     Start,
-    /// SELECT on its own: to Now Playing, and from there to the queue and back; held, the screen
-    /// blanks.
+    /// SELECT on its own: to Now Playing, and from there to the queue and back, as it is let go,
+    /// since it may yet be a chord with L1 or R1.
     Select,
     /// SELECT with L1 or R1: the previous or next track, from any music screen.
     SelectL1,
@@ -192,16 +234,12 @@ pub enum Outcome {
     },
     /// Back to where the book was before it last moved.
     Back,
-    /// Turn the screen off until a button, which then acts as it would: SELECT held.
-    Blank,
     /// Play from a line of the timed lyrics.
     FromLine(usize),
     /// Take everything out of the queue but what plays.
     Clear,
     /// Keep the queue as a new playlist.
     SaveQueue,
-    /// Show a notice in the corner.
-    Tell(Notice),
     /// Add this song to Favorites, or take it out.
     Favorite(TrackId),
     /// Take `n` tracks out of the queue from place `at`, short of the one playing.
@@ -256,6 +294,8 @@ pub struct Context<'a> {
     pub chapters: &'a ReadAhead<Vec<Chapter>>,
     /// The equalizer's preset, by name; none when off.
     pub eq: Option<&'a str>,
+    /// The albums whose thumbnails are read, for the rows of the page shown.
+    pub thumbs: &'a [Art],
     /// The moment the keys act at: the frame's, never the clock's.
     pub now: Instant,
 }
@@ -286,6 +326,7 @@ impl<'a> Context<'a> {
             shuffled: false,
             chapters: &NO_CHAPTERS,
             eq: None,
+            thumbs: &[],
             now,
         }
     }
@@ -314,6 +355,8 @@ pub struct Page {
     /// Rows on this page with a rule above them: under the action rows, between discs, and
     /// under Recently Added.
     pub rules: Vec<usize>,
+    /// Its rows start with their album's thumbnail: albums, books, songs from across albums.
+    pub thumbs: bool,
 }
 
 struct Level {
@@ -329,6 +372,8 @@ pub struct Browser {
     pub(crate) scrolled: Option<std::time::Instant>,
     /// How many times X has acted held in the queue: the longer, the more it takes out at once.
     pub(crate) run: usize,
+    /// The row Library was left on, to open on again, as players keep their library's tab.
+    library_at: usize,
 }
 
 impl Default for Browser {
@@ -341,6 +386,7 @@ impl Default for Browser {
             carry: None,
             scrolled: None,
             run: 0,
+            library_at: 0,
         }
     }
 }
@@ -367,7 +413,6 @@ impl Browser {
     pub fn held(&mut self, cx: &Context, key: Key) -> Outcome {
         match key {
             Key::Start => return Outcome::Toggle,
-            Key::Select => return Outcome::Blank,
             Key::B => {
                 self.home();
                 return Outcome::None;
@@ -382,8 +427,8 @@ impl Browser {
             (_, View::NowPlaying, _) => screens::now_playing::held(key),
             (_, View::Lyrics, _) => screens::lyrics::held(key),
             (_, _, Some(Row::Queued(i))) => screens::queue::held(self, cx, i, key),
-            (_, _, Some(Row::Rebuild)) => Outcome::Rescan(true),
-            (_, View::Main, Some(row)) => screens::main::held(self, cx, row, key),
+            (_, _, Some(Row::Rescan)) => Outcome::Rescan(true),
+            (_, View::Main | View::Library, Some(row)) => screens::main::held(self, cx, row, key),
             (_, view, Some(row)) if !view.is_menu() => screens::list::held(cx, view, row, key),
             _ => Outcome::None,
         }
@@ -393,7 +438,7 @@ impl Browser {
     pub fn at_end(&self, cx: &Context, key: Key) -> bool {
         let n = match self.view() {
             View::Lyrics => cx.lyrics.lines,
-            View::Tips => text::TIPS_TEXT.len(),
+            View::Help => text::help().len(),
             view => rows(cx, view).len(),
         };
         match key {
@@ -442,7 +487,7 @@ impl Browser {
             (View::NowPlaying, Some(_)) => return screens::book::press(cx, key),
             (View::NowPlaying, None) => return screens::now_playing::press(self, cx, key),
             (View::Lyrics, _) => return screens::lyrics::press(self, cx, key),
-            (View::Tips, _) => return screens::help::press(self, key),
+            (View::Help, _) => return screens::help::press(self, key),
             _ => {}
         }
         let rows = rows(cx, self.view());
@@ -469,7 +514,7 @@ impl Browser {
         let rows = rows(cx, view);
         let fixed = rows::fixed(view).len();
         let at = self.at().min(rows.len().saturating_sub(1));
-        let per = per_page(view, &cx.settings);
+        let per = per_page(view);
         let page = at / per;
         let shown = || rows.iter().skip(page * per).take(per);
         Page {
@@ -478,6 +523,8 @@ impl Browser {
                 View::Album(a) => cx.lib.albums[a].name.clone(),
                 View::Playlist(0) => text::FAVORITES.into(),
                 View::Playlist(p) => cx.lib.playlists[p].name.clone(),
+                View::Genre(g) => cx.lib.genres[g].name.clone(),
+                View::Decade(d) => text::decade(d),
                 view => text::title(view).unwrap_or_default().into(),
             },
             rows: shown().map(|&r| label(cx, view, r)).collect(),
@@ -490,7 +537,7 @@ impl Browser {
                     match (rows.get(above), rows.get(row)) {
                         (Some(_), Some(_)) if row == fixed => true,
                         // The lists pinned first are kept apart from the playlists made.
-                        (Some(Row::RecentlyAdded), Some(_)) => true,
+                        (Some(Row::Open(View::RecentlyAdded)), Some(_)) => true,
                         (Some(&Row::Track(a)), Some(&Row::Track(b))) => {
                             matches!(view, View::Album(_))
                                 && cx.lib.tracks[a].disc != cx.lib.tracks[b].disc
@@ -499,6 +546,7 @@ impl Browser {
                     }
                 })
                 .collect(),
+            thumbs: shown().any(|&r| rows::album(cx, view, r).is_some()),
             pages: rows.len().div_ceil(per).max(1),
             item: at.checked_sub(fixed).map(|i| i + 1),
             items: rows.len() - fixed,
@@ -521,6 +569,11 @@ impl Browser {
     /// Opens `view` with the cursor on row `at`.
     pub(crate) fn push(&mut self, view: View, at: usize) {
         self.carry = None;
+        let at = if view == View::Library {
+            self.library_at
+        } else {
+            at
+        };
         self.stack.push(Level { view, at });
     }
 
@@ -532,17 +585,58 @@ impl Browser {
             .copied()
     }
 
+    /// A new library is coming, whose numbers are not the last one's: keeps the screens that
+    /// do not name an album, artist, playlist or book by number, and says what each cursor is
+    /// on, to find again once it is shown.
+    pub(crate) fn unnumber(&mut self, cx: &Context) -> Vec<String> {
+        self.carry = None;
+        let kept = self.stack.iter().take_while(|l| !l.view.numbered()).count();
+        self.stack.truncate(kept.max(1));
+        self.stack
+            .iter()
+            .map(|l| {
+                let rows = rows(cx, l.view);
+                rows.get(l.at.min(rows.len().saturating_sub(1)))
+                    .map(|&r| label(cx, l.view, r).text)
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    /// The new library shown: each cursor back on the row named as `names` says, where it is
+    /// still there; else where it was, as reading the cursor has it.
+    pub(crate) fn renumber(&mut self, cx: &Context, names: &[String]) {
+        for (level, name) in self.stack.iter_mut().zip(names) {
+            let rows = rows(cx, level.view);
+            if let Some(at) = rows
+                .iter()
+                .position(|&r| label(cx, level.view, r).text == *name)
+            {
+                level.at = at;
+            }
+        }
+    }
+
     /// Goes all the way back, to the main screen.
     pub fn home(&mut self) {
         self.carry = None;
-        self.stack.truncate(1);
+        while self.stack.len() > 1 {
+            self.pop();
+        }
     }
 
     /// Goes back a screen; the main screen stays.
     pub(crate) fn pop(&mut self) {
         self.carry = None;
         if self.stack.len() > 1 {
-            self.stack.pop();
+            let left = self.stack.pop();
+            if let Some(Level {
+                view: View::Library,
+                at,
+            }) = left
+            {
+                self.library_at = at;
+            }
         }
     }
 
@@ -565,11 +659,11 @@ impl Browser {
     }
 }
 
-/// Rows a page of `view` holds: menus keep slot's size, lists follow List Size.
-pub fn per_page(view: View, settings: &Settings) -> usize {
+/// Rows a page of `view` holds: menus keep slot's size, lists their own.
+pub fn per_page(view: View) -> usize {
     if view.is_menu() {
         MENU_ROWS
     } else {
-        settings.list_size.page()
+        LIST_ROWS
     }
 }

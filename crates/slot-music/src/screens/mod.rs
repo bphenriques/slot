@@ -67,10 +67,8 @@ pub enum Legend {
     Settings,
     /// A START menu, which may hold a setting.
     Menu,
-    /// Update Library, which reads the card again for what changed.
+    /// Update Library: what changed, or held, everything again.
     Update,
-    /// Rebuild Library, which acts only when A is held, as it takes long.
-    Hold,
     Back,
 }
 
@@ -105,7 +103,6 @@ impl Legend {
         let mut all = vec![Legend::Carry, Legend::Settings, Legend::Menu];
         all.extend([
             Legend::Update,
-            Legend::Hold,
             Legend::Back,
             Legend::Chapters,
             Legend::Bookmarks,
@@ -207,6 +204,8 @@ pub struct ListBody {
     pub lifted: bool,
     /// Rows that only tell, like Song Info's: no highlight, and every long one scrolls.
     pub readonly: bool,
+    /// Its rows start with their album's thumbnail, or room for it until it is read.
+    pub thumbs: bool,
 }
 
 /// The track playing. Room is kept for its album picture whether or not it has loaded.
@@ -273,33 +272,36 @@ impl Music {
     fn build_screen(&self) -> Screen {
         let screen = match self.browser.view() {
             View::Main => main::screen(self),
-            View::Settings
-            | View::Sound
-            | View::BookSettings
-            | View::Integrations
-            | View::Help
-            | View::Advanced => list::rows_screen(self),
+            View::Settings | View::Sound | View::BookSettings | View::Advanced => {
+                list::rows_screen(self)
+            }
             View::Queue => queue::screen(self),
             View::Lyrics => lyrics::screen(self),
-            View::Tips => help::screen(self),
-            View::Controls => list::table(self),
+            View::Help => help::screen(self),
             View::NowPlaying => now_playing::screen(self),
-            View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_) => {
-                menu::screen(self)
-            }
-            View::Artists
+            View::PlayingMenu
+            | View::QueueMenu
+            | View::SongMenu(_)
+            | View::BookMenu(_)
+            | View::SongInfo(_) => menu::screen(self),
+            View::Library
+            | View::Artists
             | View::Artist(_)
             | View::Albums
             | View::Album(_)
             | View::Tracks
+            | View::Genres
+            | View::Genre(_)
+            | View::Years
+            | View::Decade(_)
             | View::Playlists
             | View::Playlist(_)
             | View::RecentlyAdded
             | View::RecentlyPlayed
             | View::BookList(_)
             | View::Authors
-            | View::Author(_) => list::screen(self),
-            View::Books => list::rows_screen(self),
+            | View::Author(_)
+            | View::Books => list::screen(self),
             View::Bookmarks(_) | View::BookChapters(_) => book::list(self),
         };
         let now = self.now.at;
@@ -312,6 +314,7 @@ impl Music {
             .left(now)
             .map(|_| text::sleeping(self.transport.sleep.remaining(now)));
         let locked = self
+            .buttons
             .pocket
             .locked
             .then(|| text::notice(&Notice::Locked(true)));
@@ -323,10 +326,12 @@ impl Music {
         Screen {
             depth: self.browser.depth(),
             letter: self
+                .flash
                 .letter
                 .filter(|(_, at)| now.saturating_duration_since(*at) < LETTER)
                 .map(|(c, _)| c),
             hold: self
+                .buttons
                 .keys
                 .holding(now)
                 .filter(|&(_, done)| done >= RING_AFTER)
@@ -339,6 +344,11 @@ impl Music {
         }
     }
 
+    /// The thumbnails of the albums the shown page's rows start with, as read.
+    pub fn thumbs(&self) -> &[Art] {
+        &self.pictures.thumbs
+    }
+
     /// The playing album's picture, on Now Playing only.
     pub fn art(&self) -> Option<&Art> {
         let shown = self.browser.view() == View::NowPlaying && self.player.current().is_some();
@@ -347,7 +357,7 @@ impl Music {
 
     /// A fresh notice, worded.
     fn notice(&self) -> Option<String> {
-        let (notice, at) = self.notice.as_ref()?;
+        let (notice, at) = self.flash.notice.as_ref()?;
         (self.now.at.saturating_duration_since(*at) < NOTICE).then(|| text::notice(notice))
     }
 }
@@ -374,7 +384,7 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             playing,
             line: cx.lyrics.timed && !lyrics::following(b, cx.now),
         },
-        View::Main => Legend::Main {
+        View::Main | View::Library => Legend::Main {
             playing: something,
             hold: row.and_then(|row| main::hold(cx, row)),
         },
@@ -388,28 +398,19 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             },
             _ => Legend::Back,
         },
-        // Rebuild Library acts only when A is held; the pages it opens open.
-        View::Settings
-        | View::Sound
-        | View::BookSettings
-        | View::Integrations
-        | View::Help
-        | View::Advanced => match row {
+        // Update Library updates, or held rebuilds; the pages it opens open.
+        View::Settings | View::Sound | View::BookSettings | View::Advanced => match row {
             Some(Row::Rescan) => Legend::Update,
-            Some(Row::Rebuild) => Legend::Hold,
             Some(
-                Row::Sound
-                | Row::BookSettings
-                | Row::Integrations
-                | Row::Help
-                | Row::Controls
-                | Row::Tips
-                | Row::Advanced,
+                Row::Open(View::Sound)
+                | Row::Open(View::BookSettings)
+                | Row::Open(View::Help)
+                | Row::Open(View::Advanced),
             ) => Legend::Menu,
             _ => Legend::Settings,
         },
-        View::SongInfo(_) | View::Controls | View::Tips => Legend::Back,
-        View::PlayingMenu | View::QueueMenu | View::RowMenu(_) => Legend::Menu,
+        View::SongInfo(_) | View::Help => Legend::Back,
+        View::PlayingMenu | View::QueueMenu | View::SongMenu(_) | View::BookMenu(_) => Legend::Menu,
         View::BookChapters(_) => Legend::Chapters,
         View::Bookmarks(_) => Legend::Bookmarks,
         View::Artists
@@ -417,6 +418,10 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
         | View::Albums
         | View::Album(_)
         | View::Tracks
+        | View::Genres
+        | View::Genre(_)
+        | View::Years
+        | View::Decade(_)
         | View::Playlists
         | View::Playlist(_)
         | View::RecentlyAdded
@@ -427,7 +432,13 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             Some(Row::Track(_)) => Target::Song,
             Some(Row::Album(_)) => Target::Album,
             Some(Row::Artist(_)) => Target::Artist,
-            Some(Row::Playlist(_) | Row::RecentlyAdded | Row::RecentlyPlayed) => Target::Playlist,
+            Some(
+                Row::Playlist(_)
+                | Row::Open(View::RecentlyAdded)
+                | Row::Open(View::RecentlyPlayed)
+                | Row::Genre(_)
+                | Row::Decade(_),
+            ) => Target::Playlist,
             Some(Row::Book(_)) => Target::Book,
             Some(Row::Author(_)) => Target::Author,
             _ => Target::All,

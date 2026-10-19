@@ -17,12 +17,18 @@ pub(crate) fn toggle(b: &mut Browser, cx: &Context) {
             b.push(View::PlayingMenu, 0)
         }
         View::Queue if !cx.queue.tracks.is_empty() => b.push(View::QueueMenu, 0),
-        View::PlayingMenu | View::QueueMenu | View::RowMenu(_) | View::SongInfo(_) => b.pop(),
+        View::PlayingMenu
+        | View::QueueMenu
+        | View::SongMenu(_)
+        | View::BookMenu(_)
+        | View::SongInfo(_) => b.pop(),
         _ => {
             // A list's songs and books have menus; its other rows do all with their keys.
             let rows = rows::rows(cx, view);
-            if let Some(&row @ (Row::Track(_) | Row::Book(_))) = rows.get(b.at()) {
-                b.push(View::RowMenu(row), 0);
+            match rows.get(b.at()) {
+                Some(&Row::Track(t)) => b.push(View::SongMenu(t), 0),
+                Some(&Row::Book(book)) => b.push(View::BookMenu(book), 0),
+                _ => {}
             }
         }
     }
@@ -85,7 +91,7 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
         return Some(outcome);
     }
     // A book's menu: its chapters, start it over, or mark it finished or not.
-    if let View::RowMenu(Row::Book(book)) = b.view() {
+    if let View::BookMenu(book) = b.view() {
         b.pop();
         return Some(match row {
             Row::Chapters => {

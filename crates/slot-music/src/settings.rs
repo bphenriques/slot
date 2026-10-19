@@ -9,14 +9,8 @@ pub struct Settings {
     /// `screen_off = play` keeps music going with the screen off or the lid shut; `pause`
     /// (default) pauses it.
     pub play_screen_off: bool,
-    /// The size of library lists and the queue; menus keep slot's size.
-    pub list_size: ListSize,
-    /// Show the next track under Now Playing (`up_next`; only in `music.txt`).
-    pub up_next: bool,
     /// Tint Now Playing, its background and progress bar, from the album picture.
     pub color: bool,
-    /// The music screens' colours.
-    pub theme: Theme,
     /// Seconds Left and Right jump in an audiobook.
     pub jump: u32,
     /// Both sides alike (`mono = on`), for one ear or one speaker; slot's player only.
@@ -35,15 +29,17 @@ pub struct Settings {
     /// Whether the performance log runs (`perf = on`), on the Advanced page.
     pub perf: bool,
     /// Whether songs listened to go into `.scrobbler.log` for a Last.fm uploader
-    /// (`scrobbler = on`), on the Integrations page.
+    /// (`scrobbler = on`), on the Advanced page.
     pub scrobbler: bool,
     /// Whether `Logs/slot.log` tells what happens as well as what went wrong (`log = on`), on the
     /// Advanced page: for someone asked to send it.
     pub log: bool,
+    /// Whether Help was shown on the first start (`help = seen`), not to show it again.
+    pub help_seen: bool,
 }
 
 /// A setting the music screens change. The sleep timer is on Now Playing's menu and never
-/// saved; the rest are on the Music Settings page. Clock and Up Next are only in `music.txt`.
+/// saved; the rest are on the Music Settings page.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Setting {
     ScreenOff,
@@ -54,27 +50,19 @@ pub enum Setting {
     Leveling,
     SkipSilence,
     Boost,
-    ListSize,
     /// On Now Playing's menu, as the sleep timer is, but kept.
     Repeat,
     SleepTimer,
     Color,
-    Theme,
     /// On the Advanced page.
     PerfLog,
     Log,
-    /// On the Integrations page.
     Scrobbler,
 }
 
 impl Setting {
     /// Music Settings' own, after its Sound and Audiobooks pages.
-    pub const ALL: [Setting; 4] = [
-        Setting::ScreenOff,
-        Setting::ListSize,
-        Setting::Color,
-        Setting::Theme,
-    ];
+    pub const ALL: [Setting; 2] = [Setting::ScreenOff, Setting::Color];
 
     /// The Sound page's, slot's player's alone. Songs always follow on with no gap, as on
     /// Apple Music: nothing is lost by it.
@@ -87,71 +75,10 @@ impl Setting {
 
     /// The Audiobooks page's: the jump, then what slot's player alone does for a voice.
     pub const BOOKS: [Setting; 3] = [Setting::Jump, Setting::SkipSilence, Setting::Boost];
-
-    /// The Integrations page's: what the player tells programs outside it.
-    pub const INTEGRATIONS: [Setting; 1] = [Setting::Scrobbler];
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum ListSize {
-    Small,
-    Normal,
-    Large,
-}
-
-impl ListSize {
-    pub(crate) const ORDER: [ListSize; 3] = [ListSize::Small, ListSize::Normal, ListSize::Large];
-
-    /// Rows per page, set around Normal. The type size follows the row spacing (slot-ui).
-    pub fn page(self) -> usize {
-        match self {
-            ListSize::Small => 10,
-            ListSize::Normal => 8,
-            ListSize::Large => 7,
-        }
-    }
-
-    /// Its name in `music.txt`, never shown: the screens word it through `text`.
-    pub(crate) fn key(self) -> &'static str {
-        match self {
-            ListSize::Small => "small",
-            ListSize::Normal => "normal",
-            ListSize::Large => "large",
-        }
-    }
 }
 
 /// The jumps an audiobook offers, as players do: 15 is Apple's, 30 Audible's.
 pub(crate) const JUMPS: [u32; 3] = [10, 15, 30];
-
-/// The music screens' colours: slot's appearance, or always dark or light.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum Theme {
-    Slot,
-    Dark,
-    Light,
-}
-
-impl Theme {
-    pub(crate) const ORDER: [Theme; 3] = [Theme::Slot, Theme::Dark, Theme::Light];
-
-    /// Whether the screens are light, when slot's appearance is `light` or not.
-    pub fn light(self, light: bool) -> bool {
-        match self {
-            Theme::Slot => light,
-            Theme::Dark => false,
-            Theme::Light => true,
-        }
-    }
-
-    pub(crate) fn key(self) -> &'static str {
-        match self {
-            Theme::Slot => "slot",
-            Theme::Dark => "dark",
-            Theme::Light => "light",
-        }
-    }
-}
 
 /// The choice `by` steps to from `at` in `order`: Left (-1) and Right (1) stop at the ends,
 /// A (0) goes round.
@@ -170,10 +97,7 @@ impl Default for Settings {
         Settings {
             repeat: Repeat::Off,
             play_screen_off: false,
-            list_size: ListSize::Normal,
-            up_next: true,
             color: true,
-            theme: Theme::Slot,
             jump: 30,
             mono: false,
             leveling: false,
@@ -184,6 +108,7 @@ impl Default for Settings {
             perf: false,
             log: false,
             scrobbler: false,
+            help_seen: false,
         }
     }
 }
@@ -203,7 +128,6 @@ impl Settings {
     pub fn change(&mut self, setting: Setting, by: i32) {
         match setting {
             Setting::ScreenOff => self.play_screen_off ^= true,
-            Setting::ListSize => self.list_size = cycle(&ListSize::ORDER, self.list_size, by),
             Setting::Color => self.color ^= true,
             Setting::Mono => self.mono ^= true,
             Setting::Crossfade => self.crossfade = cycle(&FADES, self.crossfade, by),
@@ -215,7 +139,6 @@ impl Settings {
             Setting::Log => self.log ^= true,
             Setting::Scrobbler => self.scrobbler ^= true,
             Setting::Leveling => self.leveling ^= true,
-            Setting::Theme => self.theme = cycle(&Theme::ORDER, self.theme, by),
             Setting::Jump => self.jump = cycle(&JUMPS, self.jump, by),
             Setting::Repeat => self.repeat = cycle(&Repeat::ORDER, self.repeat, by),
             Setting::SleepTimer => {}

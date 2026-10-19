@@ -13,8 +13,11 @@ use crate::Music;
 /// What A held does on `row`, if anything.
 pub(crate) fn hold(cx: &Context, row: Row) -> Option<MainHold> {
     match row {
-        Row::Artists | Row::Albums | Row::Tracks => Some(MainHold::Shuffle),
-        Row::Books => books::latest(cx.lib, cx.shelf).map(|_| MainHold::Resume),
+        Row::Open(View::Library)
+        | Row::Open(View::Artists)
+        | Row::Open(View::Albums)
+        | Row::Open(View::Tracks) => Some(MainHold::Shuffle),
+        Row::Open(View::Books) => books::latest(cx.lib, cx.shelf).map(|_| MainHold::Resume),
         _ => None,
     }
 }
@@ -25,10 +28,11 @@ pub(crate) fn held(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Outcome
         return Outcome::None;
     }
     let view = match row {
-        Row::Artists => View::Artists,
-        Row::Albums => View::Albums,
-        Row::Tracks => View::Tracks,
-        Row::Books => {
+        // The library held shuffles every song, as Shuffle Songs does.
+        Row::Open(View::Library) | Row::Open(View::Tracks) => View::Tracks,
+        Row::Open(View::Artists) => View::Artists,
+        Row::Open(View::Albums) => View::Albums,
+        Row::Open(View::Books) => {
             let Some(book) = books::latest(cx.lib, cx.shelf) else {
                 return Outcome::None;
             };
@@ -57,6 +61,8 @@ pub(crate) fn screen(music: &Music) -> Screen {
     if music.scanning() {
         let (done, of) = music.reading();
         screen.corner = text::scanning(music.scan.ready, done, of);
+    } else if music.library.tracks.is_empty() {
+        screen.corner = text::NOTHING_YET.into();
     } else if let (Body::List(list), Some((done, of))) =
         (&mut screen.body, music.pictures.covers.progress())
     {

@@ -570,7 +570,7 @@ impl App {
         crate::boot_time::mark("scan");
         let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
-        app.music = Some(slot_music::Music::spawn(root, slot_ui::music::ART_BOX));
+        app.music = Some(music::start(root));
         app.state = read_slot_state(root);
         app.radio.ask(RadioJob::Home(app.state.home_wifi_enabled));
         app.restock_recents();

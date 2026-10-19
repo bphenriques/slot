@@ -16,7 +16,7 @@ impl Music {
         let Some(t) = self.player.current().filter(|_| shown) else {
             return;
         };
-        if self.lyrics_for.replace(t) != Some(t) {
+        if self.ahead.lyrics_for.replace(t) != Some(t) {
             self.browser.set_at(0);
             self.browser.scrolled = None;
         }
@@ -24,14 +24,14 @@ impl Music {
             .into_iter()
             .flatten()
             .collect();
-        for song in self.lyrics.want(&wanted) {
+        for song in self.ahead.lyrics.want(&wanted) {
             let path = self.library.tracks[song].path.clone();
             self.work(Job::Lyrics { track: song, path });
         }
     }
 
     pub(crate) fn lyrics_now(&self) -> Option<&Lyrics> {
-        self.lyrics.of(self.player.current()?)?.as_ref()
+        self.ahead.lyrics.of(self.player.current()?)?.as_ref()
     }
 
     pub(crate) fn lyrics_at(&self) -> LyricsAt {

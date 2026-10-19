@@ -12,10 +12,13 @@ fn the_player_moves_on_at_the_end_of_its_own_track_only() {
     );
     assert!(p.owns_audio());
     let stale = lib.tracks[1].path.clone();
-    assert_eq!(p.on(&lib, Event::End(stale)), None);
-    let next = p.on(&lib, Event::End(lib.tracks[0].path.clone()));
+    assert_eq!(p.on_event(&lib, Event::End(stale)), None);
+    let next = p.on_event(&lib, Event::End(lib.tracks[0].path.clone()));
     assert_eq!(played(next), lib.tracks[1].path);
-    assert_eq!(p.on(&lib, Event::End(lib.tracks[1].path.clone())), None);
+    assert_eq!(
+        p.on_event(&lib, Event::End(lib.tracks[1].path.clone())),
+        None
+    );
     assert_eq!(p.state(), PlayState::Stopped);
     assert!(!p.owns_audio());
 }
@@ -28,11 +31,11 @@ fn a_track_that_cannot_play_is_skipped_but_a_run_of_them_stops_the_queue() {
     let mut p = Player::default();
     p.play(&lib, Queue::new((0..5).map(TrackId).collect(), 0, None));
     let error = || Event::Error("cannot open".into());
-    assert_eq!(played(p.on(&lib, error())), lib.tracks[1].path);
+    assert_eq!(played(p.on_event(&lib, error())), lib.tracks[1].path);
     heard(&mut p, 1.0, 9.0);
-    assert_eq!(played(p.on(&lib, error())), lib.tracks[2].path);
-    assert_eq!(played(p.on(&lib, error())), lib.tracks[3].path);
-    assert_eq!(p.on(&lib, error()), None);
+    assert_eq!(played(p.on_event(&lib, error())), lib.tracks[2].path);
+    assert_eq!(played(p.on_event(&lib, error())), lib.tracks[3].path);
+    assert_eq!(p.on_event(&lib, error()), None);
     assert_eq!(p.state(), PlayState::Stopped);
 }
 
@@ -105,10 +108,10 @@ fn repeat_one_replays_and_repeat_all_wraps_round() {
     let mut p = Player::default();
     p.play(&lib, Queue::new(ids(&[0, 1]), 1, None));
     p.set_repeat(crate::Repeat::One);
-    let again = p.on(&lib, Event::End(lib.tracks[1].path.clone()));
+    let again = p.on_event(&lib, Event::End(lib.tracks[1].path.clone()));
     assert_eq!(played(again), lib.tracks[1].path);
     p.set_repeat(crate::Repeat::All);
-    let wrapped = p.on(&lib, Event::End(lib.tracks[1].path.clone()));
+    let wrapped = p.on_event(&lib, Event::End(lib.tracks[1].path.clone()));
     assert_eq!(played(wrapped), lib.tracks[0].path);
     assert_eq!(played(p.skip(&lib, -1)), lib.tracks[1].path);
 }
@@ -124,12 +127,13 @@ fn the_queue_comes_back_from_the_card_paused_where_it_was() {
         tracks: ids(&[2, 0, 1]),
         at: 1,
         pos: 42.5,
+        original: None,
     };
     let text = saved.encode(card);
     assert!(text.lines().any(|l| l == "Music/X/A/01 one.mp3"));
     assert_eq!(SavedQueue::decode(&text, card), saved);
     let mut p = Player::default();
-    p.restore(ids(&[2, 0, 1]), 1, 42.5, false);
+    p.restore(Queue::new(ids(&[2, 0, 1]), 1, None), 42.5, false);
     assert!(p.resumable() && !p.owns_audio());
     assert_eq!(
         p.toggle(&lib),
@@ -149,7 +153,9 @@ fn a_queued_track_gone_from_the_library_is_dropped_and_its_place_moves_on() {
         root: d.path(),
         lib: &lib,
     };
-    let SavedQueue { tracks, at, pos } = SavedQueue::decode(text, card);
+    let SavedQueue {
+        tracks, at, pos, ..
+    } = SavedQueue::decode(text, card);
     assert_eq!((tracks, at, pos), (ids(&[0, 1]), 1, 0.0));
 }
 
@@ -324,7 +330,7 @@ fn the_queue_opens_at_what_plays_in_a_shuffled_queue_after_skips() {
     b.press(&cx(&lib, p.queue(), s), Key::Select);
     assert_eq!(b.view(), View::Queue);
     let page = b.page(&cx(&lib, p.queue(), s));
-    assert_eq!(page.rows.len(), s.list_size.page(), "{:?}", page.rows);
+    assert_eq!(page.rows.len(), crate::browse::LIST_ROWS, "{:?}", page.rows);
     assert!(
         page.rows[page.selected].playing,
         "at what plays, the 36 played above"
@@ -356,7 +362,7 @@ fn a_saved_queue_reads_resume_before_the_library_is_read() {
     let b = Browser::default();
     let page = b.page(&cx(&lib, p.queue(), Settings::default()));
     assert_eq!(page.rows[0], "Resume", "not Now Playing, then Resume");
-    p.restore(ids(&[0]), 0, 0.0, false);
+    p.restore(Queue::new(ids(&[0]), 0, None), 0.0, false);
     let page = b.page(&cx(&lib, p.queue(), Settings::default()));
     assert_eq!(page.rows[0], "Resume");
 }
@@ -385,7 +391,7 @@ fn gapless_tells_the_player_what_follows_and_the_queue_follows_it() {
     assert_eq!(p.upcoming(&lib, true), Some(Command::Next(Some(path(1)))));
     assert_eq!(p.upcoming(&lib, true), None, "told once");
     // It went on into two: the queue follows, with nothing to play.
-    assert_eq!(p.on(&lib, Event::Into(path(1))), None);
+    assert_eq!(p.on_event(&lib, Event::Into(path(1))), None);
     assert_eq!(p.current(), Some(TrackId(1)));
     assert_eq!(p.upcoming(&lib, true), Some(Command::Next(Some(path(2)))));
     // Into what slot no longer meant: it plays what it does.
@@ -396,7 +402,7 @@ fn gapless_tells_the_player_what_follows_and_the_queue_follows_it() {
         "nothing after the last"
     );
     assert_eq!(
-        p.on(&lib, Event::Into(path(2))),
+        p.on_event(&lib, Event::Into(path(2))),
         Some(Command::Stop),
         "nothing it means to play: the player stops"
     );
@@ -466,4 +472,74 @@ fn a_place_asked_for_is_shown_until_the_player_is_there() {
     );
     p.seek(30);
     assert_eq!(p.time().0, 30.1, "a seek shows at once");
+}
+
+#[test]
+fn a_shuffled_queue_comes_back_from_the_card_shuffled_with_its_order_to_go_back_to() {
+    let (d, lib) = library(&["X/A/01 one.mp3", "X/A/02 two.mp3", "X/A/03 three.mp3"]);
+    let card = Card {
+        root: d.path(),
+        lib: &lib,
+    };
+    let mut q = Queue::new(ids(&[0, 1, 2]), 0, None);
+    q.go(1);
+    q.toggle_shuffle(3);
+    let text = SavedQueue::of(&q, 12.0).encode(card);
+    let mut back = SavedQueue::decode(&text, card).queue();
+    assert!(back.shuffled());
+    assert_eq!((back.tracks(), back.at()), (q.tracks(), q.at()));
+    back.toggle_shuffle(0);
+    assert_eq!((back.tracks(), back.at()), (ids(&[0, 1, 2]).as_slice(), 1));
+    // A song gone from the card leaves the rest of the order as it was.
+    let (d, lib) = library(&["X/A/01 one.mp3", "X/A/03 three.mp3"]);
+    let card = Card {
+        root: d.path(),
+        lib: &lib,
+    };
+    let text = "#EXTM3U\n#SLOT-AT:0\n#SLOT-POS:0\n#SLOT-ORDER:2,0,1\nMusic/X/A/02 two.mp3\nMusic/X/A/03 three.mp3\nMusic/X/A/01 one.mp3\n";
+    let mut back = SavedQueue::decode(text, card).queue();
+    assert_eq!(back.tracks(), ids(&[1, 0]));
+    back.toggle_shuffle(0);
+    assert_eq!(back.tracks(), ids(&[0, 1]), "one, then three");
+    // An order that is not each place once is not trusted.
+    let text = "#EXTM3U\n#SLOT-ORDER:0,0\nMusic/X/A/03 three.mp3\nMusic/X/A/01 one.mp3\n";
+    assert!(!SavedQueue::decode(text, card).queue().shuffled());
+}
+
+#[test]
+fn a_seek_before_the_file_is_open_moves_from_the_place_asked_not_back_to_the_start() {
+    let (_d, lib) = library(&["X/A/01 one.mp3"]);
+    let mut p = Player::default();
+    // A book opened half an hour in, the player not yet saying its length.
+    p.play_at(&lib, Queue::new(ids(&[0]), 0, None), 1800.0);
+    assert_eq!(p.seek(30), Some(Command::Seek(1830.0)));
+    assert_eq!(
+        p.seek(-3600),
+        Some(Command::Seek(0.0)),
+        "never before the start"
+    );
+    // Once known, never past the end.
+    heard_at(&mut p, 1830.0, 1900.0, 2000);
+    assert_eq!(p.seek(300), Some(Command::Seek(1899.0)));
+}
+
+#[test]
+fn a_song_that_will_not_open_while_paused_is_passed_over_and_the_next_waits() {
+    let (_d, lib) = library(&["X/A/01 one.mp3", "X/A/02 two.mp3", "X/A/03 three.mp3"]);
+    let mut p = Player::default();
+    p.play(&lib, Queue::new(ids(&[0, 1, 2]), 0, None));
+    heard(&mut p, 10.0, 100.0);
+    p.pause();
+    assert!(matches!(p.skip(&lib, 1), Some(Command::Cue { .. })));
+    let cued = p.on_event(&lib, Event::Error("cannot open".into()));
+    assert!(
+        matches!(&cued, Some(Command::Cue { path, .. }) if *path == lib.tracks[2].path),
+        "{cued:?}"
+    );
+    assert_eq!(p.state(), PlayState::Paused);
+    assert_eq!(p.toggle(&lib), Some(Command::Resume));
+    // The last will not open either: nothing is left to wait on.
+    p.pause();
+    assert_eq!(p.on_event(&lib, Event::Error("cannot open".into())), None);
+    assert_eq!(p.state(), PlayState::Stopped);
 }

@@ -13,6 +13,10 @@ lofty.workspace = true
 rubato = "5"
 symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "isomp4", "aac", "alac", "flac", "ogg", "vorbis", "wav", "pcm"] }
 
+[features]
+# The writer's work in `Status`, timed by its thread's clock: for the performance log.
+perf = []
+
 [dev-dependencies]
 tempfile.workspace = true
 

@@ -9,6 +9,8 @@ license.workspace = true
 default = ["host"]
 host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
 device = ["slot-gfx/device"]
+# The music's performance log, for a build to measure on the device.
+music-perf = ["slot-music/perf"]
 
 [dependencies]
 slot-labels = { path = "../slot-labels" }

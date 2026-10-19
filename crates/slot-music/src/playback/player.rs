@@ -144,8 +144,8 @@ impl Player {
     }
 
     /// A saved queue at `pos` seconds into `at`: paused, or still `playing` after a rescan.
-    pub fn restore(&mut self, queue: Vec<TrackId>, at: usize, pos: f64, playing: bool) {
-        self.queue = Queue::new(queue, at, None);
+    pub fn restore(&mut self, queue: Queue, pos: f64, playing: bool) {
+        self.queue = queue;
         self.waiting = false;
         let any = self.queue.current().is_some();
         self.resume_at = (any && !playing).then_some(pos);
@@ -165,9 +165,9 @@ impl Player {
         self.resume_at = None;
     }
 
-    /// The queue, the place in it and the seconds into that track, for saving.
-    pub fn snapshot(&self) -> (&[TrackId], usize, f64) {
-        (self.queue.tracks(), self.queue.at(), self.time().0)
+    /// The queue and the seconds into the track playing, for saving.
+    pub fn snapshot(&self) -> (&Queue, f64) {
+        (&self.queue, self.time().0)
     }
 
     /// Whether a restored queue waits to be resumed.
@@ -315,7 +315,7 @@ impl Player {
     }
 
     /// Takes the queue and where it is, leaving none: the music's, set aside while a book plays.
-    pub fn take(&mut self) -> Option<(Queue, f64)> {
+    pub fn set_aside(&mut self) -> Option<(Queue, f64)> {
         self.queue.current()?;
         self.changed = true;
         let pos = self.time().0;
@@ -323,7 +323,7 @@ impl Player {
     }
 
     /// Puts back a queue set aside, paused where it was; the player stops what it played instead.
-    pub fn put(&mut self, queue: Queue, pos: f64) -> Option<Command> {
+    pub fn put_back(&mut self, queue: Queue, pos: f64) -> Option<Command> {
         self.queue = queue;
         self.ask(pos, 0.0);
         self.resume_at = Some(pos);
@@ -431,6 +431,17 @@ impl Player {
         self.following_at(lib).map(|at| self.queue.tracks()[at])
     }
 
+    /// Whether the track that follows this one is the next on its album, in order: played on
+    /// with no fade, so an album stays gapless whatever the crossfade.
+    pub fn follows_on_album(&self, lib: &Library) -> bool {
+        let (Some(now), Some(next)) = (self.current(), self.following(lib)) else {
+            return false;
+        };
+        let album = &lib.album_of(now).tracks;
+        let at = album.iter().position(|&t| t == now);
+        at.is_some_and(|i| album.get(i + 1) == Some(&next))
+    }
+
     /// The track after this one: the next in the queue, or the first again under Repeat All.
     pub fn up_next(&self) -> Option<TrackId> {
         let to = self.queue.step(1, self.repeat == Repeat::All)?;
@@ -448,9 +459,13 @@ impl Player {
             return self.seek_to(at);
         }
         let to = self.queue.step(by, self.repeat_here(lib) == Repeat::All)?;
+        self.go(lib, to)
+    }
+
+    /// Goes to the track at `to`. Paused, the song gone to waits, as players have it.
+    fn go(&mut self, lib: &Library, to: usize) -> Option<Command> {
         self.queue.go(to);
         self.resume_at = None;
-        // Paused, the song skipped to waits, as players have it.
         match self.state {
             PlayState::Paused => self.open(lib, PlayState::Paused),
             _ => self.start(lib),
@@ -481,18 +496,24 @@ impl Player {
         self.seek_to(self.time().0 + by as f64)
     }
 
-    /// Moves to `at` seconds into the track, short of its end.
+    /// Moves to `at` seconds into the track, short of its end once its length is known: a file
+    /// still opening has none yet.
     pub fn seek_to(&mut self, at: f64) -> Option<Command> {
         if self.state == PlayState::Stopped {
             return None;
         }
         let len = self.time().1;
-        let at = at.clamp(0.0, (len - 1.0).max(0.0));
+        let end = if len > 0.0 {
+            (len - 1.0).max(0.0)
+        } else {
+            f64::MAX
+        };
+        let at = at.clamp(0.0, end);
         self.ask(at, len);
         Some(Command::Seek(at))
     }
 
-    pub fn on(&mut self, lib: &Library, event: Event) -> Option<Command> {
+    pub fn on_event(&mut self, lib: &Library, event: Event) -> Option<Command> {
         match event {
             // An end for another track is an earlier skip arriving late.
             Event::End(path) if self.current().map(|t| &lib.tracks[t].path) == Some(&path) => {
@@ -503,7 +524,9 @@ impl Player {
             }
             Event::Error(why) => {
                 log::warn!("{why}");
-                if self.state == PlayState::Playing {
+                // Paused too: a song skipped to that will not open waits no more than one
+                // played would.
+                if self.state != PlayState::Stopped {
                     self.errors += 1;
                     return if self.errors < ERRORS_BEFORE_STOP {
                         self.next(lib)
@@ -535,10 +558,11 @@ impl Player {
         None
     }
 
-    /// The next track, also after a failure: Repeat One does not retry a broken track.
+    /// The next track, also after a failure, never a chapter of the file that ended or failed:
+    /// Repeat One does not retry a broken track.
     fn next(&mut self, lib: &Library) -> Option<Command> {
         match self.queue.step(1, self.repeat_here(lib) == Repeat::All) {
-            Some(_) => self.skip(lib, 1),
+            Some(to) => self.go(lib, to),
             None => {
                 self.state = PlayState::Stopped;
                 self.changed = true;

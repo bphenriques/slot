@@ -6,7 +6,7 @@ use super::slot::{push, Canvas, Draw, MENU_PAD, MENU_PX, QUICK_EDGE, QUICK_PITCH
 use super::theme::rgba;
 use super::{
     draw_progress, Ink, ListFaces, MusicFace, MusicTheme, ACTION_SCALE, BAR_INSET, CARET_GAP,
-    LEGEND_Y, LIST_TYPE_PER_ROW, MUSIC_HEART_ROOM, PROGRESS_Y, ROWS_Y,
+    LEGEND_Y, LIST_TYPE_PER_ROW, MUSIC_HEART_ROOM, PROGRESS_Y, ROWS_Y, THUMB_PX, THUMB_ROOM,
 };
 
 /// The type size of a page's rows: the quick menu's for menus, from the spacing for lists.
@@ -31,11 +31,17 @@ pub fn music_row_ink(faint: bool, selected: bool) -> Ink {
 }
 
 /// The room a row's text has of `width`: short of its heart, if it has one, and of a value
-/// `value_w` wide, if any.
-pub fn music_row_text_w(width: u32, heart: bool, value_w: u32) -> u32 {
+/// `value_w` wide, if any., and of a
+/// thumbnail before it in a list that has them.
+pub fn music_row_text_w(width: u32, heart: bool, value_w: u32, thumbed: bool) -> u32 {
     let value = if value_w > 0 { value_w + VALUE_GAP } else { 0 };
-    width.saturating_sub(u32::from(heart) * MUSIC_HEART_ROOM + value)
+    let thumb = if thumbed { THUMB_ROOM as u32 } else { 0 };
+    width.saturating_sub(u32::from(heart) * MUSIC_HEART_ROOM + value + thumb)
 }
+
+/// How strong a thumbnail's empty square is, of the dim ink: there until it is read, or for an
+/// album with no picture.
+const THUMB_BLANK: f32 = 0.15;
 
 /// Action rows are a size down.
 pub fn music_action_px(menu: bool, per_page: usize) -> f32 {
@@ -135,9 +141,14 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
         draw_progress(QUICK_EDGE, PROGRESS_Y, w, done, ink, theme, out);
     }
     let pad = MENU_PAD as f32;
+    let shift = if list.thumbed { THUMB_ROOM } else { 0.0 };
     let row = |i: usize, out: &mut Vec<Draw>| {
+        if list.thumbed && i >= list.head {
+            draw_thumb(list, grid, i, theme, out);
+        }
         if let Some((tex, w, h)) = list.rows[i] {
-            push(out, tex, QUICK_EDGE - pad, grid.row_mid(i, h), w, h);
+            let x = if i >= list.head { shift } else { 0.0 };
+            push(out, tex, QUICK_EDGE - pad + x, grid.row_mid(i, h), w, h);
         }
     };
     for i in (0..list.rows.len()).filter(|&i| Some(i) != card) {
@@ -151,6 +162,23 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
     draw_rules(list, grid, right, theme, out);
     draw_values(list, grid, right, out);
     draw_marks(list, &list.hearts, list.heart, grid, right, theme, out);
+}
+
+/// Row `i`'s album thumbnail at its start, centred in its box; an empty square until it is read.
+fn draw_thumb(list: &ListFaces, grid: Grid, i: usize, theme: &MusicTheme, out: &mut Vec<Draw>) {
+    match list.thumbs.get(i).copied().flatten() {
+        Some((tex, w, h)) => {
+            let x = QUICK_EDGE + (THUMB_PX - w) as f32 / 2.0;
+            push(out, tex, x, grid.row_mid(i, h), w, h);
+        }
+        None => out.push(Draw::Rect {
+            x: QUICK_EDGE,
+            y: grid.row_mid(i, THUMB_PX),
+            w: THUMB_PX as f32,
+            h: THUMB_PX as f32,
+            colour: rgba(theme.dim, THUMB_BLANK),
+        }),
+    }
 }
 
 /// The highlight, where it is gliding to; lighter when its row is lifted.
@@ -253,9 +281,25 @@ mod tests {
             "faint reads dim on the highlight"
         );
         assert_eq!(music_row_ink(false, true), Ink::Lit);
-        assert_eq!(music_row_text_w(500, false, 0), 500);
-        assert_eq!(music_row_text_w(500, true, 0), 500 - MUSIC_HEART_ROOM);
-        assert_eq!(music_row_text_w(500, false, 60), 500 - 60 - VALUE_GAP);
+        assert_eq!(music_row_text_w(500, false, 0, false), 500);
+        assert_eq!(
+            music_row_text_w(500, true, 0, false),
+            500 - MUSIC_HEART_ROOM
+        );
+        assert_eq!(
+            music_row_text_w(500, false, 60, false),
+            500 - 60 - VALUE_GAP
+        );
+        assert_eq!(
+            music_row_text_w(500, false, 0, true),
+            500 - THUMB_ROOM as u32
+        );
+    }
+
+    #[test]
+    fn a_thumbnail_fits_inside_a_list_row_s_highlight() {
+        let row = Grid::new(false, 8).pitch - 2.0 * BAR_INSET;
+        assert!(THUMB_PX as f32 <= row, "{THUMB_PX} in {row}");
     }
 
     #[test]

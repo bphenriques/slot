@@ -60,7 +60,9 @@ nix-shell --run "task sync:card CARD=$C"                   # adds and replaces; 
 cmp dist-device/System/slot "$C/System/slot" && sync       # verify, then unmount
 ```
 
-To measure on the device: Music › Settings › Advanced › Performance Log On, use the player a while
+To measure on the device: build with the log in (`task dist:device
+FEATURES=slot/device,slot/music-perf`; it is left out otherwise, the player's thread clocks unread),
+then Music › Settings › Advanced › Performance Log On, use the player a while
 (screen on and off, playing and paused, a book), then read `Logs/music-perf.log` on the card:
 one line every 10 s with frames a second, the music frame, screen, compare (telling whether a
 frame is new) and draw times (average and longest, in microseconds), each thread's share of one
@@ -98,7 +100,7 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 - Logic emits values (`Outcome`, `Notice`, `Legend`); `slot-ui` and the frontend only draw.
 - Buttons: a tap does one thing, a hold another, shown as "Tap (Held)"; hints never change
   while held (the corner ring shows the hold). START menus hold only what no button does.
-  Put any key change in Settings › Help › Controls (`text.rs`'s `KEYS`); `music/README.md` only says what
+  Put any key change in Settings › Help (`text.rs`'s `KEYS`); `music/README.md` only says what
   the screens cannot.
 - Comments and docs in the existing voice: plain sentences saying what something is for.
 - Tests for behaviour (`crates/slot-music/src/tests/`, a module an area; the music as a whole in `src/music/tests.rs`, `crates/slot-player/tests/player.rs`,
@@ -139,8 +141,8 @@ Everything is committed up to `570cfd0`. Measured on the device (`Logs/music-per
 the clock mostly at 480 MHz): playing, the player's thread is ~3% of a core (decoding 2.1%, mixing
 0.3%, writing 0.6%); with the lid closed the frame loop wakes ~7 times a second and is ~0.4%; Now
 Playing lit with a title scrolling, the music screen is drawn only on the frames that change (~23
-a second), the frame loop ~5%. Next: release notes and licences (SoundTouch's is in
-`licenses/`; list symphonia, rubato and lofty with the other third-party crates). Phase 2, the
+a second), the frame loop ~5%. Release notes are current, and the music's third-party notices are in
+`licenses/slot-music-third-party.txt` (`task licenses:music` after a dependency changes). Phase 2, the
 mixer, is held (`music/MIXER.md`).
 
 A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to
@@ -151,10 +153,12 @@ Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; a chained 
 `fade`, `animations`) are ignored; its `player` key is ignored now. Playlist editing is out of scope (see
 `music/README.md`).
 
+Crossfade keeps an album gapless (2026-10-19): no fade where the next song follows on its album,
+chosen in `Player::follows_on_album` and told as `Crossfade(0)` through the sound the player is
+told, part by part as it changes; no player change. A genre list (Classical, Live) waits until missed.
+
 Ideas, if wanted: Bluetooth output choice; equalizer presets; crossfade only between albums. Each fits as a stage in
 `slot-player/src/track.rs` or `engine.rs`, behind a setting on the Sound page.
 
-A screensaver, from Now Playing with SELECT held (its tap opens the queue; the hold is free): blank
-first, which is the lid closed without closing it (the backlight off and nothing drawn, as
-`App::resting` already does), so the keys under the lid act as they do there; a visualisation later,
-which would cost the drawing the blank saves, so worth it only measured.
+SELECT held to blank the screen was dropped (2026-10-19): the lid does it, and SELECT now acts
+as it is let go, a chord with L1 or R1 or else Now Playing.

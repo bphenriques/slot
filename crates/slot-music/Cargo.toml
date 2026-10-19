@@ -13,6 +13,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 lofty.workspace = true
 libc.workspace = true
 
+[features]
+# The performance log (Settings › Advanced): what the frame, the screen and the player cost.
+perf = ["slot-player/perf"]
+
 [dev-dependencies]
 tempfile.workspace = true
 

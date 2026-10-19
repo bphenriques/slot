@@ -7,7 +7,7 @@ use super::{Body, Legend, ListBody, Screen};
 use crate::books;
 use crate::browse::rows::{self, Row};
 use crate::browse::{per_page, Browser, Context, Key, Outcome, Shuffle, View};
-use crate::text::{self, Notice};
+use crate::text;
 use crate::Music;
 
 /// A held puts the row's songs next.
@@ -18,25 +18,23 @@ pub(crate) fn held(cx: &Context, view: View, row: Row, key: Key) -> Outcome {
     }
 }
 
-/// Up and Down go round; Left and Right turn a page; the shoulders jump a letter, or, where
-/// there are no letters to jump by, skip the song, as Now Playing's do; A opens or plays; X adds
-/// the row's songs to the end of the queue; Y puts a song in Favorites or takes it out.
+/// Up and Down go round; Left and Right turn a page; the shoulders jump a letter in a list by
+/// name, and elsewhere turn a page too, but on a menu, whose Left and Right change a setting, do
+/// nothing: SELECT with one skips the song from anywhere. A opens or plays; X adds the row's
+/// songs to the end of the queue; Y puts a song in Favorites or takes it out.
 pub(crate) fn press(b: &mut Browser, cx: &Context, rows: &[Row], at: usize, key: Key) -> Outcome {
     let (n, view) = (rows.len(), b.view());
-    if matches!(key, Key::L1 | Key::R1) && !by_letter(view) {
-        return Outcome::Skip(if key == Key::R1 { 1 } else { -1 });
-    }
-    // The queue has no letters to jump to: its shoulders turn pages too.
-    let key = match (view, key) {
-        (View::Queue, Key::L1) => Key::Left,
-        (View::Queue, Key::R1) => Key::Right,
-        _ => key,
+    let key = match key {
+        Key::L1 | Key::R1 if view.is_menu() => return Outcome::None,
+        Key::L1 if !view.by_name() => Key::Left,
+        Key::R1 if !view.by_name() => Key::Right,
+        key => key,
     };
     let to = match key {
         Key::Up => (at + n - 1) % n,
         Key::Down => (at + 1) % n,
-        Key::Left => at.saturating_sub(per_page(view, &cx.settings)),
-        Key::Right => (at + per_page(view, &cx.settings)).min(n - 1),
+        Key::Left => at.saturating_sub(per_page(view)),
+        Key::Right => (at + per_page(view)).min(n - 1),
         Key::L1 => rows::letter(cx.lib, rows, at, false),
         Key::R1 => rows::letter(cx.lib, rows, at, true),
         Key::X => {
@@ -76,7 +74,10 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
     let view = b.view();
     let fixed = rows::fixed(view).len();
     let (to, outcome) = match row {
-        // With nothing to resume, it shuffles every song.
+        // With nothing to resume, it shuffles every song; with no songs, it waits for some.
+        Row::NowPlaying if rows::idle(cx.queue) && cx.lib.tracks_by_title.is_empty() => {
+            return Outcome::None
+        }
         Row::NowPlaying if rows::idle(cx.queue) => {
             let shuffle = Outcome::Play {
                 tracks: cx.lib.music_tracks(),
@@ -88,24 +89,10 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         // Resume plays on, as it says; even before the saved queue is back, once it is.
         Row::NowPlaying if !cx.queue.playing => (View::NowPlaying, Outcome::Toggle),
         Row::NowPlaying => (View::NowPlaying, Outcome::None),
-        Row::Artists => (View::Artists, Outcome::None),
-        Row::Albums => (View::Albums, Outcome::None),
-        Row::Tracks => (View::Tracks, Outcome::None),
-        Row::Settings => (View::Settings, Outcome::None),
-        Row::Sound => (View::Sound, Outcome::None),
-        Row::BookSettings => (View::BookSettings, Outcome::None),
-        Row::Advanced => (View::Advanced, Outcome::None),
-        Row::Integrations => (View::Integrations, Outcome::None),
-        Row::Controls => (View::Controls, Outcome::None),
-        Row::Help => (View::Help, Outcome::None),
-        Row::Tips => (View::Tips, Outcome::None),
-        Row::Playlists => (View::Playlists, Outcome::None),
+        Row::Open(view) => (view, Outcome::None),
+        Row::Genre(g) => (View::Genre(g), Outcome::None),
+        Row::Decade(d) => (View::Decade(d), Outcome::None),
         Row::Playlist(p) => (View::Playlist(p), Outcome::None),
-        Row::RecentlyAdded => (View::RecentlyAdded, Outcome::None),
-        Row::RecentlyPlayed => (View::RecentlyPlayed, Outcome::None),
-        Row::Books => (View::Books, Outcome::None),
-        Row::BookList(list) => (View::BookList(list), Outcome::None),
-        Row::Authors => (View::Authors, Outcome::None),
         Row::Author(a) => (View::Author(a), Outcome::None),
         // The latest book plays on, as Audiobooks held does from the Music menu.
         Row::Continue => match books::latest(cx.lib, cx.shelf) {
@@ -117,8 +104,6 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         Row::Artist(a) => (View::Artist(a), Outcome::None),
         Row::Album(a) => (View::Album(a), Outcome::None),
         Row::Rescan => return Outcome::Rescan(false),
-        // Rebuild acts only when A is held, as it takes long.
-        Row::Rebuild => return Outcome::Tell(Notice::Hold("A")),
         Row::Setting(s) => return Outcome::Change(s, 0),
         // The START menus answer these themselves.
         Row::StartOver
@@ -126,7 +111,6 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         | Row::Chapters
         | Row::Bookmarks
         | Row::BookChapter { .. }
-        | Row::Key { .. }
         | Row::Bookmark(_)
         | Row::Speed
         | Row::Back
@@ -178,13 +162,20 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
     outcome
 }
 
-/// A library list, once the library is read.
+/// A library or audiobooks list, once the library is read, or where to put what it would list.
 pub(crate) fn screen(music: &Music) -> Screen {
+    let (lib, view) = (&music.library, music.browser.view());
+    let books = matches!(
+        view,
+        View::Books | View::BookList(_) | View::Authors | View::Author(_)
+    );
     if !music.scan.ready {
         let (done, of) = music.reading();
         Screen::message(text::MUSIC, &text::reading(done, of))
-    } else if music.library.tracks.is_empty() {
-        Screen::message(text::MUSIC, text::NO_MUSIC)
+    } else if books && lib.books.is_empty() {
+        Screen::message(text::BOOKS, text::NO_BOOKS)
+    } else if !books && lib.tracks_by_title.is_empty() {
+        Screen::message(text::title(view).unwrap_or(text::MUSIC), text::NO_MUSIC)
     } else {
         rows_screen(music)
     }
@@ -219,23 +210,10 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         progress: None,
         lifted: false,
         readonly: false,
+        thumbs: page.thumbs,
     };
     Screen {
         corner: count,
         ..Screen::new(page.title, legend, Body::List(list))
     }
-}
-
-/// A table to read, as Settings' Controls is: its rows, with no count in the corner.
-pub(crate) fn table(music: &Music) -> Screen {
-    Screen {
-        corner: String::new(),
-        ..rows_screen(music)
-    }
-}
-
-/// Whether the shoulders jump by letter on `view`, or turn its pages: lists of things to pick,
-/// not the menus and pages, whose shoulders skip the song.
-fn by_letter(view: View) -> bool {
-    !view.is_menu() && !matches!(view, View::SongInfo(_) | View::Controls)
 }

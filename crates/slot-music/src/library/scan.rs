@@ -14,8 +14,10 @@ use crate::library::{is_audio, Library, Record, BOOKS_DIR, MUSIC_DIR};
 use crate::store::playlists::PLAYLISTS_DIR;
 
 pub const CACHE_FILE: &str = "Config/music-library.tsv";
-/// The cache's first line; a cache in another layout is read as empty.
-const HEADER: &str = "#SLOT-LIBRARY 4";
+/// The cache's first line; a cache in another layout is read as empty, but for the one before,
+/// read for when each song came in and to show at once, its songs' tags read again for genre.
+const HEADER: &str = "#SLOT-LIBRARY 5";
+const BEFORE_GENRE: &str = "#SLOT-LIBRARY 4";
 /// Folders this deep are not looked in, so a link to a folder above cannot go round forever.
 const MAX_DEPTH: usize = 8;
 
@@ -49,7 +51,7 @@ impl Progress {
 /// The library as the cache last had it, without looking at the card's folders; none without a
 /// cache.
 pub fn cached(root: &Path) -> Option<Library> {
-    let records = read_cache(root);
+    let (records, _) = read_cache(root);
     (!records.is_empty()).then(|| Library::build(root, records.into_values().collect()))
 }
 
@@ -57,7 +59,7 @@ pub fn cached(root: &Path) -> Option<Library> {
 /// when `full`, otherwise only those the cache does not have as they are.
 pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
     // A full scan reads every song again, but keeps when each came into the library.
-    let mut cached = read_cache(root);
+    let (mut cached, stale) = read_cache(root);
     progress.start(cached.len());
     let mut files = Vec::new();
     let books = root.join(BOOKS_DIR);
@@ -65,6 +67,7 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
     walk(&books, 0, &mut files, progress);
     let fresh = |path: &Path, modified: u64, size: u64| {
         !full
+            && !stale
             && cached
                 .get(path)
                 .is_some_and(|r| (r.modified, r.size) == (modified, size))
@@ -80,13 +83,13 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
         .map(|(path, modified, size)| {
             let known = cached.remove(&path);
             match known {
-                Some(r) if !full && (r.modified, r.size) == (modified, size) => r,
+                Some(r) if !full && !stale && (r.modified, r.size) == (modified, size) => r,
                 _ => {
                     read += 1;
                     progress.step();
                     Record {
                         // A book's parts are timed, for how far into it the listener is.
-                        tags: tags::read(&path, path.starts_with(&books)),
+                        tags: guarded(&path, || tags::read(&path, path.starts_with(&books))),
                         added: known.map_or(now, |r| r.added),
                         path,
                         modified,
@@ -103,6 +106,15 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
     }
     log::info!("{} songs, {read} read", records.len());
     (Library::build(root, records), changed)
+}
+
+/// `read` of the song at `path`, or nothing known of it if reading it panics, as a malformed tag
+/// may: one bad file is a song untagged, not a scan that never ends.
+fn guarded<T: Default>(path: &Path, read: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(read)).unwrap_or_else(|_| {
+        log::warn!("{}: its tags could not be read", path.display());
+        T::default()
+    })
 }
 
 /// The songs in `dir` and below, each with when it changed and its size, counted into
@@ -169,6 +181,7 @@ fn write_cache(root: &Path, records: &[Record]) {
             &t.track.to_string(),
             &t.year.to_string(),
             &t.secs.to_string(),
+            &t.genre,
         ];
         text.push_str(&fields.join("\t"));
         text.push('\n');
@@ -183,20 +196,25 @@ fn write_cache(root: &Path, records: &[Record]) {
     }
 }
 
-fn read_cache(root: &Path) -> HashMap<PathBuf, Record> {
+/// The songs the cache has, and whether it is the layout before genres, its tags to read again.
+fn read_cache(root: &Path) -> (HashMap<PathBuf, Record>, bool) {
     let text = std::fs::read_to_string(root.join(CACHE_FILE)).unwrap_or_default();
     let mut lines = text.lines();
-    if lines.next() != Some(HEADER) {
-        return HashMap::new();
-    }
-    lines
+    let stale = match lines.next() {
+        Some(HEADER) => false,
+        Some(BEFORE_GENRE) => true,
+        _ => return (HashMap::new(), false),
+    };
+    let records = lines
         .filter_map(|line| {
             let f: Vec<&str> = line.split('\t').collect();
-            let [path, modified, size, added, title, artist, album_artist, album, disc, track, year, secs] =
+            // The layout before genres ends at its length.
+            let [path, modified, size, added, title, artist, album_artist, album, disc, track, year, secs, ref genre @ ..] =
                 f[..]
             else {
                 return None;
             };
+            let genre = genre.first().copied().unwrap_or_default();
             let path = root.join(path);
             let record = Record {
                 path: path.clone(),
@@ -212,9 +230,29 @@ fn read_cache(root: &Path) -> HashMap<PathBuf, Record> {
                     track: track.parse().ok()?,
                     year: year.parse().ok()?,
                     secs: secs.parse().ok()?,
+                    genre: genre.into(),
                 },
             };
             Some((path, record))
         })
-        .collect()
+        .collect();
+    (records, stale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_song_whose_tags_panic_as_they_are_read_is_a_song_untagged() {
+        let tags = guarded(Path::new("bad.mp3"), || -> Tags {
+            panic!("a malformed frame")
+        });
+        assert_eq!(tags, Tags::default());
+        let read = guarded(Path::new("good.mp3"), || Tags {
+            title: "Song".into(),
+            ..Tags::default()
+        });
+        assert_eq!(read.title, "Song");
+    }
 }

@@ -5,7 +5,7 @@ use slot_store::ini;
 
 use super::Store;
 use crate::playback::player::Repeat;
-use crate::settings::{ListSize, Settings, Theme, BOOSTS, FADES, JUMPS};
+use crate::settings::{Settings, BOOSTS, FADES, JUMPS};
 
 pub const SETTINGS_FILE: &str = "Config/music.txt";
 
@@ -42,25 +42,12 @@ impl Settings {
             let n = get(key).and_then(|v| v.parse().ok());
             n.filter(|n| choices.contains(n)).unwrap_or(choices[0])
         };
-        let list = |v: &str| {
-            ListSize::ORDER
-                .into_iter()
-                .find(|s| s.key().eq_ignore_ascii_case(v))
-        };
-        let theme = |v: &str| {
-            Theme::ORDER
-                .into_iter()
-                .find(|t| t.key().eq_ignore_ascii_case(v))
-        };
         Settings {
             repeat: get("repeat").and_then(Repeat::parse).unwrap_or_default(),
             play_screen_off: is("screen_off", "play"),
-            list_size: get("list").and_then(list).unwrap_or(ListSize::Normal),
-            up_next: !is("up_next", "off"),
             // Named in music.txt, and found among the presets: `Store::equalizer`.
             eq: 0,
             color: !is("color", "off"),
-            theme: get("theme").and_then(theme).unwrap_or(Theme::Slot),
             jump: get("jump")
                 .and_then(|v| v.parse().ok())
                 .filter(|j| JUMPS.contains(j))
@@ -75,6 +62,7 @@ impl Settings {
             perf: is("perf", "on"),
             log: is("log", "on"),
             scrobbler: is("scrobbler", "on"),
+            help_seen: is("help", "seen"),
         }
     }
 
@@ -86,10 +74,7 @@ impl Settings {
         let entries = [
             ("repeat", self.repeat.key()),
             ("screen_off", pick(self.play_screen_off, "play", "pause")),
-            ("list", self.list_size.key()),
-            ("up_next", pick(self.up_next, "on", "off")),
             ("color", pick(self.color, "on", "off")),
-            ("theme", self.theme.key()),
             ("jump", jump.as_str()),
             ("mono", pick(self.mono, "on", "off")),
             ("leveling", pick(self.leveling, "on", "off")),
@@ -97,6 +82,7 @@ impl Settings {
             ("skip_silence", pick(self.skip_silence, "on", "off")),
             ("boost", boost.as_str()),
             ("perf", pick(self.perf, "on", "off")),
+            ("help", pick(self.help_seen, "seen", "new")),
             ("log", pick(self.log, "on", "off")),
             ("scrobbler", pick(self.scrobbler, "on", "off")),
         ];

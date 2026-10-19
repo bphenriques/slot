@@ -1,8 +1,8 @@
 # Music
 
 The hints at the bottom of each screen say what the buttons do there; "Play (Next)" is a tap
-and a hold, and a ring fills while a key is held. Settings › Help › Controls lists the keys
-the hints leave out, and Help › Tips the rest in a few lines. This page is what the screens cannot
+and a hold, and a ring fills while a key is held. Settings › Help, shown on the first start too,
+gives a few tips and the keys the hints leave out. This page is what the screens cannot
 say: where things go on the card, and how the player behaves.
 
 ## On the card
@@ -13,19 +13,38 @@ say: where things go on the card, and how the player behaves.
 - `Audiobooks/`: a folder per book (its files play in order, each a chapter), or one `.m4b` (its
   own chapters; an MP3's ID3 chapters are read too). `Author - Title` names a book with no tags.
 - Lyrics: an `.lrc` beside the song with its name, or the lyrics in its tags.
-- `Config/music.txt`: the settings, kept as they change. Up Next (`up_next = off`) is set only
-  here; see `music.txt.example`.
+- `Config/music.txt`: the settings, kept as they change; see `music.txt.example`.
 - `Config/music-eq.txt`: your equalizer presets; copy `music-eq.txt.example` to start.
 - `Config/audiobooks.txt`: each book's place, speed and bookmarks.
-- `.scrobbler.log`: songs listened to, for a Last.fm uploader, with Settings › Integrations on.
+- `.scrobbler.log`: songs listened to, for a Last.fm uploader, with Settings › Advanced › Scrobbler Log on.
 - `Logs/slot.log`: what went wrong, and with Settings › Advanced › Detailed Log, what happened.
 
 Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis and WAV.
 
+## Library
+
+- Artists, Albums and Songs, then Genres and Years once the songs' tags name any: a genre's
+  albums (a tag may name several, "Rock; Pop"), and a decade's albums by year. Library opens on
+  the row it was left on; A held on it shuffles every song.
+- In a list by name the shoulders jump a letter; in any other list they turn a page; on a menu
+  they do nothing. SELECT with L1 or R1 skips the song from anywhere.
+- Lists of albums, books and songs start each row with its album's thumbnail, made with the
+  Now Playing picture after a scan (`Labels/Music`); a card from before has them made once from
+  the pictures it has.
+- A card with nothing yet sets back what leads nowhere and says where to put songs and books.
+- A write the card refuses (full, or locked) says "Can't save" in the corner, each time. A song's place
+  is saved every minute as it plays, a book's too, so a sudden power cut loses a minute at most.
+
 ## How it plays
 
+- Compilations: an album in one folder with no album artist tags, its songs by several
+  artists, is filed under the artist most of them share, or else Various Artists.
+- Crossfade fades a song into the next only between albums: an album played in order stays
+  gapless, so a classical work or a live set is never faded across, as Plexamp has it.
 - Songs follow on with no gap. What is added to the queue plays after the song playing and what
   was added before, ahead of the rest, as Spotify and Apple Music do.
+- A shuffle is kept with the queue, through a restart or Update Library, and its order before
+  comes back when shuffle is turned off.
 - Previous starts a song, or a chapter, over after its first 3 seconds. Skipped to while paused,
   a song waits, paused.
 - Names sort as players have them: a leading "The" does not count, digits and symbols come first.
@@ -47,4 +66,3 @@ Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis 
 - With Screen Off set to Keep Playing, music goes on with the lid closed: L1 and R1 skip (in a
   book, jump), held they seek; L2 and R2 play or pause, held in a book they bookmark. Paused,
   slot powers off after its screen-off time.
-- SELECT held blanks the screen with the lid open; any button lights it and does what it does.

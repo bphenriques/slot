@@ -262,3 +262,26 @@ fn select_opens_the_whole_queue_at_what_plays_played_songs_faint() {
     assert!(page.rows[0].faint, "played");
     assert_eq!(page.selected, 1, "on what plays");
 }
+
+#[test]
+fn a_song_queued_twice_while_shuffled_is_taken_out_and_put_back_as_the_copy_it_is() {
+    let mut q = Queue::new(ids(&[0, 1, 2, 3]), 0, Some(7));
+    // Added just after the one playing.
+    q.enqueue(&ids(&[2]));
+    assert_eq!(q.tracks()[1], TrackId(2));
+    q.remove(1);
+    q.toggle_shuffle(1);
+    assert_eq!(
+        q.tracks(),
+        ids(&[0, 1, 2, 3]),
+        "the order before the shuffle"
+    );
+    // Playing the added copy, unshuffling keeps playing it, not the first.
+    let mut q = Queue::new(ids(&[0, 1, 2]), 0, None);
+    q.toggle_shuffle(5);
+    q.enqueue(&ids(&[1]));
+    q.go(1);
+    q.toggle_shuffle(5);
+    assert_eq!(q.tracks(), ids(&[0, 1, 2, 1]));
+    assert_eq!(q.at(), 3, "the copy that plays");
+}

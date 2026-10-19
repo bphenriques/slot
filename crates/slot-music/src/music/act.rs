@@ -22,8 +22,8 @@ impl Music {
         match press {
             Press::Tap(Key::Pocket) => return false,
             Press::Held(Key::Pocket) => {
-                self.pocket.toggle(self.now.at);
-                self.tell(Notice::Locked(self.pocket.locked));
+                self.buttons.pocket.toggle(self.now.at);
+                self.tell(Notice::Locked(self.buttons.pocket.locked));
                 return false;
             }
             _ => {}
@@ -64,10 +64,6 @@ impl Music {
                 }
                 self.toggle()
             }
-            Outcome::Tell(notice) => {
-                self.tell(notice);
-                None
-            }
             Outcome::PlayBook { book, over } => self.play_book(book, over),
             Outcome::Finish(book) => {
                 self.toggle_finished(book);
@@ -82,7 +78,7 @@ impl Music {
             // Marked with the lid closed, a buzz says so, as nothing is seen.
             Outcome::Bookmark => {
                 if self.dark {
-                    self.pocket.buzz(1, self.now.at);
+                    self.buttons.pocket.buzz(1, self.now.at);
                 }
                 self.add_bookmark()
             }
@@ -92,10 +88,6 @@ impl Music {
                 None
             }
             Outcome::Back => self.go_back(),
-            Outcome::Blank => {
-                self.blank = true;
-                None
-            }
             Outcome::Clear => {
                 self.player.edit().clear();
                 None
@@ -126,7 +118,7 @@ impl Music {
                 None
             }
             Outcome::Letter(letter) => {
-                self.letter = Some((letter, self.now.at));
+                self.flash.letter = Some((letter, self.now.at));
                 None
             }
             Outcome::ShuffleQueue => {
@@ -159,6 +151,7 @@ impl Music {
                     self.out.push(Effect::Setting(key, value));
                 }
                 match setting {
+                    #[cfg(feature = "perf")]
                     Setting::PerfLog => {
                         self.out.push(Effect::PerfLog(self.settings.perf));
                         None
@@ -227,6 +220,7 @@ impl Music {
     /// page at a time; once shown, the letter follows each move while it lasts.
     fn follow_letter(&mut self, press: Press<Key>) {
         let shown = self
+            .flash
             .letter
             .is_some_and(|(_, at)| self.now.at.saturating_duration_since(at) < screens::LETTER);
         let fast = match press {
@@ -235,20 +229,12 @@ impl Music {
             Press::Tap(Key::Up | Key::Down) => shown,
             _ => false,
         };
-        let by_name = matches!(
-            self.browser.view(),
-            View::Artists
-                | View::Albums
-                | View::Tracks
-                | View::Authors
-                | View::BookList(crate::browse::BookList::All)
-        );
-        if !fast || !by_name || self.dark {
+        if !fast || !self.browser.view().by_name() || self.dark {
             return;
         }
         let row = self.browser.row(&self.context());
         if let Some(name) = row.and_then(|row| crate::browse::rows::name(&self.library, row)) {
-            self.letter = Some((initial(name), self.now.at));
+            self.flash.letter = Some((initial(name), self.now.at));
         }
     }
 }

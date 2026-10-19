@@ -41,33 +41,32 @@ fn a_track_reads_without_its_number_unless_the_number_is_the_title() {
 }
 
 #[test]
-fn rescan_reads_what_changed_and_rebuild_everything_near_the_end_of_settings() {
+fn update_library_reads_what_changed_and_held_reads_everything_again() {
     let (_d, lib) = library(&["X/A/01 one.mp3"]);
     let mut b = Browser::default();
-    // Settings, then up round to Advanced, the last, and on to Rebuild.
-    assert_eq!(
-        press(&mut b, &lib, &[Key::Up, Key::A, Key::Up, Key::A]),
-        Outcome::None
-    );
+    // Settings, then up round to Advanced, the last.
+    press(&mut b, &lib, &[Key::Up, Key::A, Key::Up, Key::A]);
     assert_eq!(b.view(), View::Advanced, "the Advanced page, last");
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(rows, ["Performance Log", "Detailed Log"]);
+    let measured = cfg!(feature = "perf").then_some("Performance Log");
+    let want: Vec<&str> = ["Scrobbler Log"]
+        .into_iter()
+        .chain(measured)
+        .chain(["Detailed Log"])
+        .collect();
+    assert_eq!(rows, want, "the scrobbler log, then the logs");
     press(&mut b, &lib, &[Key::B]);
-    // Up past Help and Integrations, to Rebuild.
-    assert_eq!(
-        press(&mut b, &lib, &[Key::Up, Key::Up, Key::Up, Key::A]),
-        Outcome::Tell(Notice::Hold("A")),
-        "Rebuild acts only held"
-    );
+    // Up past Help to Update Library: tapped it updates, held it rebuilds.
+    press(&mut b, &lib, &[Key::Up, Key::Up]);
     let cx = Context::new(&lib, at(0));
+    assert_eq!(b.row(&cx), Some(crate::Row::Rescan));
     assert_eq!(b.mode(&cx, Key::A), Mode::Hold);
     assert_eq!(b.held(&cx, Key::A), Outcome::Rescan(true));
-    assert_eq!(
-        press(&mut b, &lib, &[Key::Up, Key::A]),
-        Outcome::Rescan(false)
-    );
-    assert_eq!(b.view(), View::Settings);
+    assert_eq!(press(&mut b, &lib, &[Key::A]), Outcome::Rescan(false));
+    let legend = crate::text::legend(crate::screens::legend(&b, &cx));
+    let a = legend.iter().find(|h| h.key == "A").unwrap();
+    assert_eq!(a.label(), "Update (Rebuild)");
 }
 
 #[test]
@@ -88,7 +87,7 @@ fn after_a_rescan_the_track_playing_plays_on_without_asking_the_player_again() {
         p.current().is_none() && p.owns_audio(),
         "the player keeps the codec meanwhile"
     );
-    p.restore(ids(&[0, 1]), 1, 30.0, true);
+    p.restore(Queue::new(ids(&[0, 1]), 1, None), 30.0, true);
     assert_eq!(p.current(), Some(TrackId(1)));
     assert!(!p.resumable() && p.owns_audio());
     assert_eq!(
@@ -122,7 +121,7 @@ fn playlists_read_their_songs_by_path_with_favorites_always_first() {
         [("Favorites", &[][..]), ("Road Trip", &ids(&[2, 0, 1])[..])]
     );
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::A]);
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
     assert_eq!(b.view(), View::Playlists);
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!(
@@ -168,8 +167,8 @@ fn recently_played_is_kept_by_path_and_listed_with_the_playlists() {
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
-    // Music menu: Now Playing, Playlists; then Favorites, Recently Played.
-    for key in [Key::Down, Key::A, Key::Down, Key::A] {
+    // Music menu: Now Playing, Library, Playlists; then Favorites, Recently Played.
+    for key in [Key::Down, Key::Down, Key::A, Key::Down, Key::A] {
         b.press(&cx, key);
     }
     assert_eq!(b.view(), View::RecentlyPlayed);
@@ -210,7 +209,7 @@ fn tags_come_first_and_folders_fill_in_what_they_leave_out() {
                     album: "Hits".into(),
                     disc: 1,
                     track: 2,
-                    ..Tags::default()
+                    ..crate::Tags::default()
                 },
             ),
             record(
@@ -222,7 +221,7 @@ fn tags_come_first_and_folders_fill_in_what_they_leave_out() {
                     album: "Hits".into(),
                     disc: 1,
                     track: 1,
-                    ..Tags::default()
+                    ..crate::Tags::default()
                 },
             ),
             // Two discs, ordered by disc then track whatever the file names say.
@@ -233,7 +232,7 @@ fn tags_come_first_and_folders_fill_in_what_they_leave_out() {
                     album: "Big".into(),
                     disc: 2,
                     track: 1,
-                    ..Tags::default()
+                    ..crate::Tags::default()
                 },
             ),
             record(
@@ -243,7 +242,7 @@ fn tags_come_first_and_folders_fill_in_what_they_leave_out() {
                     album: "Big".into(),
                     disc: 1,
                     track: 5,
-                    ..Tags::default()
+                    ..crate::Tags::default()
                 },
             ),
         ],
@@ -315,7 +314,7 @@ fn recently_added_is_by_when_the_library_got_them_and_an_album_artist_names_the_
                 0,
                 Tags {
                     album_artist: "Band".into(),
-                    ..Tags::default()
+                    ..crate::Tags::default()
                 },
             ),
         ],
@@ -364,7 +363,7 @@ fn an_artist_lists_albums_by_year_and_discs_are_ruled_apart() {
                 year,
                 disc,
                 track,
-                ..Tags::default()
+                ..crate::Tags::default()
             },
         )
     };
@@ -474,4 +473,203 @@ fn only_files_the_player_can_play_are_listed() {
     let names: Vec<_> = lib.tracks.iter().map(|t| t.title.as_str()).collect();
     assert_eq!(names.len(), 5, "not Opus, nor WMA: {names:?}");
     assert!(!names.contains(&"six") && !names.contains(&"seven"));
+}
+
+/// A song in `folder` of `album`, by `artist`, numbered `n`, as its tags have it.
+fn tagged(folder: &str, album: &str, artist: &str, n: u32) -> crate::Record {
+    crate::Record {
+        path: std::path::Path::new("/card/Music")
+            .join(folder)
+            .join(format!("{n:02}.mp3")),
+        modified: 0,
+        size: 0,
+        added: 0,
+        tags: crate::Tags {
+            title: format!("{artist} {n}"),
+            artist: artist.into(),
+            album: album.into(),
+            track: n,
+            ..crate::Tags::default()
+        },
+    }
+}
+
+#[test]
+fn an_album_by_several_artists_with_no_album_artist_is_one_album_as_players_file_it() {
+    let root = std::path::Path::new("/card");
+    let lib = Library::build(
+        root,
+        vec![
+            tagged("Hits", "Hits", "Ann", 1),
+            tagged("Hits", "Hits", "Bob", 2),
+            tagged("Hits", "Hits", "Cat", 3),
+            // Most of an album by one artist, one song with a guest: still theirs.
+            tagged("Dee/Solo", "Solo", "Dee", 1),
+            tagged("Dee/Solo", "Solo", "Dee feat. Ann", 2),
+            tagged("Dee/Solo", "Solo", "Dee", 3),
+            // Albums alike in name in other folders are not one.
+            tagged("Ann/Hits", "Hits", "Ann", 1),
+        ],
+    );
+    let albums: Vec<(&str, &str, usize)> = lib
+        .albums
+        .iter()
+        .map(|a| {
+            (
+                lib.artists[a.artist].name.as_str(),
+                a.name.as_str(),
+                a.tracks.len(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        albums,
+        [
+            ("Ann", "Hits", 1),
+            ("Dee", "Solo", 3),
+            (crate::text::VARIOUS_ARTISTS, "Hits", 3)
+        ]
+    );
+    let guest = lib
+        .tracks
+        .iter()
+        .find(|t| t.title == "Dee feat. Ann 2")
+        .unwrap();
+    assert_eq!(
+        guest.artist, "Dee feat. Ann",
+        "each song keeps its own artist"
+    );
+}
+
+/// As `tagged`, of `genre`, out in `year`.
+fn of_genre(folder: &str, artist: &str, genre: &str, year: u32) -> crate::Record {
+    let mut r = tagged(folder, folder, artist, 1);
+    (r.tags.genre, r.tags.year) = (genre.into(), year);
+    r
+}
+
+#[test]
+fn genres_gather_albums_by_name_in_any_case_and_a_tag_may_name_several() {
+    let root = std::path::Path::new("/card");
+    let lib = Library::build(
+        root,
+        vec![
+            of_genre("Kid A", "Radiohead", "Rock; Electronic", 2000),
+            of_genre("OK Computer", "Radiohead", "rock", 1997),
+            of_genre("Homogenic", "Bjork", "Electronic/Pop", 1997),
+            of_genre("Untagged", "Nobody", "", 0),
+        ],
+    );
+    let genres: Vec<(&str, Vec<&str>)> = lib
+        .genres
+        .iter()
+        .map(|g| {
+            let albums = g.albums.iter().map(|&a| lib.albums[a].name.as_str());
+            (g.name.as_str(), albums.collect())
+        })
+        .collect();
+    assert_eq!(
+        genres,
+        [
+            ("Electronic", vec!["Homogenic", "Kid A"]),
+            ("Pop", vec!["Homogenic"]),
+            ("Rock", vec!["Kid A", "OK Computer"]),
+        ],
+        "by name, each album under each, one Rock for rock"
+    );
+    let years: Vec<(u32, &str)> = lib
+        .albums_by_year
+        .iter()
+        .map(|&a| (lib.albums[a].year, lib.albums[a].name.as_str()))
+        .collect();
+    assert_eq!(
+        years,
+        [(1997, "Homogenic"), (1997, "OK Computer"), (2000, "Kid A")],
+        "oldest first, an album that does not say left out"
+    );
+}
+
+#[test]
+fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
+    let root = std::path::Path::new("/card");
+    let lib = Library::build(
+        root,
+        vec![
+            of_genre("Kid A", "Radiohead", "Rock", 2000),
+            of_genre("OK Computer", "Radiohead", "Rock", 1997),
+            of_genre("Debut", "Bjork", "Pop", 1993),
+        ],
+    );
+    let s = Settings::default();
+    let mut b = Browser::default();
+    press(&mut b, &lib, &[Key::Down, Key::A]);
+    let page = b.page(&cx(&lib, QueueView::default(), s));
+    assert_eq!(page.rows, ["Artists", "Albums", "Songs", "Genres", "Years"]);
+    // Years: the decades, then a decade's albums by year, played as one.
+    press(&mut b, &lib, &[Key::Up, Key::A]);
+    let page = b.page(&cx(&lib, QueueView::default(), s));
+    assert_eq!(page.rows, ["1990s", "2000s"]);
+    assert_eq!(page.values, [Some("2".to_string()), Some("1".to_string())]);
+    press(&mut b, &lib, &[Key::A]);
+    let page = b.page(&cx(&lib, QueueView::default(), s));
+    assert_eq!(page.title, "1990s");
+    let albums: Vec<(&str, &str)> = page.rows[2..]
+        .iter()
+        .map(|r| (r.before.as_str(), r.text.as_str()))
+        .collect();
+    assert_eq!(albums, [("1993", "Debut"), ("1997", "OK Computer")]);
+    let Outcome::Play { tracks, .. } = press(&mut b, &lib, &[Key::A]) else {
+        panic!("Play All plays the decade");
+    };
+    assert_eq!(tracks.len(), 2);
+    // Genres: a genre's albums, which X adds to the queue whole.
+    let mut b = Browser::default();
+    press(&mut b, &lib, &[Key::Down, Key::A, Key::Up, Key::Up, Key::A]);
+    assert_eq!(
+        b.page(&cx(&lib, QueueView::default(), s)).rows,
+        ["Pop", "Rock"]
+    );
+    let Outcome::Enqueue(tracks) = press(&mut b, &lib, &[Key::Down, Key::X]) else {
+        panic!("X adds the genre");
+    };
+    assert_eq!(tracks.len(), 2);
+    // Untagged, neither is offered.
+    let (_d, plain) = library(&["X/A/01 one.mp3"]);
+    let mut b = Browser::default();
+    press(&mut b, &plain, &[Key::Down, Key::A]);
+    let page = b.page(&cx(&plain, QueueView::default(), s));
+    assert_eq!(page.rows, ["Artists", "Albums", "Songs"]);
+}
+
+#[test]
+fn a_cache_from_before_genres_keeps_when_songs_came_in_and_has_their_tags_read_again() {
+    let (d, _) = library(&["X/A/01 one.mp3"]);
+    let progress = crate::Progress::default();
+    crate::scan_library(d.path(), false, &progress);
+    let cache = d.path().join(crate::CACHE_FILE);
+    let text = std::fs::read_to_string(&cache).unwrap();
+    // As the last layout wrote it: no genre, its own header, a title only it knows, and an
+    // older day the song came in.
+    let line = text.lines().nth(1).unwrap();
+    let mut fields: Vec<&str> = line.split('\t').collect();
+    fields.truncate(12);
+    (fields[3], fields[4]) = ("42", "Cached");
+    std::fs::write(&cache, format!("#SLOT-LIBRARY 4\n{}\n", fields.join("\t"))).unwrap();
+    let shown = crate::cached_library(d.path()).unwrap();
+    assert_eq!(shown.tracks[0].title, "Cached", "shown at once as it was");
+    let (lib, changed) = crate::scan_library(d.path(), false, &progress);
+    assert_eq!(
+        (lib.tracks[0].title.as_str(), changed),
+        ("one", true),
+        "read again"
+    );
+    assert_eq!(
+        lib.albums[lib.tracks[0].album].added, 42,
+        "when it came in, kept"
+    );
+    let text = std::fs::read_to_string(&cache).unwrap();
+    assert!(
+        text.starts_with("#SLOT-LIBRARY 5\n"),
+        "written in the new layout"
+    );
 }

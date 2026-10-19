@@ -48,6 +48,8 @@ pub trait Kept: Sized {
 pub struct Store {
     root: PathBuf,
     tx: Sender<Job>,
+    /// Word of each write that failed: a card full or locked.
+    failed: Receiver<()>,
 }
 
 enum Job {
@@ -64,11 +66,17 @@ enum Job {
 impl Store {
     pub fn open(root: &Path) -> Store {
         let (tx, rx) = mpsc::channel();
+        let (failed_tx, failed) = mpsc::channel();
+        // Opened on the frame loop, which rests by parking: woken to tell a write failed.
+        let frames = std::thread::current();
         let spawned = std::thread::Builder::new()
             .name("slot-music-store".into())
             .spawn(move || {
                 crate::background();
-                write_all(rx);
+                write_all(rx, || {
+                    let _ = failed_tx.send(());
+                    frames.unpark();
+                });
             });
         if let Err(e) = spawned {
             log::warn!("{e}");
@@ -76,6 +84,7 @@ impl Store {
         Store {
             root: root.to_path_buf(),
             tx,
+            failed,
         }
     }
 
@@ -112,6 +121,11 @@ impl Store {
         }
     }
 
+    /// Whether a write failed since last asked.
+    pub fn failed(&self) -> bool {
+        self.failed.try_iter().count() > 0
+    }
+
     /// Waits until everything sent is written.
     pub fn flush(&self) {
         let (tx, rx) = mpsc::channel();
@@ -121,8 +135,9 @@ impl Store {
     }
 }
 
-/// Writes jobs as they come, those waiting together: a file's whole text only the newest.
-fn write_all(rx: Receiver<Job>) {
+/// Writes jobs as they come, those waiting together: a file's whole text only the newest. A
+/// write that fails, or panics, is logged and `failed` told, and the writing goes on.
+fn write_all(rx: Receiver<Job>, failed: impl Fn()) {
     while let Ok(first) = rx.recv() {
         let jobs: Vec<Job> = std::iter::once(first).chain(rx.try_iter()).collect();
         for (i, job) in jobs.iter().enumerate() {
@@ -131,7 +146,7 @@ fn write_all(rx: Receiver<Job>) {
                     .iter()
                     .any(|j| matches!(j, Job::Whole(p, _) if p == path))
             };
-            let done = match job {
+            let write = || match job {
                 Job::Whole(path, _) if newer(path) => Ok(()),
                 Job::Whole(path, text) => whole(path, text),
                 Job::Key(path, key, value) => set_key(path, key, value),
@@ -141,8 +156,11 @@ fn write_all(rx: Receiver<Job>) {
                     Ok(())
                 }
             };
+            let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(write))
+                .unwrap_or_else(|_| Err(std::io::Error::other("a write panicked")));
             if let Err(e) = done {
                 log::warn!("{e}");
+                failed();
             }
         }
     }

@@ -92,8 +92,8 @@ fn audiobooks_are_kept_apart_from_the_music_and_open_from_the_menu() {
         [("Just So", "Kipling", 2), ("The Selfish Giant", "Wilde", 1)]
     );
     let mut b = Browser::default();
-    // Shuffle Library, Playlists, then Audiobooks.
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
+    // Shuffle Library, Library, Playlists, then Audiobooks.
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
     assert_eq!(b.view(), View::Books);
     let page = b.page(&Context::new(&lib, at(0)));
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
@@ -129,7 +129,7 @@ fn the_audiobooks_menu_continues_the_latest_and_lists_them_by_progress_and_autho
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx);
     let rows: Vec<(&str, &str)> = page
         .rows
@@ -318,7 +318,7 @@ fn a_finished_book_leaves_in_progress_for_finished_last_on_the_menu() {
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx);
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
     assert_eq!(
@@ -396,10 +396,7 @@ fn a_book_s_chapters_list_from_the_books_across_its_parts_on_the_one_it_was_left
     // The book's menu lists them too, first.
     b.press(&cx, Key::B);
     b.press(&cx, Key::Start);
-    assert_eq!(
-        b.view(),
-        View::RowMenu(crate::browse::rows::Row::Book(book))
-    );
+    assert_eq!(b.view(), View::BookMenu(book));
     assert_eq!(b.press(&cx, Key::A), Outcome::None);
     assert_eq!(b.view(), View::BookChapters(book));
 }
