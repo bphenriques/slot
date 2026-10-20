@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 
-use slot_retro::{AvInfo, ButtonMask, CoreError, Link, RetroCore, Rumble};
+use slot_retro::{AchievementMemory, AvInfo, ButtonMask, CoreError, Link, RetroCore, Rumble};
 
 use crate::{network, Control, Frame, Service, QUEUE_SIZE, RAM_SIZE};
 
@@ -140,7 +140,7 @@ impl RetroCore for Tracked {
         self.core.stop_link();
         self.timeline += 1;
     }
-    fn achievement_memory(&self, ram: &mut [u8]) -> [usize; 3] {
+    fn achievement_memory(&self, ram: &mut [u8]) -> AchievementMemory {
         self.core.achievement_memory(ram)
     }
 }

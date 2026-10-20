@@ -11,6 +11,7 @@ use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
 use crate::link::Link;
 use crate::rumble::Rumble;
+use crate::{AchievementMemory, ACHIEVEMENT_RAM_SIZE};
 
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
 
@@ -545,6 +546,7 @@ impl LibretroCore {
         if !self.loaded {
             return;
         }
+        self.host.memory.clear();
         let _a = Active::bind(&mut self.host);
         unsafe { (self.api.unload_game)() };
         self.loaded = false;
@@ -581,20 +583,39 @@ impl Drop for LibretroCore {
 }
 
 impl RetroCore for LibretroCore {
-    fn achievement_memory(&self, ram: &mut [u8]) -> [usize; 3] {
-        if ram.len() < 0x58000 {
-            return [0; 3];
+    fn achievement_memory(&self, ram: &mut [u8]) -> AchievementMemory {
+        let mut valid = AchievementMemory::default();
+        if !self.loaded || ram.len() < ACHIEVEMENT_RAM_SIZE {
+            return valid;
         }
-        let mut valid = [0; 3];
-        // rcheevos consoleinfo.c: IWRAM first, then EWRAM, then cartridge SRAM.
-        for (i, (physical, offset, size)) in [
-            (0x03000000, 0, 0x8000),
-            (0x02000000, 0x8000, 0x40000),
-            (0x0e000000, 0x48000, 0x10000),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        let game_boy = self.host.memory.iter().any(|d| d.start == 0xc000);
+        // rcheevos consoleinfo.c: GB/GBC use native addresses plus fixed banks;
+        // GBA uses IWRAM, EWRAM, then SRAM. Echo RAM aliases the fixed WRAM banks.
+        let regions: &[(usize, usize, usize)] = if game_boy {
+            &[
+                (0x0000, 0x0000, 0x4000),
+                (0x4000, 0x4000, 0x4000),
+                (0x8000, 0x8000, 0x2000),
+                (0xa000, 0xa000, 0x2000),
+                (0xc000, 0xc000, 0x1000),
+                (0xd000, 0xd000, 0x1000),
+                (0xc000, 0xe000, 0x1000),
+                (0xd000, 0xf000, 0x0e00),
+                (0xfe00, 0xfe00, 0x00a0),
+                (0xff00, 0xff00, 0x0080),
+                (0xff80, 0xff80, 0x007f),
+                (0xffff, 0xffff, 0x0001),
+                (0x10000, 0x10000, 0x6000),
+                (0x16000, 0x16000, 0x1e000),
+            ]
+        } else {
+            &[
+                (0x03000000, 0, 0x8000),
+                (0x02000000, 0x8000, 0x40000),
+                (0x0e000000, 0x48000, 0x10000),
+            ]
+        };
+        for &(physical, offset, size) in regions {
             if let Some(d) =
                 self.host.memory.iter().find(|d| {
                     d.start == physical && d.disconnect == 0 && !d.ptr.is_null() && d.len > 0
@@ -610,8 +631,8 @@ impl RetroCore for LibretroCore {
                         n,
                     );
                 }
-                valid[i] = n;
-            } else if i == 2 {
+                valid.push(offset..offset + n);
+            } else if !game_boy && physical == 0x0e000000 {
                 let p = unsafe { (self.api.get_memory_data)(MEMORY_SAVE_RAM) };
                 let n = unsafe { (self.api.get_memory_size)(MEMORY_SAVE_RAM) }.min(size);
                 if !p.is_null() && n > 0 {
@@ -622,7 +643,7 @@ impl RetroCore for LibretroCore {
                             n,
                         );
                     }
-                    valid[i] = n;
+                    valid.push(offset..offset + n);
                 }
             }
         }

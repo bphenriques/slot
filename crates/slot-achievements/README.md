@@ -1,6 +1,6 @@
 # RetroAchievements
 
-slot can earn **softcore GBA achievements**, online or offline, with a short in-game
+slot can earn **softcore GB, GBC, and GBA achievements**, online or offline, with a short in-game
 1.8-second notification showing the achievement's cached RA badge, name and points, accompanied by a quiet
 240 ms chime that follows the game volume and mute setting. There is no achievement browser or
 account menu. Save states, resume, rewind, and fast-forward remain available.
@@ -41,8 +41,9 @@ unlock timestamps.
 
 ## Automatic offline preparation
 
-While slot is running, it automatically prepares every `.gba` file in `Games/GBA` whenever
-the server is reachable. You do not have to open each game first. The current game has
+While slot is running, it automatically prepares `.gba` files in `Games/GBA` and
+`.gb` and `.gbc` files in `Games/GB` and `Games/GBC` whenever the server is reachable.
+You do not have to open each game first. The current game has
 priority; other ROMs are prepared gradually in the background. New/changed ROMs are
 discovered every five minutes, and cached definitions and server unlocks refresh weekly.
 Library preparation does not start play sessions on the server.
@@ -78,16 +79,20 @@ Do not edit `unlocks.json`. A damaged ledger is reported and preserved, not sile
 ## Gameplay and networking
 
 Evaluation, persistence, ROM hashing, library scanning, HTTPS, and banner rasterization run
-on background threads. The emulator copies up to 352 KiB of GBA RAM after each emulated
+on background threads. The emulator copies up to 352 KiB of memory after each emulated
 frame into a bounded queue (including fast-forward frames); it never waits for the worker.
 No emulator pointers cross threads. If evaluation falls behind, slot logs an interruption
 and resets achievement hit/delta tracking across the missing frames, avoiding false awards.
 State loads and rewind also reset partial achievement progress.
 
-Both mGBA and gpSP expose the required RAM. gpSP's network link can continue tracking from
-the cache when its softAP has no internet. mGBA's two-console cable mode is excluded in this
-first version because its memory belongs to two players. Leaderboards, hardcore mode,
-and achievement browsing are not included.
+mGBA exposes the required memory for GB, GBC, and GBA. gpSP supports GBA achievements.
+GB and GBC snapshots include fixed work RAM banks, high RAM, cartridge RAM banks,
+and echo RAM. GBC's extra work RAM banks use RetroAchievements addresses `0x10000`
+through `0x15FFF`. Extra cartridge RAM banks use `0x16000` through `0x33FFF`.
+Missing banks and unmapped memory remain invalid rather than being read as zero.
+gpSP's network link can continue tracking from the cache when its softAP has no internet.
+mGBA's two-console cable mode is excluded because its memory belongs to two players.
+Leaderboards, hardcore mode, and achievement browsing are not included.
 
 The Wi-Fi configuration UI is independent: this feature uses ordinary HTTPS whenever the OS
 has a route to the internet. It does not configure radios, interfaces, softAP, or Wi-Fi.
@@ -95,15 +100,17 @@ has a route to the internet. It does not configure radios, interfaces, softAP, o
 ## Implementation and verification
 
 `slot-achievements` vendors the official rcheevos 12.2.1 evaluator at the same revision used
-by NextUI. The REST protocol and GBA memory layout follow that revision's API helpers and
-console definitions. Account authentication uses `login2`; preparation uses `gameid`,
+by NextUI. The REST protocol and GB, GBC, and GBA memory layouts follow that revision's
+API helpers and console definitions. Account authentication uses `login2`; preparation uses `gameid`,
 `patch`, and `unlocks`; play uses `startsession` and periodic `ping`. Deferred
 `awardachievement` requests include the original unlock age and the corresponding signature.
 
 The focused tests use a fake server and real rcheevos conditions to cover offline earning,
 restart/replay, account isolation, automatic preparation, failed writes, rejected awards,
-dropped frames, and rewind. `slot-retro` also has a real-core memory mapping test, run when
-host mGBA/gpSP cores are available in `vendor/`.
+dropped frames, and rewind. Offline earning and sync cover all three systems.
+`slot-retro` also runs original test ROMs to check GB and GBC memory banks in mGBA
+and GBA memory in mGBA and gpSP,
+when the host cores are available in `vendor/`.
 
 ```sh
 cargo test -p slot-achievements -p slot-retro

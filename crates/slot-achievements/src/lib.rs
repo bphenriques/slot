@@ -16,10 +16,10 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use badges::{load_badge, BadgeImage};
-use slot_retro::RetroCore;
+use slot_retro::{AchievementMemory, RetroCore};
 use storage::{Config, Store, Unlock};
 
-const RAM_SIZE: usize = 0x58000;
+const RAM_SIZE: usize = slot_retro::ACHIEVEMENT_RAM_SIZE;
 const QUEUE_SIZE: usize = 8;
 
 /// A passive shelf indicator. Reading it never acquires a worker's lock.
@@ -106,7 +106,7 @@ struct Frame {
     timeline: u64,
     earned_at: u64,
     ram: Vec<u8>,
-    valid: [usize; 3],
+    valid: AchievementMemory,
     recycle: mpsc::SyncSender<Vec<u8>>,
 }
 
@@ -330,7 +330,7 @@ fn run(
                                     &dir.join(format!("{hash}.json")),
                                 )
                             {
-                                if game.console == 5 {
+                                if game.supported_console() {
                                     let _ = cached_prepared.send(network::Prepared {
                                         generation,
                                         hash,
@@ -484,7 +484,7 @@ fn evaluate(
             }
         }
         game.previous = Some((frame.sequence, frame.timeline));
-        if frame.valid[0] == 0 || frame.valid[1] == 0 {
+        if frame.valid.regions().is_empty() {
             if !game.warned_gap {
                 let _ = notices.send(Notice::status(
                     game.generation,
@@ -557,7 +557,7 @@ pub fn artwork_title(root: &std::path::Path, rom: &std::path::Path) -> Option<St
     let hash = library::content_hash(rom).ok()?;
     let (game, _): (storage::Game, std::collections::BTreeSet<u32>) =
         storage::read(&dir.join(format!("{hash}.json"))).ok()?;
-    (game.console == 5
+    (game.supported_console()
         && game.id != 0
         && !game.title.trim().is_empty()
         && !game.title.starts_with("Unsupported Game Version"))

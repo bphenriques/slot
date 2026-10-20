@@ -1,3 +1,4 @@
+use slot_retro::{AchievementMemory, AchievementRegion, ACHIEVEMENT_RAM_SIZE};
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::ptr::NonNull;
 
@@ -22,7 +23,8 @@ unsafe extern "C" {
     fn slot_ra_frame(
         runtime: *mut c_void,
         ram: *const u8,
-        valid: *const usize,
+        regions: *const AchievementRegion,
+        region_count: usize,
         earned: *mut u32,
         capacity: usize,
         presence: *mut c_char,
@@ -118,14 +120,14 @@ impl Runtime {
         }
     }
 
-    pub fn frame(&mut self, ram: &[u8], valid: &[usize; 3]) -> &[u32] {
-        assert!(ram.len() >= 0x58000);
-        assert!(valid[0] <= 0x8000 && valid[1] <= 0x40000 && valid[2] <= 0x10000);
+    pub fn frame(&mut self, ram: &[u8], valid: &AchievementMemory) -> &[u32] {
+        assert!(ram.len() >= ACHIEVEMENT_RAM_SIZE);
         let count = unsafe {
             slot_ra_frame(
                 self.ptr.as_ptr(),
                 ram.as_ptr(),
-                valid.as_ptr(),
+                valid.regions().as_ptr(),
+                valid.regions().len(),
                 self.earned.as_mut_ptr(),
                 self.earned.len(),
                 self.presence.as_mut_ptr().cast(),

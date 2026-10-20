@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+use slot_store::Platform;
 
 use crate::storage;
 
@@ -59,19 +60,21 @@ pub(crate) fn hash(dir: &Path, path: &Path) -> Result<String, String> {
 
 pub(crate) fn pending(root: &Path, dir: &Path, now: u64) -> VecDeque<PathBuf> {
     let index: Index = storage::read(&dir.join("library.json")).unwrap_or_default();
-    let mut paths: Vec<_> = std::fs::read_dir(root.join("Games/GBA"))
+    let mut paths: Vec<_> = Platform::ALL
         .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("gba"))
-                && !path
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        .flat_map(|platform| {
+            std::fs::read_dir(root.join("Games").join(platform.dir_name()))
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(move |path| {
+                    path.is_file()
+                        && platform.accepts(path)
+                        && !path
+                            .file_name()
+                            .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+                })
         })
         .filter(|path| {
             let Some(entry) = index.get(path) else {
@@ -105,7 +108,7 @@ pub(crate) fn content_hash(path: &Path) -> Result<String, String> {
         .map_err(|_| "Cannot read ROM metadata")?
         .len();
     if size == 0 || size > 64 * 1024 * 1024 {
-        return Err("Unsupported GBA ROM size".into());
+        return Err("Unsupported ROM size".into());
     }
     let mut file = std::fs::File::open(path).map_err(|_| "Cannot open ROM")?;
     let mut buffer = [0; 64 * 1024];

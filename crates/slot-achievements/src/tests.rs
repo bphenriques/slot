@@ -221,6 +221,7 @@ fn a_badge_failure_does_not_hold_up_awards_or_cached_game_data() {
 #[derive(Default)]
 struct TestCore {
     value: u8,
+    console: u32,
 }
 impl RetroCore for TestCore {
     fn load(&mut self, _: &Path) -> Result<(), CoreError> {
@@ -253,9 +254,14 @@ impl RetroCore for TestCore {
             sample_rate: 48000.0,
         }
     }
-    fn achievement_memory(&self, ram: &mut [u8]) -> [usize; 3] {
-        ram[0] = self.value;
-        [0x8000, 0x40000, 0]
+    fn achievement_memory(&self, ram: &mut [u8]) -> AchievementMemory {
+        if matches!(self.console, 4 | 6) {
+            ram[0xc000] = self.value;
+            AchievementMemory::new([0xc000..0xe000, 0xff80..0xffff])
+        } else {
+            ram[0] = self.value;
+            AchievementMemory::new([0..0x8000, 0x8000..0x48000])
+        }
     }
 }
 
@@ -266,17 +272,32 @@ fn runtime_evaluates_real_definitions_and_never_awards_missing_memory() {
     assert!(runtime.activate(8, "0xH048000=1"));
     assert!(!runtime.activate(9, "not a definition"));
     let mut ram = vec![0; RAM_SIZE];
-    assert!(runtime.frame(&ram, &[0x8000, 0x40000, 0]).is_empty());
+    assert!(runtime
+        .frame(&ram, &AchievementMemory::new([0..0x8000, 0x8000..0x48000]))
+        .is_empty());
     ram[0] = 1;
     ram[0x48000] = 1;
-    assert_eq!(runtime.frame(&ram, &[0x8000, 0x40000, 0]), &[7]);
-    assert!(runtime.frame(&ram, &[0x8000, 0x40000, 0]).is_empty());
+    assert_eq!(
+        runtime.frame(&ram, &AchievementMemory::new([0..0x8000, 0x8000..0x48000])),
+        &[7]
+    );
+    assert!(runtime
+        .frame(&ram, &AchievementMemory::new([0..0x8000, 0x8000..0x48000]))
+        .is_empty());
 }
 
 #[test]
 fn offline_unlock_is_durable_then_syncs_without_reopening_the_game() {
+    for (console, shelf, ext) in [(5, "GBA", "gba"), (4, "GB", "gb"), (6, "GBC", "gbc")] {
+        offline_unlock_for(console, shelf, ext);
+    }
+}
+
+fn offline_unlock_for(console: u32, shelf: &str, ext: &str) {
     let root = configured();
-    let rom = root.path().join("Games/GBA/Test.gba");
+    let dir = root.path().join("Games").join(shelf);
+    std::fs::create_dir_all(&dir).unwrap();
+    let rom = dir.join(format!("Test.{ext}"));
     std::fs::write(&rom, b"fixture ROM").unwrap();
     let store = Store::open(root.path(), "Player").unwrap();
     let hash = library::hash(&store.dir, &rom).unwrap();
@@ -288,13 +309,21 @@ fn offline_unlock_is_durable_then_syncs_without_reopening_the_game() {
         },
     )
     .unwrap();
+    let mut data = game();
+    data.console = console;
+    if console != 5 {
+        data.achievements[0].definition = "0xH00c000=1".into();
+    }
     storage::write(
         &store.dir.join(format!("{hash}.json")),
-        &(game(), std::collections::BTreeSet::<u32>::new()),
+        &(data, std::collections::BTreeSet::<u32>::new()),
     )
     .unwrap();
     let service = Service::start_with(root.path().into(), Offline);
-    let mut core = service.wrap(Box::<TestCore>::default());
+    let mut core = service.wrap(Box::new(TestCore {
+        console,
+        ..Default::default()
+    }));
     core.load(&rom).unwrap();
     wait_for(|| {
         service
@@ -317,7 +346,10 @@ fn offline_unlock_is_durable_then_syncs_without_reopening_the_game() {
     drop(service);
 
     let restarted = Service::start_with(root.path().into(), Offline);
-    let mut core = restarted.wrap(Box::<TestCore>::default());
+    let mut core = restarted.wrap(Box::new(TestCore {
+        console,
+        ..Default::default()
+    }));
     core.load(&rom).unwrap();
     wait_for(|| {
         restarted
@@ -382,6 +414,110 @@ fn an_unopened_library_is_prepared_automatically_without_starting_sessions() {
 }
 
 #[test]
+fn library_preparation_includes_game_boy_and_color_shelves() {
+    let root = configured();
+    for (shelf, name) in [
+        ("GBA", "Advance.GBA"),
+        ("GB", "Original.GB"),
+        ("GB", "Color.gbc"),
+        ("GBC", "Color.GBC"),
+        ("GBC", "Original.gb"),
+    ] {
+        let dir = root.path().join("Games").join(shelf);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(name), name).unwrap();
+    }
+    std::fs::write(root.path().join("Games/GB/.hidden.gb"), b"hidden").unwrap();
+    std::fs::write(root.path().join("Games/GB/Notes.txt"), b"notes").unwrap();
+    let store = Store::open(root.path(), "Player").unwrap();
+    let pending = library::pending(root.path(), &store.dir, network::now());
+    assert_eq!(pending.len(), 5);
+}
+
+#[test]
+fn game_boy_consoles_prepare_offline_caches_and_start_online_sessions() {
+    struct ConsoleServer {
+        server: Server,
+        console: u32,
+    }
+    impl network::Transport for ConsoleServer {
+        fn call(&mut self, fields: &[(&str, String)]) -> Result<Value, network::Failure> {
+            let mut response = self.server.call(fields)?;
+            if response.get("PatchData").is_some() {
+                response["PatchData"]["ConsoleID"] = json!(self.console);
+            }
+            Ok(response)
+        }
+        fn badge(&mut self, name: &str) -> Result<Vec<u8>, network::Failure> {
+            self.server.badge(name)
+        }
+    }
+    for (console, shelf, ext) in [(4, "GB", "gb"), (6, "GBC", "gbc")] {
+        let root = configured();
+        let dir = root.path().join("Games").join(shelf);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rom = dir.join(format!("Test.{ext}"));
+        std::fs::write(&rom, b"fixture ROM").unwrap();
+        let (calls, requests) = mpsc::channel();
+        let service = Service::start_with(
+            root.path().into(),
+            ConsoleServer {
+                server: Server { calls },
+                console,
+            },
+        );
+        let store = Store::open(root.path(), "Player").unwrap();
+        let hash = library::content_hash(&rom).unwrap();
+        let cache = store.dir.join(format!("{hash}.json"));
+        wait_for(|| cache.exists() && service.sync_status() == SyncStatus::Ready);
+        let (data, _): (Game, std::collections::BTreeSet<u32>) = storage::read(&cache).unwrap();
+        assert_eq!(data.console, console);
+        assert_eq!(
+            artwork_title(root.path(), &rom).as_deref(),
+            Some("Test game")
+        );
+        assert!(!requests.try_iter().any(|r| r == "startsession"));
+        let mut core = service.wrap(Box::<TestCore>::default());
+        core.load(&rom).unwrap();
+        wait_for(|| requests.try_iter().any(|r| r == "ping"));
+    }
+}
+
+#[test]
+fn game_boy_runtime_reads_banked_ram_and_rejects_memory_holes() {
+    let mut runtime = runtime::Runtime::new().unwrap();
+    for (id, definition) in [
+        (1, "0xH00c000=1"),
+        (2, "0xH00ff80=1"),
+        (3, "0xH010000=1"),
+        (4, "0xH015fff=1"),
+        (5, "0xH016000=1"),
+        (6, "0xH033fff=1"),
+        (7, "0xH00fea0=0_0xH00c000=1"),
+    ] {
+        assert!(runtime.activate(id, definition));
+    }
+    let memory = AchievementMemory::new([0xc000..0xfea0, 0xff80..0xffff, 0x10000..0x34000]);
+    let mut ram = vec![0; RAM_SIZE];
+    assert!(runtime.frame(&ram, &memory).is_empty());
+    for address in [0xc000, 0xff80, 0x10000, 0x15fff, 0x16000, 0x33fff] {
+        ram[address] = 1;
+    }
+    let mut earned = runtime.frame(&ram, &memory).to_vec();
+    earned.sort_unstable();
+    assert_eq!(earned, [1, 2, 3, 4, 5, 6]);
+
+    // Indirect reads into a hole must not treat the missing byte as zero.
+    let mut indirect = runtime::Runtime::new().unwrap();
+    assert!(indirect.activate(8, "I:0xX00c010_0xH000000=0_0xH00c000=1"));
+    ram[0xc010..0xc013].copy_from_slice(&[0xa0, 0xfe, 0x00]);
+    ram[0xc000] = 0;
+    assert!(indirect.frame(&ram, &memory).is_empty());
+    ram[0xc000] = 1;
+    assert!(indirect.frame(&ram, &memory).is_empty());
+}
+
+#[test]
 fn a_full_worker_queue_cannot_block_the_emulator() {
     let (controls, _controls_rx) = mpsc::channel();
     let (frames, _frames_rx) = mpsc::sync_channel(QUEUE_SIZE);
@@ -443,7 +579,7 @@ fn frame(sequence: u64, timeline: u64, value: u8) -> Frame {
         timeline,
         earned_at: 1000,
         ram,
-        valid: [0x8000, 0x40000, 0],
+        valid: AchievementMemory::new([0..0x8000, 0x8000..0x48000]),
         recycle,
     }
 }
@@ -635,13 +771,22 @@ fn rich_presence_tracks_memory_and_clears_invalid_replacements() {
     let mut runtime = runtime::Runtime::new().unwrap();
     assert!(runtime.activate_presence("Display:\n?0xH000000=1?In the castle\nOn the map"));
     let mut ram = vec![0; RAM_SIZE];
-    runtime.frame(&ram, &[0x8000, 0x40000, 0x10000]);
+    runtime.frame(
+        &ram,
+        &AchievementMemory::new([0..0x8000, 0x8000..0x48000, 0x48000..RAM_SIZE]),
+    );
     assert_eq!(runtime.presence(), "On the map");
     ram[0] = 1;
-    runtime.frame(&ram, &[0x8000, 0x40000, 0x10000]);
+    runtime.frame(
+        &ram,
+        &AchievementMemory::new([0..0x8000, 0x8000..0x48000, 0x48000..RAM_SIZE]),
+    );
     assert_eq!(runtime.presence(), "In the castle");
     assert!(!runtime.activate_presence("not a valid script"));
-    runtime.frame(&ram, &[0x8000, 0x40000, 0x10000]);
+    runtime.frame(
+        &ram,
+        &AchievementMemory::new([0..0x8000, 0x8000..0x48000, 0x48000..RAM_SIZE]),
+    );
     assert!(runtime.presence().is_empty());
 }
 

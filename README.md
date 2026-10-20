@@ -42,8 +42,8 @@ notes are in the [changelog](CHANGELOG.md).
 - **Hassle-free cart label scraping.** Just throw your ROMs on the SD card, and slot downloads
   missing labels in the background. It will not replace a label you added yourself, though.
   No config is needed for this feature.
-- **RetroAchievements.** You can earn softcore GBA achievements, online or offline. Put your
-  account in `Config/retroachievements.toml` for this to work. All your games' achievements
+- **RetroAchievements.** You can earn softcore GB, GBC, and GBA achievements, online or offline.
+  Put your account in `Config/retroachievements.toml` for this to work. All your games' achievements
   will be cached if Wi-Fi is on, so once the sync is done, you can go out and play without
   losing your achievements. They'll sync automatically when you're back home. When you're
   playing at home with Wi-Fi on, your achievements will sync in real time with rich presence.
