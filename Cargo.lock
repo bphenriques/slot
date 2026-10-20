@@ -2659,7 +2659,9 @@ version = "0.1.0"
 name = "slot-labels"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "image",
+ "quick-xml",
  "scraper",
  "slot-store",
  "tempfile",

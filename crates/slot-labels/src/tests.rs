@@ -93,20 +93,36 @@ fn title_resolution_requires_unique_exact_gba_match() {
 }
 
 #[test]
-fn artwork_is_cartridge_front_for_the_requested_region() {
+fn cart_fronts_rank_own_region_photos_then_renders_then_other_regions() {
     let page = r#"
         <a href="https://images.launchbox-app.com/box.png" data-title="Test - Box - Front Image (North America)"></a>
         <a href="https://images.launchbox-app.com/eu.png" data-title="Test - Cart - Front Image (Europe)"></a>
+        <a href="https://images.launchbox-app.com/us-fan.png" data-title="Test - Fanart - Cart - Front Image (North America)"></a>
         <a href="https://evil.invalid/us.png" data-title="Test - Cart - Front Image (North America)"></a>
         <a href="https://images.launchbox-app.com/us.png" data-title="Test - Cart - Front Image (North America)"></a>
+        <a href="https://images.launchbox-app.com/any.png" data-title="Test - Cart - Front Image"></a>
     "#;
-    assert!(source::image_url(page, &cart("Test (USA)"))
-        .unwrap()
-        .ends_with("/us.png"));
-    assert!(source::image_url(page, &cart("Test (Europe)"))
-        .unwrap()
-        .ends_with("/eu.png"));
-    assert!(source::image_url(page, &cart("Test (Japan)")).is_err());
+    let urls = |stem| {
+        source::image_urls(page, &cart(stem))
+            .unwrap()
+            .into_iter()
+            .map(|u| u.rsplit('/').next().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(urls("Test (USA)"), ["us.png", "us-fan.png", "eu.png"]);
+    assert_eq!(urls("Test (Europe)"), ["eu.png", "us.png", "any.png"]);
+    assert_eq!(urls("Test (Japan)"), ["eu.png", "us.png", "any.png"]);
+    // LaunchBox has only a fanart render for most Game Boy and Game Boy Color carts.
+    let render = r#"<a href="https://images.launchbox-app.com/fan.png" data-title="Boxxle - Fanart - Cart - Front Image (North America)"></a>"#;
+    assert!(
+        source::image_urls(render, &cart("Boxxle (USA, Europe) (Rev 1)")).unwrap()[0]
+            .ends_with("/fan.png")
+    );
+    assert!(source::image_urls(
+        r#"<a href="https://images.launchbox-app.com/box.png" data-title="Test - Box - Front Image (North America)"></a>"#,
+        &cart("Test (USA)")
+    )
+    .is_err());
     for url in [
         "http://images.launchbox-app.com/x",
         "https://images.launchbox-app.com.evil/x",
@@ -187,7 +203,7 @@ fn end_to_end_writes_exact_filename_and_skips_existing_without_network() {
         image: image_bytes(600, 355),
     };
     let mut cache = HashMap::new();
-    let file = prepare(&mut http, &mut cache, dir.path(), &cart, None).unwrap();
+    let file = prepare(&mut http, &mut cache, "", dir.path(), &cart, None).unwrap();
     assert_eq!(
         file,
         dir.path().join("Labels/GBA/Advance Wars (USA) (Rev 1).png")
@@ -195,7 +211,7 @@ fn end_to_end_writes_exact_filename_and_skips_existing_without_network() {
     let bytes = std::fs::read(&file).unwrap();
     assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 264);
     assert_eq!(http.calls.len(), 2);
-    prepare(&mut http, &mut cache, dir.path(), &cart, None).unwrap();
+    prepare(&mut http, &mut cache, "", dir.path(), &cart, None).unwrap();
     assert_eq!(http.calls.len(), 2);
     assert_eq!(std::fs::read(file).unwrap(), bytes);
 }
@@ -219,10 +235,10 @@ fn corrupt_download_is_not_published_and_can_be_retried() {
         image: b"truncated".to_vec(),
     };
     let mut cache = HashMap::new();
-    assert!(prepare(&mut http, &mut cache, dir.path(), &cart, None).is_err());
+    assert!(prepare(&mut http, &mut cache, "", dir.path(), &cart, None).is_err());
     assert!(!dir.path().join("Labels").exists());
     http.image = image_bytes(600, 355);
-    assert!(prepare(&mut http, &mut cache, dir.path(), &cart, None).is_ok());
+    assert!(prepare(&mut http, &mut cache, "", dir.path(), &cart, None).is_ok());
     assert_eq!(
         http.calls.len(),
         3,
@@ -277,6 +293,7 @@ fn verified_identity_selects_artwork_but_preserves_rom_filename() {
     let file = prepare(
         &mut http,
         &mut HashMap::new(),
+        "",
         dir.path(),
         &cart,
         Some("Advance Wars"),
@@ -292,4 +309,126 @@ fn verified_identity_selects_artwork_but_preserves_rom_filename() {
         source::title("Lara Croft Tomb Raider - The Prophecy (USA)"),
         "tomb raider the prophecy"
     );
+}
+
+#[test]
+fn an_indexed_rom_skips_the_search_and_falls_through_unusable_candidates() {
+    struct Images(Vec<String>);
+    impl Transport for Images {
+        fn get(&mut self, url: &str) -> Result<Vec<u8>, Error> {
+            self.0.push(url.into());
+            match url.rsplit('/').next().unwrap() {
+                "gone.png" => Err(Error::Unavailable("http status: 404".into())),
+                "box.png" => Ok(image_bytes(500, 500)),
+                _ => Ok(image_bytes(438, 503)),
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let rom = dir.path().join("Games/GB/Anything.gb");
+    std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
+    // CBF43926 is the CRC32 of these bytes.
+    std::fs::write(&rom, b"123456789").unwrap();
+    let cart = Cart {
+        platform: Platform::Gb,
+        stem: "Anything".into(),
+        rom,
+        ..cart("unused")
+    };
+    let mut http = Images(vec![]);
+    let file = prepare(
+        &mut http,
+        &mut HashMap::new(),
+        "CBF43926\tgone.png\tbox.png\tcart.png\n",
+        dir.path(),
+        &cart,
+        None,
+    )
+    .unwrap();
+    assert_eq!(file, dir.path().join("Labels/GB/Anything.png"));
+    let label = image::open(file).unwrap();
+    assert_eq!((label.width(), label.height()), label_size(Platform::Gb));
+    assert_eq!(
+        http.0,
+        [
+            "https://images.launchbox-app.com/gone.png",
+            "https://images.launchbox-app.com/box.png",
+            "https://images.launchbox-app.com/cart.png"
+        ]
+    );
+}
+
+/// A Game Boy ROM, on the Game Boy Color shelf, whose CRC32 is the standard check value CBF43926.
+fn rom_on_gbc_shelf(dir: &Path) -> Cart {
+    let rom = dir.join("Games/GBC/Anything.gb");
+    std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
+    std::fs::write(&rom, b"123456789").unwrap();
+    Cart {
+        platform: Platform::Gbc,
+        stem: "Anything".into(),
+        rom,
+        ..cart("unused")
+    }
+}
+
+fn write_pack(root: &Path, entries: Vec<(u32, Vec<u8>)>) {
+    let dir = root.join("Labels");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut out = Vec::new();
+    build::write_pack(&mut out, entries).unwrap();
+    std::fs::write(dir.join(build::PACK), out).unwrap();
+}
+
+#[test]
+fn a_rom_in_the_artwork_pack_is_labelled_without_the_network() {
+    struct NoNetwork;
+    impl Transport for NoNetwork {
+        fn get(&mut self, url: &str) -> Result<Vec<u8>, Error> {
+            panic!("asked the network for {url}");
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let jpeg = build::cart_label_jpeg(&image_bytes(438, 503), Platform::Gb).unwrap();
+    assert_eq!(image::guess_format(&jpeg).unwrap(), ImageFormat::Jpeg);
+    write_pack(dir.path(), vec![(0xCBF4_3926, jpeg)]);
+    let file = prepare(
+        &mut NoNetwork,
+        &mut HashMap::new(),
+        "",
+        dir.path(),
+        &rom_on_gbc_shelf(dir.path()),
+        None,
+    )
+    .unwrap();
+    assert_eq!(file, dir.path().join("Labels/GBC/Anything.png"));
+    // Made for the Game Boy label, fitted to the Game Boy Color shelf the cart sits on.
+    let label = image::open(file).unwrap();
+    assert_eq!((label.width(), label.height()), label_size(Platform::Gbc));
+}
+
+#[test]
+fn a_pack_without_the_rom_or_a_damaged_pack_leaves_it_to_the_network() {
+    for damaged in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        if damaged {
+            std::fs::create_dir_all(dir.path().join("Labels")).unwrap();
+            std::fs::write(dir.path().join("Labels").join(build::PACK), b"SLOTART1junk").unwrap();
+        } else {
+            write_pack(dir.path(), vec![(0x1234, b"other".to_vec())]);
+        }
+        let mut http = Fake {
+            calls: vec![],
+            image: image_bytes(438, 503),
+        };
+        prepare(
+            &mut http,
+            &mut HashMap::new(),
+            "CBF43926\tcart.png\n",
+            dir.path(),
+            &rom_on_gbc_shelf(dir.path()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(http.calls, ["https://images.launchbox-app.com/cart.png"]);
+    }
 }

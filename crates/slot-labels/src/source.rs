@@ -4,7 +4,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::{Error, Transport};
 const BASE: &str = "https://gamesdb.launchbox-app.com";
-const IMAGE: &str = "https://images.launchbox-app.com/";
+pub(crate) const IMAGE: &str = "https://images.launchbox-app.com/";
 
 pub(crate) fn allowed_url(url: &str) -> bool {
     url.starts_with(&format!("{BASE}/")) || url.starts_with(IMAGE)
@@ -18,7 +18,7 @@ fn selector(s: &str) -> Selector {
     Selector::parse(s).expect("static CSS selector")
 }
 
-pub(crate) fn title(stem: &str) -> String {
+pub fn title(stem: &str) -> String {
     let mut depth = 0u32;
     let clean: String = stem
         .chars()
@@ -37,7 +37,7 @@ pub(crate) fn title(stem: &str) -> String {
     normalize(&clean.replace(", The", ""))
 }
 
-pub(crate) fn normalize(value: &str) -> String {
+pub fn normalize(value: &str) -> String {
     let mut text = String::new();
     for c in value
         .nfkd()
@@ -73,7 +73,7 @@ fn encode(query: &str) -> String {
 
 /// The source's names for a cart's platform, its own first. Game Boy and Game Boy Color share
 /// ROM extensions, so a cart may sit on either shelf.
-fn platforms(platform: Platform) -> &'static [&'static str] {
+pub fn platforms(platform: Platform) -> &'static [&'static str] {
     match platform {
         Platform::Gba => &["Nintendo Game Boy Advance"],
         Platform::Gb => &["Nintendo Game Boy", "Nintendo Game Boy Color"],
@@ -137,8 +137,8 @@ fn known(title: &str) -> Option<u64> {
     })
 }
 
-fn regions(cart: &Cart) -> &'static [&'static str] {
-    let stem = cart.stem.to_lowercase();
+fn regions(stem: &str, code: &str) -> &'static [&'static str] {
+    let stem = stem.to_lowercase();
     // Filename regions take precedence over a possibly shared header code.
     let tags: Vec<_> = stem
         .split('(')
@@ -158,36 +158,70 @@ fn regions(cart: &Cart) -> &'static [&'static str] {
             return regions;
         }
     }
-    match cart.code.as_bytes().get(3) {
+    match code.as_bytes().get(3) {
         Some(b'J') => &["Japan"],
         Some(b'P') | Some(b'D') | Some(b'F') | Some(b'I') | Some(b'S') => &["Europe"],
         _ => &["North America", "United States"],
     }
 }
 
-pub(crate) fn image_url(page: &str, cart: &Cart) -> Result<String, Error> {
+pub const PHOTO: &str = "Cart - Front";
+pub const RENDER: &str = "Fanart - Cart - Front";
+
+/// Cart fronts, best first and at most three: a photo of the cart from its own region, a fanart
+/// render of that cart, then the same from any other region. A render is a scan of the real label
+/// on a stock shell, and for Game Boy and Game Boy Color it is most of what LaunchBox has.
+pub fn rank<T: Clone>(stem: &str, code: &str, images: &[(&str, &str, T)]) -> Vec<T> {
+    let own = regions(stem, code);
+    let mut ranked: Vec<_> = images
+        .iter()
+        .filter_map(|(kind, region, image)| {
+            let render = match *kind {
+                PHOTO => false,
+                RENDER => true,
+                _ => return None,
+            };
+            let away = !own.contains(region);
+            Some((u8::from(away) * 2 + u8::from(render), image.clone()))
+        })
+        .collect();
+    ranked.sort_by_key(|(tier, _)| *tier);
+    ranked.into_iter().take(3).map(|(_, image)| image).collect()
+}
+
+/// A gallery's cart fronts. Titles read "<game> - <type> Image (<region>)", the region optional.
+pub(crate) fn image_urls(page: &str, cart: &Cart) -> Result<Vec<String>, Error> {
     let doc = Html::parse_document(page);
-    for region in regions(cart) {
-        for link in doc.select(&selector("a[data-title][href]")) {
-            let description = link.value().attr("data-title").unwrap_or_default();
-            let url = link.value().attr("href").unwrap_or_default();
-            if description.contains(" - Cart - Front Image")
-                && !description.contains("Fanart")
-                && description.ends_with(&format!("({region})"))
-                && url.starts_with(IMAGE)
-            {
-                return Ok(url.to_owned());
-            }
+    let mut images = Vec::new();
+    for link in doc.select(&selector("a[data-title][href]")) {
+        let description = link.value().attr("data-title").unwrap_or_default();
+        let url = link.value().attr("href").unwrap_or_default();
+        let Some((head, tail)) = description.rsplit_once(" Image") else {
+            continue;
+        };
+        let region = tail
+            .trim()
+            .strip_prefix('(')
+            .and_then(|r| r.strip_suffix(')'))
+            .unwrap_or_default();
+        let kind = [RENDER, PHOTO]
+            .into_iter()
+            .find(|kind| head.ends_with(&format!(" - {kind}")));
+        if let Some(kind) = kind.filter(|_| url.starts_with(IMAGE)) {
+            images.push((kind, region, url.to_owned()));
         }
     }
-    Err(unavailable("no matching regional cartridge artwork"))
+    match rank(&cart.stem, &cart.code, &images) {
+        urls if urls.is_empty() => Err(unavailable("no cartridge artwork")),
+        urls => Ok(urls),
+    }
 }
 
 pub(crate) fn resolve(
     http: &mut impl Transport,
     cart: &Cart,
     canonical_title: Option<&str>,
-) -> Result<String, Error> {
+) -> Result<Vec<String>, Error> {
     let title = canonical_title
         .map(normalize)
         .unwrap_or_else(|| title(&cart.stem));
@@ -205,5 +239,5 @@ pub(crate) fn resolve(
         }
     };
     let page = http.get(&format!("{BASE}/games/images/{id}"))?;
-    image_url(&String::from_utf8_lossy(&page), cart)
+    image_urls(&String::from_utf8_lossy(&page), cart)
 }

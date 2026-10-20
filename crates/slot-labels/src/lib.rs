@@ -1,7 +1,20 @@
-//! Missing cartridge labels, prepared on a caller's worker thread. No ROM data leaves the
-//! device: LaunchBox receives only a cleaned filename and requests for public artwork.
+//! Missing cartridge labels, prepared on a caller's worker thread. A ROM's checksum finds its
+//! label in the artwork pack, when the card has one, then in an index of LaunchBox cart fronts
+//! built into slot; only carts neither knows are searched for on LaunchBox by a cleaned
+//! filename. No ROM data leaves the device.
 mod artwork;
+mod catalog;
+mod pack;
 mod source;
+
+/// What the examples need to build the LaunchBox index and the artwork pack the way the device
+/// reads them.
+#[doc(hidden)]
+pub mod build {
+    pub use crate::artwork::cart_label_jpeg;
+    pub use crate::pack::{write as write_pack, FILE as PACK};
+    pub use crate::source::{normalize, platforms, rank, title, PHOTO, RENDER};
+}
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -109,7 +122,7 @@ pub struct Downloader {
     http: Http,
     // Cache resolved source URLs, not decoded images. A failed image transfer or SD write
     // should retry that image without repeating title searches and gallery downloads.
-    sources: HashMap<String, String>,
+    sources: HashMap<String, Vec<String>>,
 }
 
 impl Default for Downloader {
@@ -147,6 +160,7 @@ impl Downloader {
         prepare(
             &mut self.http,
             &mut self.sources,
+            catalog::INDEX,
             root,
             cart,
             canonical_title,
@@ -156,7 +170,8 @@ impl Downloader {
 
 fn prepare(
     http: &mut impl Transport,
-    sources: &mut HashMap<String, String>,
+    sources: &mut HashMap<String, Vec<String>>,
+    index: &str,
     root: &Path,
     cart: &Cart,
     canonical_title: Option<&str>,
@@ -174,18 +189,51 @@ fn prepare(
         return Ok(target);
     }
     let key = format!("{}/{}", cart.platform.dir_name(), cart.stem);
-    let url = match sources.get(&key) {
-        Some(url) => url.clone(),
+    let urls = match sources.get(&key) {
+        Some(urls) => urls.clone(),
         None => {
-            let url = source::resolve(http, cart, canonical_title)?;
-            sources.insert(key, url.clone());
-            url
+            let crc = catalog::crc32(&cart.rom).ok();
+            if let Some(png) = crc.and_then(|crc| from_pack(root, crc, cart.platform)) {
+                publish(&target, &png)?;
+                return Ok(target);
+            }
+            let urls = match crc.map(|crc| catalog::lookup(index, crc)) {
+                Some(urls) if !urls.is_empty() => urls,
+                _ => source::resolve(http, cart, canonical_title)?,
+            };
+            sources.insert(key, urls.clone());
+            urls
         }
     };
-    let bytes = http.get(&url)?;
-    let png = artwork::prepare(&bytes, cart.platform)?;
-    publish(&target, &png)?;
-    Ok(target)
+    // Candidates come best first. One that is gone or will not crop gives way to the next.
+    let mut last = Error::Unavailable("no cartridge artwork".into());
+    for url in &urls {
+        match http
+            .get(url)
+            .and_then(|bytes| artwork::prepare(&bytes, cart.platform))
+        {
+            Ok(png) => {
+                publish(&target, &png)?;
+                return Ok(target);
+            }
+            Err(e @ (Error::Unavailable(_) | Error::Image(_))) => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
+/// The pack's label for a ROM. A damaged pack or image is reported and passed over, so the cart
+/// is still labelled online.
+fn from_pack(root: &Path, crc: u32, platform: Platform) -> Option<Vec<u8>> {
+    let path = root.join("Labels").join(pack::FILE);
+    let label = pack::find(&path, crc)
+        .map_err(Error::from)
+        .and_then(|image| image.map(|i| artwork::fit(&i, platform)).transpose());
+    label.unwrap_or_else(|e| {
+        eprintln!("slot: labels: {}: {e}", path.display());
+        None
+    })
 }
 
 fn publish(target: &Path, bytes: &[u8]) -> Result<(), Error> {
