@@ -41,7 +41,8 @@ notes are in the [changelog](CHANGELOG.md).
   automatically from then onwards. Most of the features below depend on this.
 - **Hassle-free cart label scraping.** Just throw your ROMs on the SD card, and slot downloads
   missing labels in the background. It will not replace a label you added yourself, though.
-  No config is needed for this feature.
+  No config is needed for this feature. No Wi-Fi? Put `Artwork.pack` from the release page in
+  your card's `Labels` folder and slot labels your carts from that instead.
 - **RetroAchievements.** You can earn softcore GB, GBC, and GBA achievements, online or offline.
   Put your account in `Config/retroachievements.toml` for this to work. All your games' achievements
   will be cached if Wi-Fi is on, so once the sync is done, you can go out and play without

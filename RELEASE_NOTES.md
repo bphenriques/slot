@@ -1,16 +1,11 @@
-# v1.7.0-pvaibhav.1
+# v1.7.0-pvaibhav.2
 
-Based on [upstream slot 1.7.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.7.0), with this fork's additions preserved.
+- **Far more cart labels.** slot now finds labels for most Game Boy and Game Boy Color games, not just GBA.
+- **Labels without Wi-Fi.** Download `Artwork.pack` below and copy it into the `Labels` folder on your SD card. slot labels your carts from it, offline. To update, copy a newer one over it. Labels you already have are kept.
+- **RetroAchievements for Game Boy and Game Boy Color**, alongside GBA.
 
-- New cartridge and shelf artwork by [Markus](https://github.com/MarkusMaribu), with light and dark themes and bundled wallpapers.
-- An in-game menu. Tap MENU to pause and open it, or double-tap to go straight to save states.
-- Favorites and optional Recents shelves. Press Y on a cart to add it to Favorites.
-- slot remembers your selected shelf and cart across shutdowns.
-- Separate Screen settings and bezels for GBA, GBC, and GB, plus a full-width shelf on 4:3 panels.
-- Upstream fixes for Game Boy palettes, brightness, controls, and logging. See the [full changelog](https://github.com/BrandonKowalski/slot/blob/v1.7.0/CHANGELOG.md).
+Unzip `slot-v1.7.0-pvaibhav.2-h700.zip`, then copy the contents of `slot-v1.7.0-pvaibhav.2/` onto SD2. Your saves and settings are preserved.
 
-Automatic 120 Hz, panel colour calibration, LCD ghosting, home Wi-Fi, background label downloads, RetroAchievements, and linking over home Wi-Fi remain included. Home Wi-Fi is now under General. Run-Ahead remains an independent Gameplay option and defaults to off.
-
-Unzip, then copy the contents of `slot-v1.7.0-pvaibhav.1/` onto SD2. Your saves and settings are preserved.
+Cart images in `Artwork.pack` come from the [LaunchBox Games Database](https://gamesdb.launchbox-app.com) and its contributors. Label artwork belongs to each game's publisher. The pack is free for personal use; please don't sell it.
 
 Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Licences, patches, and gpSP source are in `System/licenses/`.
