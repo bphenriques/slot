@@ -5,10 +5,17 @@ use slot_store::Cart;
 use slot_ui::{board_face, cart_face, cart_interior, gb_shell_of, padded, CartFace, TURN_PAD};
 
 pub struct BuiltFaces {
+    pub label: Option<std::path::PathBuf>,
     pub stem: String,
     pub interior: CartFace,
     pub board: CartFace,
     pub lid: CartFace,
+}
+
+impl BuiltFaces {
+    pub fn is_for(&self, cart: &Cart) -> bool {
+        self.stem == cart.stem && self.label == cart.label
+    }
 }
 
 pub struct FaceBuilder {
@@ -29,6 +36,7 @@ impl FaceBuilder {
                     }
                     let faces = BuiltFaces {
                         stem: cart.stem.clone(),
+                        label: cart.label.clone(),
                         interior: if gb_shell_of(&cart).is_none() {
                             cart_interior(&cart)
                         } else {

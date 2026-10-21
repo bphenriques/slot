@@ -1,0 +1,14 @@
+{
+  "seconds": 10.00013,
+  "game_fps": 59.72545069699413,
+  "cpu_percent": 53.79930060909208,
+  "clock_mhz": 498.7722772277227,
+  "temp_c": 44.658514851485144,
+  "temp_start_c": 44.45,
+  "temp_end_c": 44.936,
+  "display_hz": 120.09843872029663,
+  "default_from_missing_key": true,
+  "frontend": "isolated Slot, mGBA response ROM",
+  "target": "rg34xxsp",
+  "panel": "rg34xxsp_v1"
+}

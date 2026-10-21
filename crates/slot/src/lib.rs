@@ -5,6 +5,7 @@ macro_rules! eprintln {
     }};
 }
 
+mod achievement_ui;
 pub mod app;
 pub mod audio;
 pub mod baseos;
@@ -30,14 +31,18 @@ pub mod frames;
 pub mod frontend;
 pub mod input;
 pub mod label_cache;
+mod labels;
 pub mod latency;
 pub mod link_art_builder;
 pub mod link_kind;
+pub mod link_lan;
+pub mod link_mdns;
 pub mod link_net;
 pub mod link_radio;
 pub mod link_screen;
 pub mod link_start;
 pub mod link_state;
+pub mod pacing;
 pub mod panel_turn;
 pub mod persist;
 pub mod prefetch;

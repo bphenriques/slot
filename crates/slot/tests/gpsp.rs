@@ -37,7 +37,7 @@ fn gpsp_loads_and_runs_a_frame() {
 }
 
 #[test]
-fn gpsp_is_told_its_serial_mode_before_load() {
+fn gpsp_gets_serial_and_display_defaults_before_load() {
     let path = dylib_for(Core::Gpsp);
     if !path.exists() {
         eprintln!("no gpSP dylib on this host, skipping");
@@ -54,6 +54,7 @@ fn gpsp_is_told_its_serial_mode_before_load() {
         false,
         None,
     );
+    assert_eq!(core.option("gpsp_frame_mixing").as_deref(), Some("enabled"));
     assert_eq!(
         core.option("gpsp_serial"),
         Some("auto".to_string()),
@@ -167,6 +168,10 @@ fn mgba_is_given_its_own_frameskip_and_none_of_gpsps() {
         true,
         false,
         None,
+    );
+    assert_eq!(
+        core.option("mgba_interframe_blending").as_deref(),
+        Some("mix")
     );
     assert_eq!(
         core.option("gpsp_serial"),
@@ -401,6 +406,52 @@ fn the_splash_plays_on_a_fresh_start_and_never_over_a_resume() {
         !a_published_frame_is_the_splash(d.path(), &rom, Some(state)),
         "the BIOS splash played over a cart the player was resuming"
     );
+}
+
+/// Render changing pixels through the real cores: reading the option map alone cannot
+/// catch a misspelled option that the core ignores or a build without display filters.
+#[test]
+fn lcd_blending_changes_the_rendered_frames_with_colour_correction_off() {
+    use slot_retro::{ButtonMask, LibretroCore, RetroCore};
+
+    let _g = common::core_lock();
+    let d = tempfile::tempdir().unwrap();
+    let rom = d.path().join("display.gba");
+    std::fs::write(&rom, common::gba_rom()).unwrap();
+    for (which, blending, off) in [
+        (Core::Mgba, "mgba_interframe_blending", "OFF"),
+        (Core::Gpsp, "gpsp_frame_mixing", "disabled"),
+    ] {
+        let path = dylib_for(which);
+        if !path.exists() {
+            eprintln!("no {which:?} dylib on this host, skipping");
+            continue;
+        }
+        let render = |disabled: bool| {
+            let mut core = LibretroCore::open(&path).expect("open core");
+            slot::core::apply_core_options(
+                &mut core,
+                which,
+                Platform::Gba,
+                "auto",
+                false,
+                false,
+                None,
+            );
+            if disabled {
+                core.set_option(blending, off);
+            }
+            core.load(&rom).expect("load display ROM");
+            let mut pixels = Vec::new();
+            for _ in 0..64 {
+                core.run_frame(ButtonMask::default());
+                pixels.extend_from_slice(&core.video_xrgb8888()[..4]);
+            }
+            pixels
+        };
+        let defaults = render(false);
+        assert_ne!(defaults, render(true), "{which:?} blending had no effect");
+    }
 }
 
 #[test]

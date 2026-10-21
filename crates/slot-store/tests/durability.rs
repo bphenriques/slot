@@ -185,6 +185,15 @@ fn a_line_the_reader_does_not_know_is_skipped() {
     );
 }
 
+/// What a card that has never been asked gets: the motor on, fast forward at the default,
+/// silent, and the picture the core's own colours. The speed is the one constant here that has
+/// moved — it was four, inherited from when gpSP ran its interpreter and could not serve more,
+/// and is now six, chosen on the device.
+///
+/// Colour correction off is not an aesthetic preference being enshrined: it is what every card
+/// already renders as, because both cores default their own option off and slot never set it.
+/// A default of on would change the look of every existing library on the strength of an
+/// update nobody asked for.
 #[test]
 fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     let s = SlotState::default();
@@ -201,6 +210,10 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
+    assert!(
+        s.high_refresh,
+        "defaults to high refresh on a supported panel"
+    );
 }
 
 #[test]
@@ -225,6 +238,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             clock_set: true,
             utc_offset_min: -300,
             rumble: true,
+            home_wifi_enabled: false,
             ff_speed: FF_SPEED_DEFAULT,
             ff_sound: false,
             colour_correction_gba: false,
@@ -236,6 +250,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             eject_save: true,
             turbo: true,
             rewind: true,
+            high_refresh: true,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
             appearance: Appearance::Dark,
@@ -271,6 +286,7 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         eject_save: false,
         turbo: false,
         rewind: false,
+        high_refresh: true,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         wallpaper_tint: WallpaperTint::Medium,
@@ -300,6 +316,7 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "eject_save=0",
         "turbo=0",
         "rewind=0",
+        "high_refresh=1",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
         "appearance=dark",
@@ -332,6 +349,47 @@ fn a_card_that_still_carries_run_ahead_keeps_the_rest_of_its_values() {
         .unwrap()
         .contains("runahead=1"));
     assert_eq!(read_slot_state(d.path()), s);
+}
+
+#[test]
+fn an_old_card_uses_the_new_refresh_default_and_ignores_run_ahead() {
+    let d = tmp_root();
+    let state = SlotState {
+        brightness: 7,
+        clock_set: true,
+        rewind: false,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &state).unwrap();
+    let path = d.path().join("Config/slot.state");
+    let old = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("high_refresh=1\n", "runahead=1\n");
+    std::fs::write(&path, old).unwrap();
+    let migrated = read_slot_state(d.path());
+    assert!(migrated.high_refresh);
+    assert_eq!(migrated.brightness, 7);
+    assert!(migrated.clock_set);
+    assert!(!migrated.rewind);
+    write_slot_state(d.path(), &migrated).unwrap();
+    assert_eq!(read_slot_state(d.path()), migrated);
+    assert!(!std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("runahead="));
+}
+
+#[test]
+fn an_explicit_refresh_setting_is_retained() {
+    for high_refresh in [false, true] {
+        let d = tmp_root();
+        let state = SlotState {
+            high_refresh,
+            ..SlotState::default()
+        };
+        write_slot_state(d.path(), &state).unwrap();
+        let read = read_slot_state(d.path());
+        assert_eq!(read.high_refresh, high_refresh);
+    }
 }
 
 #[test]
@@ -477,6 +535,28 @@ fn an_offset_outside_the_range_of_real_zones_reads_as_default() {
     ] {
         std::fs::write(d.path().join("Config/slot.state"), body).unwrap();
         assert_eq!(read_slot_state(d.path()), SlotState::default(), "{body}");
+    }
+}
+
+#[test]
+fn home_wifi_defaults_off_and_malformed_optional_flag_preserves_old_settings() {
+    let d = tmp_root();
+    let s = SlotState {
+        home_wifi_enabled: true,
+        volume: 30,
+        utc_offset_min: 345,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    assert!(read_slot_state(d.path()).home_wifi_enabled);
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap();
+    for replacement in ["", "home_wifi_enabled=broken"] {
+        std::fs::write(&path, text.replace("home_wifi_enabled=1", replacement)).unwrap();
+        let restored = read_slot_state(d.path());
+        assert!(!restored.home_wifi_enabled);
+        assert_eq!(restored.volume, 30);
+        assert_eq!(restored.utc_offset_min, 345);
     }
 }
 

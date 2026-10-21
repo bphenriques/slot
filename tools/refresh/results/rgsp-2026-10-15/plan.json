@@ -1,0 +1,368 @@
+{
+  "seconds": 12.0,
+  "warmup": 5.0,
+  "repeats": 2,
+  "latency_count": 60,
+  "cases": [
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "60",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "120",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "60",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "120",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "60",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "120",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "runahead",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "60",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "120",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "runahead",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-gpsp",
+      "mode": "60",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-gpsp",
+      "mode": "120",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-gpsp",
+      "mode": "60",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-gpsp",
+      "mode": "120",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gb-mgba",
+      "mode": "60",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gb-mgba",
+      "mode": "120",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gb-mgba",
+      "mode": "60",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gb-mgba",
+      "mode": "120",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gbc-mgba",
+      "mode": "60",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gbc-mgba",
+      "mode": "120",
+      "repeat": 1,
+      "latency": false
+    },
+    {
+      "scene": "gbc-mgba",
+      "mode": "60",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gbc-mgba",
+      "mode": "120",
+      "repeat": 2,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 1,
+      "latency": true
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 1,
+      "latency": true
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 1,
+      "latency": true
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 2,
+      "latency": true
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 2,
+      "latency": true
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 2,
+      "latency": true
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "120",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "runahead",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-mgba",
+      "mode": "60",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "runahead",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "60",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "120",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "60",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "120",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "runahead",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "120",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "runahead",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-mgba",
+      "mode": "60",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "60",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "120",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "60",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "120",
+      "repeat": 4,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "120",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-gpsp",
+      "mode": "60",
+      "repeat": 5,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-gpsp",
+      "mode": "60",
+      "repeat": 3,
+      "latency": false
+    },
+    {
+      "scene": "gba-heavy-gpsp",
+      "mode": "120",
+      "repeat": 3,
+      "latency": false
+    }
+  ]
+}

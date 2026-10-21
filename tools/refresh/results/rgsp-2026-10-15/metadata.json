@@ -1,0 +1,14 @@
+{
+  "binary_sha256": "1e02eecdfb16bef54f7c3f3ac8b811b35bbafc9e392fec5230f02ea7d8f26217",
+  "probe_sha256": "882953fd7b77f80231716919d1af1cf75c34b198d064b71784bba590393c2be9",
+  "original_display_hz": 121.9,
+  "device": "Linux rgsp 4.9.170 #2 SMP PREEMPT Wed Jun 24 19:15:50 CST 2026 aarch64 Linux\n 02:21:44 up 48 min,  0 users,  load average: 1.96, 2.06, 1.88\n0-3\nschedutil\n480000\n1512000\n",
+  "gpsp_sha256": "056634d6e5071bcf52a8f7d513099a4f0ff66e4f315fa06b63b7872c350066c1",
+  "panel": "rg34xxsp_v1",
+  "baseos_target": "rgsp",
+  "soc": "Allwinner H700",
+  "baseos_version": "1.4.0",
+  "date": "2026-10-15",
+  "cpu_frequency_sampling_ms": 100,
+  "gpSP_provenance": "libretro/gpsp 7b2dd37394e2822110cacef321e9bb291a305b77; repository Cortex-A53 ARM64 recipe and both patches"
+}

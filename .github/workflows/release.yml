@@ -34,6 +34,10 @@ jobs:
           set -eu
           out="slot-${GITHUB_REF_NAME}"
           file "$out/System/slot" | grep -q aarch64
+          file "$out/System/slot-services" | grep -q aarch64
+          file "$out/System/slot-net/iw" | grep -q aarch64
+          test -f "$out/Config/wifi.toml.example"
+          test -f "$out/Config/retroachievements.toml.example"
           file "$out/System/mgba_libretro.so" | grep -q aarch64
           file "$out/System/gpsp_libretro.so" | grep -q aarch64
           test -x "$out/System/slot"
@@ -72,6 +76,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.zip }}
@@ -82,10 +88,7 @@ jobs:
           ZIP: ${{ needs.build.outputs.zip }}
         run: |
           set -eu
-          cat > notes.md <<NOTES
-          Unzip and copy the contents of \`slot-${GITHUB_REF_NAME}/\` onto SD2.
-
-          Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Their licences, patches and gpSP's source are in \`System/licenses/\`.
-          NOTES
+          test "$(head -n 1 RELEASE_NOTES.md)" = "# ${GITHUB_REF_NAME}"
+          tail -n +3 RELEASE_NOTES.md > notes.md
           gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md

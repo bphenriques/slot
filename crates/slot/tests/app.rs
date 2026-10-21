@@ -2291,3 +2291,18 @@ fn the_shader_shortcut_does_nothing_in_the_save_state_switcher() {
     assert_eq!(slot_store::read_slot_state(d.path()).shader_gba, before);
     assert_eq!(a.toast(), None);
 }
+
+#[test]
+fn buttons_during_shutdown_never_reach_the_game() {
+    let d = common::tmp_root_with_carts(&["Emerald", "Zzz"]);
+    let mut s = session_playing(d.path());
+    s.feed([RawEvent::Down(Btn::Power)], 1000);
+    s.feed([], 2100);
+    assert!(s.app().powering_off(), "the hold never started shutdown");
+    s.feed([RawEvent::Up(Btn::Power)], 2110);
+    s.feed([RawEvent::Down(Btn::Down)], 2200);
+    assert_eq!(pad(&s) & ButtonMask::DOWN, 0);
+    s.feed([RawEvent::Down(Btn::B)], 2300);
+    assert!(s.app().powering_off(), "B cancelled shutdown");
+    assert_eq!(pad(&s) & ButtonMask::B, 0);
+}

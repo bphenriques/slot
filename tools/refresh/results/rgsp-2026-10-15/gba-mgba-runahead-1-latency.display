@@ -1,0 +1,8 @@
+screen 0:
+de_rate 696000000 hz, ref_fps:59
+mgr0: 720x480 fmt[rgb] cs[0x204] range[full] eotf[0x4] bits[8bits] err[0] force_sync[0] unblank direct_show[false] iommu[1]
+dmabuf: cache[0] cache max[0] umap skip[0] umap skip max[0]
+	lcd output	backlight(  1)	fps:60.2	 720x 480
+	err:0	skip:0	irq:533919	vsync:0	vsync_skip:0
+   BUF    enable ch[1] lyr[0] z[0] prem[N] a[globl 255] fmt[  0] fb[ 720, 960; 720, 960; 720, 960] crop[   0,   0, 720, 480] frame[   0,   0, 720, 480] addr[ff800000,       0,       0] flags[0x       0] trd[0,0]
+depth[ 0] transf[0]

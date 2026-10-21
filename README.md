@@ -14,16 +14,60 @@
 
 # What is slot?
 
-A bespoke, Game Boy-centric frontend for the Anbernic RG SP.
+A fork of [slot](https://github.com/BrandonKowalski/slot) by Brandon Kowalski. slot is a
+bespoke, Game Boy-centric frontend for the Anbernic RG SP. Brandon wrote slot and its guide.
+This fork follows upstream and adds the features listed below.
 
 Has support for GBA, GBC, and GB titles only.
 
 > [!IMPORTANT]
 > ROMs must be unzipped. slot does not read `.zip` or `.7z` files.
 
-A full user guide can be found at [slot-cfw.fyi](https://slot-cfw.fyi).
+The user guide is upstream's, at [slot-cfw.fyi](https://slot-cfw.fyi). Upstream's release
+notes are in the [changelog](CHANGELOG.md).
 
-Release notes can be found in the [changelog](CHANGELOG.md).
+## What this fork adds
+
+- **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
+  panels. Other panel revisions keep their existing refresh rate.
+- **Better battery life and less heat.** slot switches the CPU to the `schedutil` governor, so
+  the clock follows the game's load. Measured on an RG SP: Game Boy and Game Boy Color games run
+  at about 600 MHz, and GBA at 550–1,000 MHz, out of a 1,512 MHz maximum.
+- **LCD ghosting / interframe blending** is enabled by default. It's subtle.
+- **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
+  measured by me. Both white point and gamma curve are corrected. Currently no other firmware
+  has this!
+- Holding POWER **shuts down** directly, without showing a menu. I did not find value in a
+  restart option.
+- **Home Wi-Fi.** Slot can now connect to your home Wi-Fi. Just set up your Wi-Fi credentials
+  in `Config/wifi.toml` and then turn HOME WI-FI on under General. Everything happens
+  automatically from then onwards. Most of the features below depend on this.
+- **Hassle-free cart label scraping.** Just throw your ROMs on the SD card, and slot downloads
+  missing labels in the background. It will not replace a label you added yourself, though.
+  No config is needed for this feature. No Wi-Fi? Put `Artwork.pack` from the release page in
+  your card's `Labels` folder and slot labels your carts from that instead.
+- **RetroAchievements.** You can earn softcore GB, GBC, and GBA achievements, online or offline.
+  Put your account in `Config/retroachievements.toml` for this to work. All your games' achievements
+  will be cached if Wi-Fi is on, so once the sync is done, you can go out and play without
+  losing your achievements. They'll sync automatically when you're back home. When you're
+  playing at home with Wi-Fi on, your achievements will sync in real time with rich presence.
+- **Linking over home Wi-Fi.** When at home and connected to Wi-Fi, two handhelds can link
+  using that instead of having to create ad hoc networks. Outside of home, you can continue
+  using slot's normal method. This works seamlessly, no config needed.
+
+## How to configure
+
+The release includes an `.example` copy of each config file in `Config/`. Remove `.example`
+from the name, and fill in your details. You only need to configure your Wi-Fi and
+RetroAchievements credentials. Everything else is automatic.
+
+## Versions
+
+A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
+first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
+
+The current release is [v1.8.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.8.0-pvaibhav.1).
+Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---
 
@@ -59,6 +103,8 @@ please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues)
 
 # AI Disclosure
 
+From upstream:
+
 The Rust frontend, and the SVGs on [slot-cfw.fyi](https://slot-cfw.fyi), were put together by Claude.
 I reviewed everything that was produced. All documentation is 100% free-range, meatbag prose.
 
@@ -72,6 +118,8 @@ artist who saw the bare-bones version and offered to dress it up.
 
 I understand if my use of AI is a dealbreaker for you. Just know it's the least interesting part of
 what's here.
+
+This fork's additions were written with AI assistance too.
 
 Figured I should share the end result of all the wasted water. ✌🏻
 

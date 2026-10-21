@@ -210,11 +210,14 @@ pub fn apply_core_options(
                 core.set_option("mgba_gb_colors", "GBC Dark Green →A");
             }
         }
+        // Simple retains frame blending without the accurate filter's CPU cost on the H700.
+        core.set_option("mgba_interframe_blending", "mix");
         if let Some((key, value)) = colour_option(which, platform, colour) {
             core.set_option(key, value);
         }
     }
     if which == Core::Gpsp {
+        core.set_option("gpsp_frame_mixing", "enabled");
         core.set_option("gpsp_serial", serial);
         core.set_option("gpsp_rtc_time_source", "system");
         if bios {

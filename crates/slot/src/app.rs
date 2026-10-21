@@ -425,7 +425,9 @@ pub struct App {
     name_pending: bool,
     slot_letter: Option<char>,
     shelf_named: Option<Millis>,
+    wifi: Option<TexId>,
     shelf_clock: slot_ui::Printed,
+    achievement_sync: Option<slot_ui::SyncIndicator>,
     hud: Hud,
     screen: f32,
     blank_s: f32,
@@ -605,7 +607,9 @@ impl App {
             name_pending: false,
             slot_letter: None,
             shelf_named: None,
+            wifi: None,
             shelf_clock: slot_ui::Printed::default(),
+            achievement_sync: None,
             hud: Hud::new(),
             screen: 0.0,
             blank_s: 0.0,
@@ -645,6 +649,7 @@ impl App {
         app.carousel = read_carousel(root);
         app.shortcuts = read_shortcuts(root);
         app.controls = read_controls(root);
+        app.radio.ask(RadioJob::Home(app.state.home_wifi_enabled));
         app.restock_recents();
         app.restock_favorites();
         if let Some((at, i)) = app.remembered_seat() {
@@ -974,6 +979,7 @@ impl App {
             QuickRow::GbcShader => Some(shader_value(self.state.shader_gbc)),
             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
+            QuickRow::HomeWifi => Some(QuickValue::flag(self.state.home_wifi_enabled)),
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
@@ -1351,6 +1357,14 @@ impl App {
         self.wallpaper = Some(face);
     }
 
+    pub fn set_wifi_face(&mut self, face: TexId) {
+        self.wifi = Some(face);
+    }
+
+    pub fn home_connected(&self) -> bool {
+        self.radio.home_connected()
+    }
+
     pub fn set_bolt_face(&mut self, bolt: TexId) {
         self.bolt = Some(bolt);
     }
@@ -1418,6 +1432,10 @@ impl App {
         self.shelf_clock = slot_ui::Printed::new(face, w);
     }
 
+    pub fn set_achievement_sync(&mut self, icon: Option<slot_ui::SyncIndicator>) {
+        self.achievement_sync = icon;
+    }
+
     pub fn phase(&self) -> &Phase {
         &self.phase
     }
@@ -1451,6 +1469,26 @@ impl App {
             let n = shelf.carts.len();
             shelf.set_faces(faces.by_ref().take(n).collect());
         }
+    }
+
+    /// Attach completed background artwork without moving the shelf or changing its texture
+    /// handles. A stale completion cannot replace an existing/custom label or another ROM.
+    pub fn attach_label(&mut self, rom: &Path, label: std::path::PathBuf) -> Vec<TexId> {
+        let mut faces = Vec::new();
+        for (_, shelf) in &mut self.shelves {
+            let Some(index) = shelf
+                .carts
+                .iter()
+                .position(|cart| cart.rom == rom && cart.label.is_none())
+            else {
+                continue;
+            };
+            shelf.carts[index].label = Some(label.clone());
+            if let Some(face) = shelf.face(index) {
+                faces.push(face);
+            }
+        }
+        faces
     }
 
     pub fn face_wants(&self) -> Vec<FaceWant> {
@@ -1974,6 +2012,9 @@ impl App {
     }
 
     pub fn set_power(&mut self, mut power: Power) {
+        if power.supports_high_refresh() && !power.set_high_refresh(self.state.high_refresh) {
+            self.state.high_refresh = false;
+        }
         power.set_backlight(self.state.brightness);
         self.headphones = power.headphones();
         self.hud.set_headphones(self.headphones);
@@ -2237,11 +2278,7 @@ impl App {
             Some(GameMenu::Working { since, .. }) => since,
             _ => self.now(),
         };
-        self.start_link_from(
-            LinkStarter::spawn(reload.role.role(), link_port()),
-            reload.role.client_id(),
-            since,
-        );
+        self.start_link_from(self.spawn_link(reload.role), reload.role.client_id(), since);
     }
 
     pub fn link_reload_failed(&mut self) {
@@ -2278,6 +2315,9 @@ impl App {
 
     pub fn apply(&mut self, action: Action) {
         self.track_held_dir(action);
+        if self.shutting_down() {
+            return;
+        }
         match action {
             Action::LidClose => return self.doze(),
             Action::LidOpen => return self.wake(),
@@ -2585,6 +2625,7 @@ impl App {
             | QuickRow::GbPalette
             | QuickRow::Rumble
             | QuickRow::LeftStick
+            | QuickRow::HomeWifi
             | QuickRow::Theme
             | QuickRow::Recents
             | QuickRow::ShowTitles
@@ -2753,6 +2794,10 @@ impl App {
             }
             QuickRow::Rumble => s.rumble = !s.rumble,
             QuickRow::LeftStick => s.left_stick_dpad = !s.left_stick_dpad,
+            QuickRow::HomeWifi => {
+                s.home_wifi_enabled = !s.home_wifi_enabled;
+                self.radio.ask(RadioJob::Home(s.home_wifi_enabled));
+            }
             QuickRow::EjectSave => s.eject_save = !s.eject_save,
             QuickRow::Turbo => s.turbo = !s.turbo,
             QuickRow::Rewind => s.rewind = !s.rewind,
@@ -3765,6 +3810,12 @@ impl App {
                     footer_ink(self.light()),
                     out,
                 );
+                if let Some(icon) = self.achievement_sync {
+                    slot_ui::draw_footer_sync(self.canvas(), self.shelf_clock, icon, out);
+                }
+                if self.state.home_wifi_enabled && self.radio.home_connected() {
+                    slot_ui::draw_home_wifi(self.battery, self.battery_percent, self.wifi, out);
+                }
             }
             Phase::About => {
                 slot_ui::draw_menu_ground(self.canvas(), self.menu_ground(), out);
@@ -4412,6 +4463,13 @@ impl App {
                 sprites,
                 out,
             );
+            crate::link_screen::draw_network_label(
+                self.canvas(),
+                menu,
+                self.radio.home_connected(),
+                sprites,
+                out,
+            );
         }
         let line = match menu {
             GameMenu::Pick(role) => self.link_menu_faces.get(role.index()).copied(),
@@ -4657,8 +4715,13 @@ impl App {
             Some(cart) => Phase::Playing { cart },
             None => Phase::Shelf,
         };
-        if let Some(power) = &mut self.power {
+        let refresh_lost = self.power.as_mut().is_some_and(|power| {
             power.on_open();
+            power.supports_high_refresh() && !power.high_refresh_enabled()
+        });
+        if self.state.high_refresh && refresh_lost {
+            self.state.high_refresh = false;
+            self.persist();
         }
     }
 
@@ -4680,7 +4743,11 @@ impl App {
     }
 
     fn hold_power(&mut self) {
-        self.flush_resume();
+        if self.link_active() {
+            self.end_link();
+        } else {
+            self.flush_resume();
+        }
         self.begin_power_off();
     }
 
@@ -4903,6 +4970,12 @@ impl App {
                 .is_some_and(|(cart, _)| link_dual(&cart.code, &cart.title))
     }
 
+    /// The real starter for this cart, which names its game to the other handheld by header code.
+    fn spawn_link(&self, role: LinkRow) -> LinkStarter {
+        let game = self.seated_cart().map_or("", |c| c.code.as_str());
+        LinkStarter::spawn(role.role(), link_port(), game)
+    }
+
     fn pick_link(&mut self, role: LinkRow) {
         let Some(stem) = self.seated().map(str::to_string) else {
             return;
@@ -4911,10 +4984,7 @@ impl App {
         if self.core == Core::Mgba {
             let player = role.client_id() as u8;
             if self.link_player == Some(player) {
-                return self.start_link(
-                    LinkStarter::spawn(role.role(), link_port()),
-                    role.client_id(),
-                );
+                return self.start_link(self.spawn_link(role), role.client_id());
             }
             if self.snapshot.as_ref().is_some_and(|s| !s.resume_trusted()) {
                 return self.refuse();
@@ -4938,10 +5008,7 @@ impl App {
         }
         let (_, serial) = self.link_mode(&stem);
         if serial == loaded {
-            return self.start_link(
-                LinkStarter::spawn(role.role(), link_port()),
-                role.client_id(),
-            );
+            return self.start_link(self.spawn_link(role), role.client_id());
         }
         if self.snapshot.as_ref().is_some_and(|s| !s.resume_trusted()) {
             return self.refuse();
@@ -5005,6 +5072,9 @@ impl App {
     }
 
     fn poll_link(&mut self) {
+        if self.shutting_down() {
+            return;
+        }
         let Some(mut starting) = self.starting.take() else {
             return;
         };
@@ -5526,7 +5596,7 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
         .map(|l| l.into_iter().map(|e| e.stamp).collect())
         .unwrap_or_default();
     let newest = taken.iter().filter_map(|s| parse_stamp(s)).max();
-    let mut secs = newest.map_or(now, |n| now.max(n + 1));
+    let mut secs = newest.map_or(now, |n| now.max(n.saturating_add(1)));
     let mut stamp = format_stamp(secs);
     while taken.contains(&stamp) {
         secs += 1;
@@ -5540,5 +5610,25 @@ fn bezel_slot(platform: Platform) -> usize {
         Platform::Gba => 0,
         Platform::Gb => 1,
         Platform::Gbc => 2,
+    }
+}
+
+#[cfg(test)]
+mod network_time_tests {
+    use super::*;
+    #[test]
+    fn backward_clock_correction_does_not_evict_the_new_snapshot() {
+        let d = tempfile::tempdir().unwrap();
+        let ring = StateRing::new(d.path(), Platform::Gba, Core::Mgba, "Example");
+        let now = 1_800_000_000;
+        for n in 0..RING_MAX {
+            ring.push(&[n as u8], &[], &format_stamp(now + n as i64))
+                .unwrap();
+        }
+        let stamp = free_stamp(&ring, now - 3600);
+        ring.push(b"latest", &[], &stamp).unwrap();
+        assert_eq!(ring.list().unwrap()[0].stamp, stamp);
+        assert_eq!(ring.read(&stamp).unwrap().0, b"latest");
+        assert_eq!(ring.list().unwrap().len(), RING_MAX);
     }
 }

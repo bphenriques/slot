@@ -11,6 +11,7 @@ use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
 use crate::link::Link;
 use crate::rumble::Rumble;
+use crate::{AchievementMemory, ACHIEVEMENT_RAM_SIZE};
 
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
 
@@ -23,6 +24,7 @@ enum PixelFormat {
 }
 
 struct Host {
+    memory: Vec<MemoryDescriptor>,
     video: Vec<u8>,
     format: PixelFormat,
     audio: Vec<i16>,
@@ -75,6 +77,25 @@ unsafe extern "C" fn set_rumble_state(port: c_uint, effect: c_uint, strength: u1
 
 unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
     match cmd {
+        SET_MEMORY_MAPS => {
+            if data.is_null() {
+                return false;
+            }
+            let map = &*(data as *const MemoryMap);
+            if map.num_descriptors > 1024 || (map.num_descriptors > 0 && map.descriptors.is_null())
+            {
+                return false;
+            }
+            with_host(|h| {
+                h.memory = if map.num_descriptors == 0 {
+                    Vec::new()
+                } else {
+                    std::slice::from_raw_parts(map.descriptors, map.num_descriptors as usize)
+                        .to_vec()
+                };
+            })
+            .is_some()
+        }
         GET_CAN_DUPE => {
             if data.is_null() {
                 return false;
@@ -335,14 +356,18 @@ unsafe extern "C" fn video_refresh(
                 PixelFormat::Rgb565 => {
                     for x in 0..cols {
                         let p = ptr::read_unaligned((src as *const u16).add(x));
-                        let r = ((p >> 11) & 0x1f) as u8;
-                        let g = ((p >> 5) & 0x3f) as u8;
-                        let b = (p & 0x1f) as u8;
-                        let o = row + x * 4;
-                        h.video[o] = (b << 3) | (b >> 2);
-                        h.video[o + 1] = (g << 2) | (g >> 4);
-                        h.video[o + 2] = (r << 3) | (r >> 2);
-                        h.video[o + 3] = 0;
+                        let r = u32::from((p >> 11) & 0x1f);
+                        let g = u32::from((p >> 5) & 0x3f);
+                        let b = u32::from(p & 0x1f);
+                        // One little endian word, B G R unused, with each channel widened by
+                        // replicating its top bits into the bottom so full scale is 255.
+                        let px = ((b << 3) | (b >> 2))
+                            | (((g << 2) | (g >> 4)) << 8)
+                            | (((r << 3) | (r >> 2)) << 16);
+                        ptr::write_unaligned(
+                            h.video.as_mut_ptr().add(row + x * 4) as *mut u32,
+                            px.to_le(),
+                        );
                     }
                 }
             }
@@ -426,6 +451,7 @@ impl LibretroCore {
     }
 
     pub fn set_option(&mut self, key: &str, value: &str) {
+        self.state_size = None;
         if !self.host.declared.is_empty() {
             match self.host.declared.get(key) {
                 None => eprintln!("slot-retro: core declares no option {key:?}, setting it anyway"),
@@ -470,6 +496,7 @@ impl LibretroCore {
             return Err(CoreError::Unsupported(format!("libretro api {version}")));
         }
         let mut host = Box::new(Host {
+            memory: Vec::new(),
             video: vec![0; VIDEO_BYTES],
             format: PixelFormat::Xrgb8888,
             audio: Vec::new(),
@@ -512,9 +539,11 @@ impl LibretroCore {
     }
 
     fn unload(&mut self) {
+        self.state_size = None;
         if !self.loaded {
             return;
         }
+        self.host.memory.clear();
         let _a = Active::bind(&mut self.host);
         unsafe { (self.api.unload_game)() };
         self.loaded = false;
@@ -560,6 +589,72 @@ impl Drop for LibretroCore {
 }
 
 impl RetroCore for LibretroCore {
+    fn achievement_memory(&self, ram: &mut [u8]) -> AchievementMemory {
+        let mut valid = AchievementMemory::default();
+        if !self.loaded || ram.len() < ACHIEVEMENT_RAM_SIZE {
+            return valid;
+        }
+        let game_boy = self.host.memory.iter().any(|d| d.start == 0xc000);
+        // rcheevos consoleinfo.c: GB/GBC use native addresses plus fixed banks;
+        // GBA uses IWRAM, EWRAM, then SRAM. Echo RAM aliases the fixed WRAM banks.
+        let regions: &[(usize, usize, usize)] = if game_boy {
+            &[
+                (0x0000, 0x0000, 0x4000),
+                (0x4000, 0x4000, 0x4000),
+                (0x8000, 0x8000, 0x2000),
+                (0xa000, 0xa000, 0x2000),
+                (0xc000, 0xc000, 0x1000),
+                (0xd000, 0xd000, 0x1000),
+                (0xc000, 0xe000, 0x1000),
+                (0xd000, 0xf000, 0x0e00),
+                (0xfe00, 0xfe00, 0x00a0),
+                (0xff00, 0xff00, 0x0080),
+                (0xff80, 0xff80, 0x007f),
+                (0xffff, 0xffff, 0x0001),
+                (0x10000, 0x10000, 0x6000),
+                (0x16000, 0x16000, 0x1e000),
+            ]
+        } else {
+            &[
+                (0x03000000, 0, 0x8000),
+                (0x02000000, 0x8000, 0x40000),
+                (0x0e000000, 0x48000, 0x10000),
+            ]
+        };
+        for &(physical, offset, size) in regions {
+            if let Some(d) =
+                self.host.memory.iter().find(|d| {
+                    d.start == physical && d.disconnect == 0 && !d.ptr.is_null() && d.len > 0
+                })
+            {
+                let n = d.len.min(size);
+                // The core owns the descriptors' memory until unload and no core function
+                // runs concurrently. `offset` is the libretro offset from ptr to the region.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        (d.ptr as *const u8).add(d.offset),
+                        ram[offset..].as_mut_ptr(),
+                        n,
+                    );
+                }
+                valid.push(offset..offset + n);
+            } else if !game_boy && physical == 0x0e000000 {
+                let p = unsafe { (self.api.get_memory_data)(MEMORY_SAVE_RAM) };
+                let n = unsafe { (self.api.get_memory_size)(MEMORY_SAVE_RAM) }.min(size);
+                if !p.is_null() && n > 0 {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            p as *const u8,
+                            ram[offset..].as_mut_ptr(),
+                            n,
+                        );
+                    }
+                    valid.push(offset..offset + n);
+                }
+            }
+        }
+        valid
+    }
     fn set_option(&mut self, key: &str, value: &str) {
         LibretroCore::set_option(self, key, value);
     }
@@ -624,6 +719,15 @@ impl RetroCore for LibretroCore {
         std::mem::take(&mut self.host.audio)
     }
 
+    fn recycle_audio(&mut self, mut buf: Vec<i16>) {
+        // Only while the core has queued nothing since: whatever it has is newer than an empty
+        // spare, and must not be dropped for it.
+        if self.host.audio.is_empty() && buf.capacity() > self.host.audio.capacity() {
+            buf.clear();
+            self.host.audio = buf;
+        }
+    }
+
     fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
         if let Some(buf) = self.state_size.and_then(|size| self.serialize_at(size)) {
             return Ok(buf);
@@ -638,6 +742,7 @@ impl RetroCore for LibretroCore {
     }
 
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        self.state_size = None;
         let ok = {
             let _a = Active::bind(&mut self.host);
             unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
@@ -684,6 +789,7 @@ impl RetroCore for LibretroCore {
     }
 
     fn start_link(&mut self, client_id: u16) {
+        self.state_size = None;
         let _a = Active::bind(&mut self.host);
         unsafe { begin_link(client_id) };
     }
@@ -694,6 +800,7 @@ impl RetroCore for LibretroCore {
     }
 
     fn stop_link(&mut self) {
+        self.state_size = None;
         let _a = Active::bind(&mut self.host);
         unsafe { halt_link() };
     }
@@ -708,6 +815,7 @@ mod tests {
 
     fn host_with(options: HashMap<String, CString>, options_dirty: bool) -> Box<Host> {
         Box::new(Host {
+            memory: Vec::new(),
             video: vec![0; VIDEO_BYTES],
             format: PixelFormat::Xrgb8888,
             audio: Vec::new(),

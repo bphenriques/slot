@@ -34,6 +34,8 @@ const DOZE_TIMEOUT: Duration = Duration::from_secs(180);
 const ALERT_INK: [u8; 3] = [0xf0, 0xb4, 0x3c];
 
 pub struct Frontend {
+    labels: crate::labels::Labels,
+    achievements: crate::achievement_ui::Notifications,
     session: Session,
     start: Instant,
     last: Instant,
@@ -130,6 +132,7 @@ struct ShelfLook {
     slot: [[TexId; 2]; 2],
     plugged: [TexId; 2],
     bolt: [TexId; 2],
+    wifi: [TexId; 2],
     port: [Option<TexId>; 2],
     legend: [Vec<(TexId, u32)>; 2],
     applied: Option<(bool, bool, bool)>,
@@ -148,15 +151,19 @@ impl Frontend {
 
     pub fn boot_with(platform: Box<dyn Platform>, sink: Box<dyn crate::audio::AudioSink>) -> Self {
         let now = Instant::now();
-        let cart_faces = CartFaces::spawn(platform.root().to_path_buf());
-        let mut session = Session::boot_with(platform.root().to_path_buf(), sink);
+        let root = platform.root().to_path_buf();
+        let cart_faces = CartFaces::spawn(root.clone());
+        let mut session = Session::boot_with(root.clone(), sink);
         crate::boot_time::mark("session");
+        let labels = crate::labels::Labels::spawn(root, session.app().carts().cloned().collect());
         let stale_check =
             Self::check_labels(platform.root(), session.app().carts().cloned().collect());
         session
             .app_mut()
             .set_power(Power::new(platform, DOZE_TIMEOUT));
         Frontend {
+            labels,
+            achievements: crate::achievement_ui::Notifications::new(),
             session,
             start: now,
             last: now,
@@ -290,10 +297,15 @@ impl Frontend {
             compositor.create_texture(dark_bolt.w, dark_bolt.h, &dark_bolt.rgba),
             compositor.create_texture(light_bolt.w, light_bolt.h, &light_bolt.rgba),
         ];
+        let wifi = [false, true].map(|light| {
+            let f = icon_face(Icon::Wifi, 18.0, footer_ink(light));
+            compositor.create_texture(f.w, f.h, &f.rgba)
+        });
         self.look = Some(ShelfLook {
             slot,
             plugged,
             bolt,
+            wifi,
             port: [None, None],
             legend: [Vec::new(), Vec::new()],
             applied: None,
@@ -326,6 +338,7 @@ impl Frontend {
                 look.slot[i],
                 look.plugged[i],
                 look.bolt[i],
+                look.wifi[i],
                 look.bolt[0],
                 look.port[i],
                 look.legend[i].clone(),
@@ -333,8 +346,18 @@ impl Frontend {
                 port_ready,
             )
         });
-        let Some((done, slot, plugged, bolt, hud_bolt, port, legend, legend_ready, port_ready)) =
-            ready
+        let Some((
+            done,
+            slot,
+            plugged,
+            bolt,
+            wifi,
+            hud_bolt,
+            port,
+            legend,
+            legend_ready,
+            port_ready,
+        )) = ready
         else {
             return;
         };
@@ -344,6 +367,7 @@ impl Frontend {
         self.session.app_mut().set_slot_faces(slot[0], slot[1]);
         self.session.app_mut().set_plugged_face(plugged);
         self.session.app_mut().set_bolt_face(bolt);
+        self.session.app_mut().set_wifi_face(wifi);
         self.session.app_mut().set_hud_bolt_face(hud_bolt);
         if let Some(tex) = port {
             self.session.app_mut().set_link_port(tex);
@@ -544,8 +568,10 @@ impl Frontend {
             compositor.upload_game(&[b, g, r, 0xff].repeat(px));
         } else if let Some(frame) = self.session.frame() {
             compositor.upload_game(&frame);
+            crate::latency::picture(&frame);
             crate::latency::taken();
         }
+        self.sync_labels(compositor);
         self.cart_faces.sync(self.session.app_mut(), compositor);
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_binding_faces(self.session.app_mut(), compositor);
@@ -595,6 +621,8 @@ impl Frontend {
                     clicks: up(&art.clicks),
                     arrow_left: up(&art.arrow_left),
                     arrow_right: up(&art.arrow_right),
+                    net_home: up(&art.net_home),
+                    net_direct: up(&art.net_direct),
                 };
                 self.session.app_mut().set_link_sprites(sprites);
                 self.link_art_done = true;
@@ -612,7 +640,9 @@ impl Frontend {
             &mut self.switcher,
         );
         self.draws.clear();
+        self.achievements.update(&mut self.session, compositor);
         self.session.app().draw(&mut self.draws);
+        self.achievements.draw(&self.session, &mut self.draws);
         compositor.draw_list(&self.draws);
     }
 
@@ -620,8 +650,32 @@ impl Frontend {
         self.session.set_driven(true);
     }
 
-    pub fn step_emulator(&self, present: Duration, timeout: Duration) -> bool {
-        self.session.step_emulator(present, timeout)
+    pub fn frame_clock(&self) -> crate::pacing::FrameClock {
+        self.session.frame_clock()
+    }
+
+    pub fn step_emulator(&self, timeout: Duration) -> bool {
+        self.session.step_emulator(timeout)
+    }
+
+    /// At most one texture upload per frame. The worker already decoded and drew it.
+    fn sync_labels(&mut self, compositor: &mut Compositor) {
+        let Some(ready) = self.labels.take() else {
+            return;
+        };
+        let Some(path) = ready.cart.label else {
+            return;
+        };
+        let app = self.session.app_mut();
+        for tex in app.attach_label(&ready.cart.rom, path) {
+            compositor.update_texture(tex, ready.face.w, ready.face.h, &ready.face.rgba);
+        }
+        if self.core_asked.as_deref() == Some(ready.cart.stem.as_str())
+            || self.core_built.as_deref() == Some(ready.cart.stem.as_str())
+        {
+            self.core_asked = None;
+            self.core_built = None;
+        }
     }
 
     pub fn rebuilding_labels(&self) -> bool {
@@ -733,11 +787,11 @@ impl Frontend {
     }
 
     pub fn powering_off(&self) -> bool {
-        self.session.app().ready_to_power_off()
+        self.session.app().ready_to_power_off() && self.session.achievement_flush_ready()
     }
 
     pub fn restarting(&self) -> bool {
-        self.session.app().ready_to_restart()
+        self.session.app().ready_to_restart() && self.session.achievement_flush_ready()
     }
 
     pub fn restart(&mut self) {
@@ -745,7 +799,7 @@ impl Frontend {
     }
 
     pub fn repairing(&self) -> bool {
-        self.session.app().ready_to_repair()
+        self.session.app().ready_to_repair() && self.session.achievement_flush_ready()
     }
 
     pub fn repair(&mut self) {
@@ -759,6 +813,10 @@ impl Frontend {
     pub fn stop(&mut self) {
         self.session.app_mut().flush_resume();
         self.session.app_mut().settle_saves();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !self.session.achievement_flush_ready() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -1210,7 +1268,10 @@ fn sync_core_picker(
     let Some(faces) = builder.take() else {
         return;
     };
-    if highlighted.as_deref() != Some(faces.stem.as_str()) || *built == highlighted {
+    if highlighted.as_deref() != Some(faces.stem.as_str())
+        || *built == highlighted
+        || !app.carts().any(|cart| faces.is_for(cart))
+    {
         return;
     }
     let interior_id = upload_rgba(

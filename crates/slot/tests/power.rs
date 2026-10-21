@@ -324,6 +324,7 @@ fn await_paused(s: &mut Session) {
     }
 }
 
+/// POWER down, then frames until the gesture layer's hold threshold fires.
 fn hold_power(s: &mut Session, now: &mut Millis) {
     let pressed = *now;
     event(s, RawEvent::Down(Btn::Power), now);
@@ -432,4 +433,28 @@ fn a_shut_lid_powers_off_after_the_minutes_set_in_the_menu() {
         a.update(1.0 / 60.0);
     }
     assert!(a.powering_off());
+}
+
+/// Releasing POWER and pressing a former menu button cannot cancel or delay shutdown.
+#[test]
+fn shutdown_ignores_further_input_without_resetting_its_deadline() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let mut a = app_playing_in(d.path(), "Emerald");
+    a.apply(Action::PowerHold);
+    let held_at = a.now();
+    a.tick_ms(held_at + 200);
+    for action in [
+        Action::PowerOff,
+        Action::PowerHold,
+        Action::GbaDown(Btn::B),
+        Action::GbaDown(Btn::A),
+        Action::PowerTap,
+        Action::LidClose,
+        Action::LidOpen,
+    ] {
+        a.apply(action);
+        assert!(a.powering_off());
+    }
+    a.tick_ms(held_at + 250);
+    assert!(a.ready_to_power_off());
 }

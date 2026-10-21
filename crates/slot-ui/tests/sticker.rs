@@ -100,3 +100,12 @@ fn the_version_rides_above_the_readme_line() {
     let home = lines.iter().position(|l| l == "SEE README.").unwrap();
     assert_eq!(lines[home - 1], "VERSION 0.1.0");
 }
+
+#[test]
+fn the_plate_says_where_it_was_seasoned_and_who_else_holds_it() {
+    let all = sticker_lines(&fields()).join("\n");
+    let made = all.find("MADE IN ITHACA").expect("{all}");
+    let seasoned = all.find("SEASONED IN BERLIN").expect("{all}");
+    assert!(seasoned > made, "Berlin should sit below Ithaca: {all}");
+    assert!(all.contains("PRASHANT VAIBHAV"), "{all}");
+}

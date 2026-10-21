@@ -20,6 +20,8 @@ use crate::persist;
 use crate::prefetch::Prefetch;
 
 pub struct Session {
+    achievements: slot_achievements::Service,
+    home_connected: bool,
     root: PathBuf,
     app: App,
     emu: Option<EmuHandle>,
@@ -46,6 +48,8 @@ impl Session {
 
     pub fn boot_with(root: PathBuf, sink: Box<dyn AudioSink>) -> Self {
         let mut session = Session {
+            achievements: slot_achievements::Service::start(root.clone()),
+            home_connected: false,
             app: App::boot(&root),
             root,
             emu: None,
@@ -79,9 +83,16 @@ impl Session {
         if rate == 0 {
             return;
         }
-        let mut samples = sfx.render(rate);
+        self.mix_sfx(sfx.render(rate));
+    }
+
+    /// A clip prepared off-thread, mixed at the current volume when it reaches the screen.
+    pub(crate) fn mix_sfx(&mut self, mut samples: Vec<i16>) {
+        if samples.is_empty() {
+            return;
+        }
         crate::audio::volume::apply(&mut samples, self.app.output_volume());
-        ring.mix(&samples);
+        self.sink.ring().mix(&samples);
     }
 
     pub fn audio_queued(&self) -> usize {
@@ -112,6 +123,26 @@ impl Session {
         &self.app
     }
 
+    pub fn take_achievement_notice(&self) -> Option<slot_achievements::Notice> {
+        self.achievements.take_notice()
+    }
+
+    pub fn achievement_flush_ready(&self) -> bool {
+        self.achievements.flush_ready()
+    }
+
+    pub fn achievement_sync_progress(&self) -> Option<u8> {
+        self.achievements.sync_progress()
+    }
+
+    pub fn achievement_sync_pending(&self) -> bool {
+        self.achievements.sync_pending()
+    }
+
+    pub fn achievement_sync_status(&self) -> slot_achievements::SyncStatus {
+        self.achievements.sync_status()
+    }
+
     pub fn app_mut(&mut self) -> &mut App {
         &mut self.app
     }
@@ -127,9 +158,16 @@ impl Session {
         }
     }
 
-    pub fn step_emulator(&self, present: Duration, timeout: Duration) -> bool {
+    pub fn frame_clock(&self) -> crate::pacing::FrameClock {
+        self.emu
+            .as_ref()
+            .filter(|emu| emu.locked())
+            .map_or_else(crate::pacing::FrameClock::default, EmuHandle::frame_clock)
+    }
+
+    pub fn step_emulator(&self, timeout: Duration) -> bool {
         self.emu.as_ref().is_some_and(|emu| {
-            emu.tick(present);
+            emu.tick();
             emu.wait_frame(timeout)
         })
     }
@@ -282,6 +320,11 @@ impl Session {
 
     pub fn update(&mut self, dt: f32) {
         self.bridge_link(|app| app.update(dt));
+        let connected = self.app.home_connected();
+        if connected && !self.home_connected {
+            self.achievements.network_available();
+        }
+        self.home_connected = connected;
         if let Some(emu) = &self.emu {
             emu.set_volume(self.app.output_volume());
         }
@@ -423,6 +466,7 @@ impl Session {
         self.showing_polaroids() || self.held()
     }
 
+    /// Menus and shutdown can pause the game while its phase remains Playing.
     fn playing(&self) -> bool {
         matches!(self.app.phase(), Phase::Playing { .. }) && !self.held()
     }
@@ -572,12 +616,12 @@ impl Session {
         let sav = self.app.card_read("save", loaded.sav);
         let resume = self.app.card_read("resume", loaded.resume);
         let (sav_unread, resume_unread) = (sav.is_none(), resume.is_none());
-        let (core, rom, sav, resume) = (
-            loaded.opened.core,
-            loaded.rom,
-            sav.flatten(),
-            resume.flatten(),
-        );
+        let core = if loaded.opened.named && loaded.player.is_none() {
+            self.achievements.wrap(loaded.opened.core)
+        } else {
+            loaded.opened.core
+        };
+        let (core, rom, sav, resume) = (core, loaded.rom, sav.flatten(), resume.flatten());
         let emu = match loaded.player.filter(|_| loaded.platform == Platform::Gba) {
             Some(p) => EmuHandle::spawn_linked(core, rom, ring, sav, resume, p),
             None => EmuHandle::spawn(core, rom, ring, sav, resume),

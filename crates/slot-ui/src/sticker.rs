@@ -51,7 +51,11 @@ pub const CREDITS: [&str; 11] = [
 
 pub const ORIGIN: [&str; 2] = ["S/LOT-USA", "MADE IN ITHACA"];
 
+pub const SEASONED: &str = "SEASONED IN BERLIN";
+
 pub const COPYRIGHT: &str = "\u{a9} 2026 BRANDON T. KOWALSKI";
+
+pub const CO_COPYRIGHT: &str = "& PRASHANT VAIBHAV";
 
 pub const HOME: &str = "SEE README.";
 
@@ -79,9 +83,11 @@ pub fn sticker_lines(f: &StickerFields) -> Vec<String> {
     let mut out: Vec<String> = head_rows(f).into();
     out.extend(CREDITS.iter().map(|s| s.to_string()));
     out.extend(ORIGIN.iter().map(|s| s.to_string()));
+    out.push(SEASONED.to_string());
     let (body, check) = split_check(f.serial);
     out.push(format!("{body} {check}"));
     out.push(COPYRIGHT.to_string());
+    out.push(CO_COPYRIGHT.to_string());
     out.push(version_line(f));
     out.push(HOME.to_string());
     out
@@ -244,7 +250,9 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
     let col_right = panel_x as f32 - MARGIN;
     c.print(left, y, ORIGIN[0], BODY_PX, WHITE);
     let maker_w = c.print_measure(ORIGIN[1], BODY_PX);
-    c.print(col_right - maker_w, y, ORIGIN[1], BODY_PX, WHITE);
+    let y = c.print(col_right - maker_w, y, ORIGIN[1], BODY_PX, WHITE);
+    let seasoned_w = c.print_measure(SEASONED, BODY_PX);
+    c.print(col_right - seasoned_w, y, SEASONED, BODY_PX, WHITE);
 
     let bars_y = panel_y + 14;
     let bars_h = 62;
@@ -291,13 +299,7 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
     c.print(sx, sy, body, SERIAL_PX, BLACK);
     let bx = sx + hash_w + 10.0;
     c.outline(bx, sy + 1.0, box_w, SERIAL_PX * 1.25, 2.0, BLACK);
-    c.print(
-        bx + box_w * 0.28,
-        sy + 2.0,
-        check,
-        SERIAL_PX * 0.85,
-        BLACK,
-    );
+    c.print(bx + box_w * 0.28, sy + 2.0, check, SERIAL_PX * 0.85, BLACK);
 
     let mut ry = panel_y as f32 + panel_h as f32 + 10.0;
     let right_edge = (panel_x + panel_w) as f32;
@@ -313,7 +315,7 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
         ry += mh as f32 + 4.0;
     }
     let version = version_line(f);
-    for line in [COPYRIGHT, version.as_str(), HOME] {
+    for line in [COPYRIGHT, CO_COPYRIGHT, version.as_str(), HOME] {
         let lw = c.print_measure(line, SMALL_PX);
         ry = c.print(right_edge - lw - 10.0, ry, line, SMALL_PX, WHITE);
     }

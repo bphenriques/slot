@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::link::Link;
 use crate::rumble::Rumble;
+use crate::AchievementMemory;
 
 pub const GBA_W: u32 = 240;
 pub const GBA_H: u32 = 160;
@@ -76,6 +77,12 @@ impl From<std::io::Error> for CoreError {
 }
 
 pub trait RetroCore: Send {
+    /// Copies memory into a buffer of ACHIEVEMENT_RAM_SIZE, indexed by RA addresses.
+    /// Returns valid spans; absent memory is never treated as zero RAM.
+    /// Called only on the emulator thread, between frames. No core pointers leave that thread.
+    fn achievement_memory(&self, _ram: &mut [u8]) -> AchievementMemory {
+        AchievementMemory::default()
+    }
     fn load(&mut self, rom: &Path) -> Result<(), CoreError>;
     fn run_frame(&mut self, input: ButtonMask);
     fn run_frame_linked(&mut self, p1: ButtonMask, _p2: ButtonMask) {
@@ -85,6 +92,10 @@ pub trait RetroCore: Send {
     fn set_frame_skip(&mut self, _skip: bool) {}
     fn video_xrgb8888(&self) -> &[u8];
     fn take_audio(&mut self) -> Vec<i16>;
+    /// Hands a buffer from `take_audio` back once its samples have been used, so the core can
+    /// fill it again instead of allocating a fresh one every frame batch. A core that does not
+    /// reuse buffers drops it, which is what the default does.
+    fn recycle_audio(&mut self, _buf: Vec<i16>) {}
     fn serialize(&mut self) -> Result<Vec<u8>, CoreError>;
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError>;
     fn save_ram(&self) -> Option<Vec<u8>>;

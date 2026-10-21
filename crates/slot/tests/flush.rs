@@ -415,3 +415,12 @@ fn a_card_the_kernel_made_read_only_raises_the_alarm_without_a_save() {
         "the alarm stayed once the card was writable"
     );
 }
+
+#[test]
+fn a_release_after_the_hold_does_nothing_on_its_own() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let mut a = app_playing_in(d.path(), "Emerald");
+    a.apply(Action::PowerHold);
+    a.apply(Action::PowerOff);
+    assert!(a.powering_off());
+}
