@@ -560,11 +560,11 @@ fn the_pocket_combo_held_locks_the_keys_with_a_buzz_and_held_again_unlocks_them(
         "locked, still here"
     );
     assert!(rig.told().is_empty(), "and the player told nothing");
-    // Once to lock, twice to unlock, each a buzz as long as the gap after it.
+    // Once to lock, twice to unlock, each a long buzz as long as the gap after it.
     let pattern = |rig: &mut Rig| {
         let mut seen = vec![rig.music.rumble()];
         for _ in 0..10 {
-            rig.waited.set(rig.waited.get() + pocket::BUZZ / 2);
+            rig.waited.set(rig.waited.get() + pocket::LOCK_BUZZ / 2);
             seen.push(rig.music.rumble());
         }
         seen.into_iter().flatten().collect::<Vec<_>>()
@@ -594,7 +594,14 @@ fn the_pocket_combo_held_locks_the_keys_with_a_buzz_and_held_again_unlocks_them(
 #[test]
 fn under_the_lid_a_trigger_plays_or_pauses_a_shoulder_changes_song_and_locked_neither() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
-    rig.keys(&[Button::Down, Button::A, Button::A, Button::A, Button::A]);
+    rig.keys(&[
+        Button::Down,
+        Button::Down,
+        Button::A,
+        Button::A,
+        Button::A,
+        Button::A,
+    ]);
     assert_eq!(rig.now_playing().place, text::of(1, 2));
     rig.music.set_dark(true);
     rig.told();
@@ -633,7 +640,7 @@ fn it_is_due_to_change_only_while_it_moves_or_plays_where_it_is_seen() {
         rig.music.due_in().is_none(),
         "nothing playing: only what comes in changes it"
     );
-    rig.keys(&[Button::Down, Button::A, Button::A, Button::A]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
     assert!(rig.now_playing().status.playing);
     let due = rig
         .music
@@ -683,7 +690,14 @@ fn it_is_due_to_change_only_while_it_moves_or_plays_where_it_is_seen() {
 #[test]
 fn the_pocket_combo_tapped_does_nothing_and_neither_key_acts_alone() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
-    rig.keys(&[Button::Down, Button::A, Button::A, Button::A, Button::A]);
+    rig.keys(&[
+        Button::Down,
+        Button::Down,
+        Button::A,
+        Button::A,
+        Button::A,
+        Button::A,
+    ]);
     assert_eq!(rig.now_playing().place, text::of(1, 2));
     for (dark, first, second, up) in [
         (false, Button::L1, Button::R1, Button::L1),
@@ -715,7 +729,7 @@ fn moving_fast_through_a_list_by_name_shows_its_letter_and_it_follows_each_move(
     ]);
     let artists = rig.music.browser.view() == View::Main;
     assert!(artists);
-    rig.keys(&[Button::Down, Button::A, Button::A]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A]);
     assert_eq!(rig.screen().title, "Artists");
     rig.keys(&[Button::Down]);
     assert_eq!(rig.screen().letter, None, "a step at a time, none");
@@ -1129,7 +1143,7 @@ fn rests_never_late(rig: &mut Rig, ms: u64, speed: f64) -> (usize, usize) {
 fn resting_until_the_next_change_is_never_late_on_a_screen_that_follows_the_song() {
     // A song: its time and bar.
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
-    rig.keys(&[Button::Down, Button::A, Button::A, Button::A]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
     rig.heard(10.3, 240.0);
     let (changes, idle) = rests_never_late(&mut rig, 5000, 1.0);
     eprintln!("song: {changes} changes, {idle} idle wakes");
@@ -1186,7 +1200,7 @@ fn resting_until_the_next_change_is_never_late_on_a_screen_that_follows_the_song
 #[test]
 fn work_budget_a_screen_changes_only_as_often_as_what_it_shows_can_be_seen_to() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
-    rig.keys(&[Button::Down, Button::A, Button::A, Button::A]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
     assert!(rig.now_playing().status.playing);
     rig.heard(0.0, 240.0);
     // Playing a four-minute song: the time each second and the bar each thousandth, not every
@@ -1353,28 +1367,26 @@ fn help_is_one_page_of_tips_then_the_keys_the_hints_leave_out() {
     rig.keys(&[Button::Up, Button::Up]);
     rig.to(text::HELP);
     rig.keys(&[Button::A]);
-    let Body::Text(page) = rig.screen().body else {
-        panic!("a page to read");
+    let Body::List(page) = rig.screen().body else {
+        panic!("a list to read");
     };
     assert_eq!(rig.screen().title, text::HELP);
-    assert_eq!(page.lines[0], text::TIPS_TEXT[0], "the tips first");
-    // Then each place by name, and its keys with what they do.
+    assert!(page.readonly, "read, not picked from");
+    assert_eq!(page.rows[0], text::TIPS[0], "the tips first");
+    // Then each place by name, faint as a heading, and its keys with what they do beside.
     let (place, keys) = text::KEYS[0];
-    let at = text::TIPS_TEXT.len();
-    assert_eq!(page.lines[at], place);
-    assert_eq!(page.lines[at + 1], format!("{}: {}", keys[0].0, keys[0].1));
-    assert_eq!(page.focus, 0);
-    rig.hold(Button::Down, 6000);
-    let Body::Text(page) = rig.screen().body else {
-        panic!("a page to read");
-    };
+    let at = text::TIPS.len();
+    assert!(page.rows[at] == place && page.rows[at].faint);
+    let key = &page.rows[at + 1];
+    assert_eq!((key.text.as_str(), key.after.as_str()), keys[0]);
+    rig.hold(Button::Down, 8000);
     assert_eq!(
-        page.focus,
-        page.lines.len() - 1,
+        rig.music.browser.at(),
+        text::help_len() - 1,
         "to the last, and no further"
     );
     rig.keys(&[Button::B]);
-    assert_eq!(rig.screen().title, "Music Settings");
+    assert_eq!(rig.screen().title, "Settings");
     // Advanced, beside it, holds the scrobbler log first.
     rig.to(text::ADVANCED);
     rig.keys(&[Button::A]);
@@ -1529,7 +1541,7 @@ fn the_equalizer_steps_through_the_card_s_presets_kept_by_name() {
     let (equalizer, eq) = rig.music.shell.store.equalizer();
     (rig.music.equalizer, rig.music.settings.eq) = (equalizer, eq);
     assert_eq!(rig.music.context().eq, Some("Bright"));
-    rig.music.browser.push(View::Sound, 0);
+    rig.music.browser.push(View::Experimental, 0);
     rig.music.act(Press::Tap(Key::Right));
     assert_eq!(rig.music.settings.eq, 2, "the last: Right stops there");
     rig.music.act(Press::Tap(Key::Left));
@@ -1662,6 +1674,7 @@ fn an_empty_card_sets_back_what_leads_nowhere_and_says_where_to_put_songs_and_bo
         faint,
         [
             (text::SHUFFLE_LIBRARY, true),
+            (text::QUEUE, true),
             (text::LIBRARY, true),
             ("Playlists", true),
             (text::BOOKS, true),
@@ -1684,7 +1697,10 @@ fn an_empty_card_sets_back_what_leads_nowhere_and_says_where_to_put_songs_and_bo
     let Body::List(list) = rig.screen().body else {
         panic!("the Music menu");
     };
-    assert!(list.rows[1].faint && !list.rows[3].faint);
+    assert!(
+        list.rows[2].faint && !list.rows[4].faint,
+        "Library set back, Audiobooks lit"
+    );
     assert_eq!(rig.screen().corner, "");
     rig.to(text::LIBRARY);
     rig.keys(&[Button::A]);
@@ -1747,12 +1763,20 @@ fn a_song_s_place_is_saved_now_and_then_as_it_plays_for_a_sudden_power_cut() {
             .unwrap();
         pos.parse::<f64>().unwrap()
     };
-    for _ in 0..3000 {
-        rig.fake.0.borrow_mut().status.at += FRAME.as_secs_f64();
-        rig.frames(FRAME);
-    }
+    let play_for = |rig: &mut Rig, secs: u64| {
+        for _ in 0..secs * 50 {
+            rig.fake.0.borrow_mut().status.at += FRAME.as_secs_f64();
+            rig.frames(FRAME);
+        }
+    };
+    play_for(&mut rig, 60);
+    assert!(
+        saved(&mut rig) < 1.0,
+        "a minute in: not yet, the card spared"
+    );
+    play_for(&mut rig, 60);
     let pos = saved(&mut rig);
-    assert!((59.0..=61.0).contains(&pos), "a minute in: {pos}");
+    assert!((119.0..=121.0).contains(&pos), "two minutes in: {pos}");
 }
 
 #[test]
@@ -1851,7 +1875,7 @@ fn a_list_s_rows_start_with_their_album_s_thumbnail_asked_for_by_page_as_it_chan
     let asked = thumbs(&rig.music);
     assert_eq!(
         asked.len(),
-        crate::browse::LIST_ROWS - 2,
+        crate::browse::RICH_ROWS - 2,
         "the page\x27s albums, once"
     );
     rig.music.out.clear();
@@ -1889,4 +1913,151 @@ fn a_list_s_rows_start_with_their_album_s_thumbnail_asked_for_by_page_as_it_chan
         panic!("a list");
     };
     assert!(!list.thumbs);
+}
+
+#[test]
+fn open_on_now_playing_opens_music_on_what_plays_and_else_where_it_was_left() {
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3"]);
+    rig.library("Songs");
+    rig.keys(&[Button::A, Button::Down, Button::Down, Button::A]);
+    assert!(rig.now_playing().status.playing);
+    rig.hold(Button::B, 600);
+    rig.to("Settings");
+    rig.keys(&[Button::A]);
+    // Off, as it comes: where it was left.
+    rig.music.open();
+    assert_eq!(rig.music.browser.view(), View::Settings);
+    rig.music.settings.open_playing = true;
+    rig.music.open();
+    assert_eq!(rig.music.browser.view(), View::NowPlaying, "on what plays");
+    rig.keys(&[Button::B]);
+    assert_eq!(
+        rig.music.browser.view(),
+        View::Main,
+        "B back to the Music menu"
+    );
+    // Paused, nothing plays: where it was left.
+    rig.keys(&[Button::Select, Button::A, Button::B]);
+    rig.music.open();
+    assert_eq!(rig.music.browser.view(), View::Main);
+}
+
+#[test]
+fn under_the_lid_a_jump_that_lands_in_another_chapter_buzzes_and_one_within_does_not() {
+    let mut rig = Rig::new(&BOOK);
+    rig.play_book();
+    let part = rig.music.player.current().unwrap();
+    let chapter = |start: f64| crate::books::chapters::Chapter {
+        start,
+        title: String::new(),
+    };
+    rig.music
+        .player
+        .set_chapters(part, vec![chapter(0.0), chapter(50.0)]);
+    rig.music.settings.jump = 30;
+    rig.heard(90.0, 100.0);
+    rig.music.set_dark(true);
+    rig.keys(&[Button::L1]);
+    assert_eq!(
+        rig.music.rumble(),
+        None,
+        "90 to 60: the same chapter, no buzz"
+    );
+    rig.heard(60.0, 100.0);
+    rig.keys(&[Button::L1]);
+    assert_eq!(
+        rig.music.rumble(),
+        Some(u16::MAX),
+        "60 to 30: the chapter before, a buzz"
+    );
+}
+
+#[test]
+fn a_tick_unseen_is_half_as_long_as_a_lock_s_buzz_so_the_two_are_told_apart() {
+    let mut rig = Rig::new(&BOOK);
+    let at = |ms: u64, rig: &Rig| rig.music.now.at + Duration::from_millis(ms);
+    let lasts = |rig: &mut Rig| {
+        let start = rig.music.now.at;
+        let mut on = None;
+        for ms in (0..1000).step_by(10) {
+            let now = start + Duration::from_millis(ms);
+            match (rig.music.buttons.pocket.rumble(now), on) {
+                (Some(0), Some(from)) => return ms - from,
+                (Some(s), None) if s > 0 => on = Some(ms),
+                _ => {}
+            }
+        }
+        0
+    };
+    rig.music.buttons.pocket.tick(at(0, &rig));
+    let tick = lasts(&mut rig);
+    rig.music.buttons.pocket.toggle(at(0, &rig));
+    let lock = lasts(&mut rig);
+    assert_eq!(tick, pocket::BUZZ.as_millis() as u64);
+    assert_eq!(lock, pocket::LOCK_BUZZ.as_millis() as u64);
+}
+
+#[test]
+fn the_song_before_s_lyrics_are_read_ahead_too_so_going_back_finds_its_hints_steady() {
+    let mut rig = Rig::new(&[
+        "Music/X/A/01 one.mp3",
+        "Music/X/A/02 two.mp3",
+        "Music/X/A/03 three.mp3",
+    ]);
+    let music = &mut rig.music;
+    let tracks = music.library.albums[AlbumId(0)].tracks.clone();
+    let play = music
+        .player
+        .play(&music.library, Queue::new(tracks.clone(), 1, None));
+    music.send(play);
+    music.browser.push(View::NowPlaying, 0);
+    music.out.clear();
+    music.read_lyrics();
+    let mut asked = jobs(music, lyrics_of);
+    asked.sort();
+    assert_eq!(
+        asked, tracks,
+        "the song playing, the next and the one before"
+    );
+}
+
+#[test]
+fn update_library_goes_back_to_the_music_menu_where_its_bar_fills() {
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3"]);
+    rig.to("Settings");
+    rig.keys(&[Button::A]);
+    rig.to("Update Library");
+    rig.keys(&[Button::A]);
+    assert_eq!(rig.music.browser.view(), View::Main);
+    assert!(rig.music.scanning());
+    // Halfway through what it found to read, as the test has it rather than the scan.
+    let progress = std::sync::Arc::new(crate::Progress::default());
+    progress.set(1, 2);
+    rig.music.scan.progress = progress;
+    let Body::List(list) = rig.screen().body else {
+        panic!("the Music menu");
+    };
+    assert_eq!(list.progress, Some(0.5));
+}
+
+#[test]
+fn the_queue_on_the_music_menu_opens_on_the_song_playing() {
+    let mut rig = Rig::new(&[
+        "Music/X/A/01 a.mp3",
+        "Music/X/A/02 b.mp3",
+        "Music/X/A/03 c.mp3",
+    ]);
+    let tracks = rig.music.library.albums[AlbumId(0)].tracks.clone();
+    let play = rig
+        .music
+        .player
+        .play(&rig.music.library, Queue::new(tracks, 1, None));
+    rig.music.send(play);
+    rig.frames(FRAME);
+    rig.to(text::QUEUE);
+    rig.keys(&[Button::A]);
+    assert_eq!(rig.music.browser.view(), View::Queue);
+    assert_eq!(rig.music.browser.at(), 1, "on b, playing");
+    rig.keys(&[Button::B]);
+    assert_eq!(rig.music.browser.view(), View::Main);
 }

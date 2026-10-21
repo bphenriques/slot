@@ -28,12 +28,15 @@ Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis 
   the row it was left on; A held on it shuffles every song.
 - In a list by name the shoulders jump a letter; in any other list they turn a page; on a menu
   they do nothing. SELECT with L1 or R1 skips the song from anywhere.
-- Lists of albums, books and songs start each row with its album's thumbnail, made with the
-  Now Playing picture after a scan (`Labels/Music`); a card from before has them made once from
-  the pictures it has.
+- Lists of albums, books and songs show each row on two lines, the name over who made it, beside
+  its album's thumbnail, made with the Now Playing picture after a scan (`Labels/Music`, named by
+  size); a card from before has them made once from the pictures it has.
+- The Music menu has the Queue under Now Playing, opening on the song playing.
+- Settings › Advanced › Experimental holds what is still being shaped: the Equalizer and Skip Silence.
 - A card with nothing yet sets back what leads nowhere and says where to put songs and books.
 - A write the card refuses (full, or locked) says "Can't save" in the corner, each time. A song's place
-  is saved every minute as it plays, a book's too, so a sudden power cut loses a minute at most.
+  is saved every two minutes as it plays, and a book's every minute, so a sudden power cut loses
+  little.
 
 ## How it plays
 
@@ -64,5 +67,5 @@ Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis 
 - Two of L1, R1, L2 and R2 held together on Now Playing, or with the lid closed, lock the other
   keys, or unlock them; a buzz says which.
 - With Screen Off set to Keep Playing, music goes on with the lid closed: L1 and R1 skip (in a
-  book, jump), held they seek; L2 and R2 play or pause, held in a book they bookmark. Paused,
+  book, jump), held they seek; a jump that lands in another chapter buzzes once; L2 and R2 play or pause, held in a book they bookmark. Paused,
   slot powers off after its screen-off time.

@@ -2,15 +2,16 @@ use slot_player::Leveling;
 
 use crate::playback::player::Repeat;
 
-/// The Music Settings choices, and the last repeat mode.
+/// The Settings choices, and the last repeat mode.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Settings {
     pub repeat: Repeat,
     /// `screen_off = play` keeps music going with the screen off or the lid shut; `pause`
     /// (default) pauses it.
     pub play_screen_off: bool,
-    /// Tint Now Playing, its background and progress bar, from the album picture.
-    pub color: bool,
+    /// Music opens on Now Playing while something plays (`open = playing`), as phones do; else
+    /// where it was left (`open = left`).
+    pub open_playing: bool,
     /// Seconds Left and Right jump in an audiobook.
     pub jump: u32,
     /// Both sides alike (`mono = on`), for one ear or one speaker; slot's player only.
@@ -39,10 +40,11 @@ pub struct Settings {
 }
 
 /// A setting the music screens change. The sleep timer is on Now Playing's menu and never
-/// saved; the rest are on the Music Settings page.
+/// saved; the rest are on the Settings page.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Setting {
     ScreenOff,
+    OpenPlaying,
     Jump,
     Mono,
     Equalizer,
@@ -53,7 +55,6 @@ pub enum Setting {
     /// On Now Playing's menu, as the sleep timer is, but kept.
     Repeat,
     SleepTimer,
-    Color,
     /// On the Advanced page.
     PerfLog,
     Log,
@@ -61,20 +62,19 @@ pub enum Setting {
 }
 
 impl Setting {
-    /// Music Settings' own, after its Sound and Audiobooks pages.
-    pub const ALL: [Setting; 2] = [Setting::ScreenOff, Setting::Color];
+    /// Settings' own, after its Music and Audiobooks pages.
+    pub const ALL: [Setting; 2] = [Setting::ScreenOff, Setting::OpenPlaying];
 
     /// The Sound page's, slot's player's alone. Songs always follow on with no gap, as on
     /// Apple Music: nothing is lost by it.
-    pub const SOUND: [Setting; 4] = [
-        Setting::Equalizer,
-        Setting::Crossfade,
-        Setting::Leveling,
-        Setting::Mono,
-    ];
+    pub const MUSIC: [Setting; 3] = [Setting::Crossfade, Setting::Leveling, Setting::Mono];
 
     /// The Audiobooks page's: the jump, then what slot's player alone does for a voice.
-    pub const BOOKS: [Setting; 3] = [Setting::Jump, Setting::SkipSilence, Setting::Boost];
+    pub const BOOKS: [Setting; 2] = [Setting::Jump, Setting::Boost];
+
+    /// Advanced's Experimental page: what is still being shaped, the equalizer and skipping a
+    /// book's silences, which guesses at where speech pauses.
+    pub const EXPERIMENTAL: [Setting; 2] = [Setting::Equalizer, Setting::SkipSilence];
 }
 
 /// The jumps an audiobook offers, as players do: 15 is Apple's, 30 Audible's.
@@ -97,7 +97,7 @@ impl Default for Settings {
         Settings {
             repeat: Repeat::Off,
             play_screen_off: false,
-            color: true,
+            open_playing: false,
             jump: 30,
             mono: false,
             leveling: false,
@@ -128,7 +128,7 @@ impl Settings {
     pub fn change(&mut self, setting: Setting, by: i32) {
         match setting {
             Setting::ScreenOff => self.play_screen_off ^= true,
-            Setting::Color => self.color ^= true,
+            Setting::OpenPlaying => self.open_playing ^= true,
             Setting::Mono => self.mono ^= true,
             Setting::Crossfade => self.crossfade = cycle(&FADES, self.crossfade, by),
             Setting::SkipSilence => self.skip_silence ^= true,

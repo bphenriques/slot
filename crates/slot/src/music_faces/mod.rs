@@ -281,6 +281,8 @@ pub struct MusicText {
     header: Lines,
     lines: Lines,
     values: Lines,
+    /// Two-line rows' second lines: who made each.
+    seconds: Lines,
     /// The text view's paragraphs: the lyrics.
     paragraphs: Lines,
     glyphs: Styled<()>,
@@ -392,9 +394,9 @@ impl MusicText {
         };
         let legend = self.legend(compositor, screen.legend);
         // A key held to act fills a ring around its hint's cap, or in the corner where it has
-        // none; Dynamic Color tints it on Now Playing, as it does the bar.
+        // none; Now Playing tints it from the album picture, as it does the bar.
         let ink = match (&screen.body, &self.art) {
-            (Body::NowPlaying(np), Some(art)) if np.color => music_tint_ink(art.tint, &theme),
+            (Body::NowPlaying(_), Some(art)) => music_tint_ink(art.tint, &theme),
             _ => theme.lit,
         };
         let ring = screen.hold.and_then(|hold| {
@@ -507,6 +509,33 @@ mod tests {
                 let gaps = LEGEND_GAP as u32 * (faces.len() as u32).saturating_sub(1);
                 let w = faces.iter().map(|f| f.w).sum::<u32>() + gaps;
                 (w as f32 > Canvas::FRAMED.w).then(|| format!("{legend:?} is {w} px"))
+            })
+            .collect();
+        assert!(wide.is_empty(), "too wide: {wide:#?}");
+    }
+}
+
+#[cfg(test)]
+mod help_tests {
+    use super::*;
+    use slot_ui::music::{music_row_px, music_text_width, Ink};
+    use slot_ui::Canvas;
+
+    /// Help is read, not picked from: a line wider than a row would scroll forever, and keep the
+    /// screen drawing while Help is open.
+    #[test]
+    fn every_line_of_help_fits_a_row() {
+        let (theme, px) = (MusicTheme::dark(), music_row_px(false, 8));
+        let room = music_text_width(false, Canvas::FRAMED);
+        let wide: Vec<String> = (0..text::help_len())
+            .filter_map(|i| {
+                let (name, after) = match text::help(i)? {
+                    text::HelpLine::Tip(tip) => (tip, ""),
+                    text::HelpLine::Place(place) => (place, ""),
+                    text::HelpLine::Key(key, does) => (key, does),
+                };
+                let face = music_row_face(None, "", name, after, Ink::Lit, px, u32::MAX, &theme)?;
+                (face.w > room).then(|| format!("{name} {after}: {} of {room} px", face.w))
             })
             .collect();
         assert!(wide.is_empty(), "too wide: {wide:#?}");

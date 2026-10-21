@@ -115,8 +115,10 @@ impl Music {
         self.pictures.thumbs.retain(|t| wanted.contains(&t.album));
         let read: Vec<AlbumId> = self.pictures.thumbs.iter().map(|t| t.album).collect();
         for &album in wanted.iter().filter(|a| !read.contains(a)) {
-            let thumb = covers::thumb(&self.root, &self.library, album);
-            self.work(Job::Thumb { album, thumb });
+            self.work(Job::Thumb {
+                album,
+                label: covers::label(&self.root, &self.library, album),
+            });
         }
         self.pictures.wanted = wanted;
     }
@@ -129,8 +131,10 @@ impl Music {
                 // Made while its row is shown: its thumbnail, too.
                 let read = self.pictures.thumbs.iter().any(|t| t.album == album);
                 if self.pictures.wanted.contains(&album) && !read {
-                    let thumb = covers::thumb(&self.root, &self.library, album);
-                    self.work(Job::Thumb { album, thumb });
+                    self.work(Job::Thumb {
+                        album,
+                        label: covers::label(&self.root, &self.library, album),
+                    });
                 }
                 if self.pictures.shown == Some(album)
                     && self.pictures.art.as_ref().map(|a| a.album) != Some(album)

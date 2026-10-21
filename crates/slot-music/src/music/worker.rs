@@ -16,8 +16,8 @@ pub(crate) enum Job {
     Make(Make),
     /// Read an album's label for the screen.
     Load { album: AlbumId, label: PathBuf },
-    /// Read an album's thumbnail, for a list's row.
-    Thumb { album: AlbumId, thumb: PathBuf },
+    /// Read an album's thumbnail, for a list's row: the one beside its label.
+    Thumb { album: AlbumId, label: PathBuf },
     /// Read a book's part's chapters, an MP4's own or an MP3's.
     Chapters { track: TrackId, path: PathBuf },
     /// Read a song's lyrics, from an `.lrc` beside it or its tags.
@@ -130,7 +130,10 @@ fn work(job: Job, px: u32, thumb_px: u32) -> Done {
             Done::Made(make.album)
         }
         Job::Load { album, label } => Done::Loaded(album, covers::load(album, &label, px)),
-        Job::Thumb { album, thumb } => Done::Thumb(album, covers::load(album, &thumb, thumb_px)),
+        Job::Thumb { album, label } => {
+            let thumb = covers::thumb(&label, thumb_px);
+            Done::Thumb(album, covers::load(album, &thumb, thumb_px))
+        }
         Job::Chapters { track, path } => Done::Chapters(track, chapters::read(&path)),
         Job::Lyrics { track, path } => Done::Lyrics(track, lyrics::read(&path)),
     }
@@ -170,14 +173,12 @@ mod tests {
     fn what_a_screen_waits_on_goes_before_the_labels_to_make() {
         let make = |album| {
             let (song, label) = (PathBuf::from("a.mp3"), PathBuf::from("a.png"));
-            let thumb = PathBuf::from("a.thumb.png");
             (
                 0,
                 Job::Make(Make {
                     album,
                     song,
                     label,
-                    thumb,
                     changed: 0,
                 }),
             )

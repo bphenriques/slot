@@ -89,6 +89,11 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         // Resume plays on, as it says; even before the saved queue is back, once it is.
         Row::NowPlaying if !cx.queue.playing => (View::NowPlaying, Outcome::Toggle),
         Row::NowPlaying => (View::NowPlaying, Outcome::None),
+        // The queue opens on the song playing, as from Now Playing.
+        Row::Open(View::Queue) => {
+            b.push(View::Queue, cx.queue.at);
+            return Outcome::None;
+        }
         Row::Open(view) => (view, Outcome::None),
         Row::Genre(g) => (View::Genre(g), Outcome::None),
         Row::Decade(d) => (View::Decade(d), Outcome::None),
@@ -121,7 +126,8 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         | Row::ShuffleQueue
         | Row::SaveQueue
         | Row::ClearQueue
-        | Row::Info(_) => return Outcome::None,
+        | Row::Info(_)
+        | Row::HelpLine(_) => return Outcome::None,
         // A pick in the queue returns to Now Playing, which opened it.
         Row::Queued(i) if b.under_now_playing() => {
             b.pop();

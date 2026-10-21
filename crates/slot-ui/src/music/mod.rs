@@ -36,7 +36,7 @@ pub use face::{
     music_no_art_face, music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face,
     music_status_face, music_window, Ink, LineInk, MUSIC_STATUS,
 };
-pub use list::{music_action_px, music_row_ink, music_row_px, music_row_text_w};
+pub use list::{music_rich_px, music_row_ink, music_row_px, music_row_text_w};
 pub use text_view::TextFaces;
 pub use theme::MusicTheme;
 pub use tint::{music_tint, music_tint_ink, MusicTint};
@@ -46,9 +46,8 @@ pub use tween::{music_eased, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLI
 /// List type as a share of its row spacing, from Normal: 24 px on 44 px rows. Small and Large
 /// scale from it through their row counts.
 const LIST_TYPE_PER_ROW: f32 = 24.0 / 44.0;
-/// Action rows (Play All, Shuffle) and Now Playing's second lines, against their main type.
-const ACTION_SCALE: f32 = 0.8;
-const SECOND_PX: f32 = MENU_PX * ACTION_SCALE;
+/// Now Playing's second lines, against its main type.
+const SECOND_PX: f32 = MENU_PX * 0.8;
 /// Titles, counts and Now Playing's time.
 const SMALL_PX: f32 = 18.0;
 const SMALL_H: u32 = 26;
@@ -66,9 +65,9 @@ const LEGEND_Y: f32 = 427.0;
 const PROGRESS_Y: f32 = 50.0;
 const PROGRESS_H: f32 = 3.0;
 pub const ART_BOX: u32 = 240;
-/// A list row's album thumbnail, square, inside the highlight of a row of a page of eight, and
-/// the room it takes before the row's text.
-pub const THUMB_PX: u32 = 32;
+/// A list row's album thumbnail, square, inside the highlight of a two-line row (five a page),
+/// and the room it takes before the row's text.
+pub const THUMB_PX: u32 = 44;
 const THUMB_ROOM: f32 = THUMB_PX as f32 + 12.0;
 /// The note, or a book, on the square with no picture: two fifths of it across.
 const NO_ART_PX: f32 = ART_BOX as f32 * 0.4;
@@ -184,9 +183,11 @@ pub struct ListFaces {
     /// The rows that are favorites, and the heart drawn at their right.
     pub hearts: Vec<bool>,
     pub heart: Option<MusicFace>,
-    /// Whether the rows start with their album's thumbnail, and each one's, once read.
+    /// Whether the rows are two lines beside their album's thumbnail; each one's thumbnail,
+    /// once read, and its second line: who made it.
     pub thumbed: bool,
     pub thumbs: Vec<Option<MusicFace>>,
+    pub seconds: Vec<Option<MusicFace>>,
 }
 
 /// The track playing: its three lines, picture, state symbols, bar, place and time.
@@ -206,7 +207,7 @@ pub struct NowPlayingFaces {
     pub time: Option<MusicFace>,
     /// The track after this one, under the picture.
     pub next: Option<MusicFace>,
-    /// Dynamic Color, when on.
+    /// Dynamic Color: the album picture's colour.
     pub tint: Option<MusicTint>,
 }
 

@@ -61,6 +61,8 @@ pub enum Row {
     SaveQueue,
     ClearQueue,
     Info(Info),
+    /// A line of Help, to read.
+    HelpLine(usize),
 }
 
 /// What Song Info tells of the track playing.
@@ -143,6 +145,7 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         View::Main => {
             rows.extend([
                 Row::NowPlaying,
+                Row::Open(View::Queue),
                 Row::Open(View::Library),
                 Row::Open(View::Playlists),
                 Row::Open(View::Books),
@@ -199,7 +202,7 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         // The Sound and Audiobooks pages, the settings on this one, the library, then the pages
         // seldom wanted.
         View::Settings => {
-            rows.push(Row::Open(View::Sound));
+            rows.push(Row::Open(View::MusicSettings));
             rows.extend((!lib.books.is_empty()).then_some(Row::Open(View::BookSettings)));
             rows.extend(Setting::ALL.map(Row::Setting));
             rows.extend([
@@ -208,14 +211,16 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
                 Row::Open(View::Advanced),
             ]);
         }
-        View::Sound => rows.extend(Setting::SOUND.map(Row::Setting)),
+        View::MusicSettings => rows.extend(Setting::MUSIC.map(Row::Setting)),
         View::BookSettings => rows.extend(Setting::BOOKS.map(Row::Setting)),
+        View::Experimental => rows.extend(Setting::EXPERIMENTAL.map(Row::Setting)),
         // What tells about the player: the scrobbler log for an uploader, the detailed log, and
         // the performance log only in a build that measures (`--features perf`).
         View::Advanced => {
             rows.push(Row::Setting(Setting::Scrobbler));
             rows.extend(cfg!(feature = "perf").then_some(Row::Setting(Setting::PerfLog)));
             rows.push(Row::Setting(Setting::Log));
+            rows.push(Row::Open(View::Experimental));
         }
         View::Queue => rows.extend((0..queue.tracks.len()).map(Row::Queued)),
         View::Artists => rows.extend(lib.music_artists.iter().map(|&a| Row::Artist(a))),
@@ -266,7 +271,8 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         View::BookMenu(_) => rows.extend([Row::Chapters, Row::StartOver, Row::Finished]),
         View::SongInfo(_) => rows.extend(Info::ALL.map(Row::Info)),
         // Now Playing, or text to read: no rows.
-        View::NowPlaying | View::Lyrics | View::Help => {}
+        View::Help => rows.extend((0..text::help_len()).map(Row::HelpLine)),
+        View::NowPlaying | View::Lyrics => {}
     }
     rows
 }
@@ -328,14 +334,18 @@ pub(crate) fn left_at(cx: &Context, rows: &[Row], book: BookId) -> usize {
         .unwrap_or(0)
 }
 
-/// The album whose thumbnail starts `row` in `view`: an album's or a book's own, or a song's
-/// from across albums; none in its album's own list, which numbers its songs instead.
+/// The album whose thumbnail starts `row` in `view`: an album's or a book's own, or a song's.
+/// Only in a list of two lines a row (`View::rich`), the one place that says which lists have
+/// thumbnails; none in an album's own list, say, which numbers its songs instead.
 pub(crate) fn album(cx: &Context, view: View, row: Row) -> Option<AlbumId> {
     let lib = cx.lib;
+    if !view.rich() {
+        return None;
+    }
     match row {
         Row::Album(a) => Some(a),
         Row::Book(b) => Some(lib.books[b].album),
-        Row::Track(t) if view != View::Album(lib.tracks[t].album) => Some(lib.tracks[t].album),
+        Row::Track(t) => Some(lib.tracks[t].album),
         Row::Queued(i) => cx.queue.tracks.get(i).map(|&t| lib.tracks[t].album),
         _ => None,
     }
@@ -404,7 +414,12 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
                 ..RowText::plain(text::GO_TO)
             },
         },
-        // Set back with nothing to list yet; open, they say where to put it.
+        // Set back with nothing to list yet; open, they say where to put it, or that nothing is up
+        // next.
+        Row::Open(View::Queue) => RowText {
+            faint: idle(queue),
+            ..RowText::plain(text::QUEUE)
+        },
         Row::Open(View::Library) | Row::Open(View::Playlists) => RowText {
             faint: lib.tracks_by_title.is_empty(),
             ..RowText::plain(text::row(row, view).unwrap_or_default())
@@ -428,6 +443,14 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
                 ..RowText::plain(&lib.albums[a].name)
             }
         }
+        // An artist's own albums say when they came out, below.
+        Row::Album(a) if matches!(view, View::Artist(_)) => RowText {
+            after: match lib.albums[a].year {
+                0 => String::new(),
+                year => year.to_string(),
+            },
+            ..RowText::plain(&lib.albums[a].name)
+        },
         Row::Album(a) => RowText::plain(&lib.albums[a].name),
         Row::Book(b) => {
             let album = &lib.albums[lib.books[b].album];
@@ -490,6 +513,19 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             playing: i == queue.at,
             faint: i < queue.at,
             ..track(queue.tracks[i])
+        },
+        // A tip lit; a place's name faint, as a heading; a key, then what it does, dim.
+        Row::HelpLine(i) => match text::help(i) {
+            Some(text::HelpLine::Tip(tip)) => RowText::plain(tip),
+            Some(text::HelpLine::Place(place)) => RowText {
+                faint: true,
+                ..RowText::plain(place)
+            },
+            Some(text::HelpLine::Key(key, does)) => RowText {
+                after: does.into(),
+                ..RowText::plain(key)
+            },
+            None => RowText::default(),
         },
         // What it is, lit as a label, then what the track's is, dim.
         Row::Info(info) => RowText {

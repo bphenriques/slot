@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::books::chapters::Chapter;
-use crate::browse::{Browser, Context};
+use crate::browse::{Browser, Context, View};
 use crate::library::TrackId;
 use crate::library::{scan, Library};
 use crate::lyrics::Lyrics;
@@ -208,7 +208,7 @@ impl Music {
         // The first start opens on Help, once.
         let (mut browser, mut out) = (Browser::default(), Vec::new());
         if !settings.help_seen {
-            browser.push(crate::browse::View::Help, 0);
+            browser.push(View::Help, 0);
             settings.help_seen = true;
             out.push(Effect::Setting("help", "seen".into()));
         }
@@ -218,7 +218,8 @@ impl Music {
             out,
             library: Library::default(),
             scan: Scan {
-                rx: Some(spawn_scan(root, false, progress.clone())),
+                rx: Some(spawn_scan(root, false, progress.clone(), thumb_px)),
+                thumb_px,
                 ready: false,
                 queue_text: Some(store.read(SavedQueue::FILE)),
                 recent_text: Some(store.read(Recent::FILE)),
@@ -507,6 +508,16 @@ impl Music {
             .flatten();
         let after = |s: f64| Duration::try_from_secs_f64(s.max(0.0)).unwrap_or(Duration::MAX);
         steps.map(|s| after(s).saturating_add(STEP_PAST))
+    }
+
+    /// The music screen opened from slot's menu: on Now Playing while something plays, when
+    /// Open on Now Playing says so; else where it was left.
+    pub fn open(&mut self) {
+        let playing = self.player.state() == PlayState::Playing;
+        if self.settings.open_playing && playing && self.browser.view() != View::NowPlaying {
+            self.browser.home();
+            self.browser.push(View::NowPlaying, 0);
+        }
     }
 
     /// Whether music carries on with the screen off (`screen_off = play`).

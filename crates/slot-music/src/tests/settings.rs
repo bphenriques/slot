@@ -1,4 +1,4 @@
-//! Music Settings: the pages, their choices and the file they are kept in.
+//! Settings: the pages, their choices and the file they are kept in.
 
 use super::common::*;
 
@@ -19,9 +19,9 @@ fn music_settings_flip_with_left_and_right() {
     assert_eq!(
         shown(&page),
         [
-            ("Sound".to_string(), None),
+            ("Music".to_string(), None),
             on("Screen Off", "Pause"),
-            on("Dynamic Color", "On"),
+            on("Open on Now Playing", "Off"),
             on("Update Library", "1 song"),
             ("Help".to_string(), None),
             ("Advanced".to_string(), None),
@@ -33,11 +33,10 @@ fn music_settings_flip_with_left_and_right() {
     for key in TO_SETTINGS.into_iter().chain([Key::A]) {
         sound.press(&own_cx, key);
     }
-    assert_eq!(sound.view(), View::Sound);
+    assert_eq!(sound.view(), View::MusicSettings);
     assert_eq!(
         shown(&sound.page(&own_cx))[..],
         [
-            on("Equalizer", "Off"),
             on("Crossfade", "Off"),
             on("Volume Leveling", "Off"),
             on("Mono Audio", "Off"),
@@ -68,7 +67,6 @@ fn settings_are_kept_on_the_card_but_the_sleep_timer_is_not() {
     let s = Settings {
         repeat: crate::Repeat::One,
         log: true,
-        color: false,
         jump: 15,
         ..Settings::default()
     };
@@ -85,4 +83,41 @@ fn a_goes_round_the_choices_while_left_and_right_stop_at_the_ends() {
     assert_eq!(cycle(&order, 3, 0), 1);
     assert_eq!(cycle(&order, 1, -1), 1);
     assert_eq!(cycle(&order, 1, 1), 2);
+}
+
+#[test]
+fn a_settings_row_that_opens_a_page_hints_no_change() {
+    let (_d, lib) = library(&["X/A/01 one.mp3"]);
+    let s = Settings::default();
+    let mut b = Browser::default();
+    press(&mut b, &lib, &TO_SETTINGS);
+    let cx = cx(&lib, QueueView::default(), s);
+    // Up from the first goes round to Advanced, then Help; the first is Music, a page too.
+    for keys in [&[Key::Up][..], &[Key::Up], &[Key::Down, Key::Down]] {
+        for &k in keys {
+            b.press(&cx, k);
+        }
+        let hints = crate::text::legend(crate::screens::legend(&b, &cx));
+        assert!(
+            hints.iter().all(|h| h.tap != "Change"),
+            "{:?}: {hints:?}",
+            b.row(&cx)
+        );
+    }
+}
+
+#[test]
+fn advanced_ends_with_an_experimental_page_of_the_equalizer_and_skip_silence() {
+    let (_d, lib) = library(&["X/A/01 one.mp3"]);
+    let s = Settings::default();
+    let mut b = Browser::default();
+    // Settings, Up round to Advanced, then Up round to its last row, Experimental.
+    press(
+        &mut b,
+        &lib,
+        &[Key::Up, Key::A, Key::Up, Key::A, Key::Up, Key::A],
+    );
+    assert_eq!(b.view(), View::Experimental);
+    let page = b.page(&cx(&lib, QueueView::default(), s));
+    assert_eq!(page.rows, ["Equalizer", "Skip Silence"]);
 }

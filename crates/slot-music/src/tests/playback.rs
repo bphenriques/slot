@@ -330,7 +330,7 @@ fn the_queue_opens_at_what_plays_in_a_shuffled_queue_after_skips() {
     b.press(&cx(&lib, p.queue(), s), Key::Select);
     assert_eq!(b.view(), View::Queue);
     let page = b.page(&cx(&lib, p.queue(), s));
-    assert_eq!(page.rows.len(), crate::browse::LIST_ROWS, "{:?}", page.rows);
+    assert_eq!(page.rows.len(), crate::browse::RICH_ROWS, "{:?}", page.rows);
     assert!(
         page.rows[page.selected].playing,
         "at what plays, the 36 played above"

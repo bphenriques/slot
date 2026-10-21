@@ -52,7 +52,9 @@ impl Music {
         let command = match outcome {
             Outcome::None => None,
             Outcome::Leave => return true,
+            // Back to the Music menu, where the reading shows, its bar filling.
             Outcome::Rescan(full) => {
+                self.browser.home();
                 self.rescan(full);
                 return false;
             }
@@ -78,7 +80,7 @@ impl Music {
             // Marked with the lid closed, a buzz says so, as nothing is seen.
             Outcome::Bookmark => {
                 if self.dark {
-                    self.buttons.pocket.buzz(1, self.now.at);
+                    self.buttons.pocket.tick(self.now.at);
                 }
                 self.add_bookmark()
             }
@@ -163,7 +165,15 @@ impl Music {
                     _ => None,
                 }
             }
-            Outcome::Seek(by) => self.player.seek(by),
+            Outcome::Seek(by) => {
+                // Unseen, a jump that lands in another chapter buzzes once, to say so.
+                let was = self.player.chapter().map(|c| c.index);
+                let seek = self.player.seek(by);
+                if self.dark && was != self.player.chapter().map(|c| c.index) {
+                    self.buttons.pocket.tick(self.now.at);
+                }
+                seek
+            }
             Outcome::FromLine(i) => {
                 let at = self.lyrics_now().and_then(|l| l.lines.get(i)?.at);
                 at.and_then(|at| self.player.seek_to(at))

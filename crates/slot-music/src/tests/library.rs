@@ -53,9 +53,12 @@ fn update_library_reads_what_changed_and_held_reads_everything_again() {
     let want: Vec<&str> = ["Scrobbler Log"]
         .into_iter()
         .chain(measured)
-        .chain(["Detailed Log"])
+        .chain(["Detailed Log", "Experimental"])
         .collect();
-    assert_eq!(rows, want, "the scrobbler log, then the logs");
+    assert_eq!(
+        rows, want,
+        "the scrobbler log, the logs, then what is still being shaped"
+    );
     press(&mut b, &lib, &[Key::B]);
     // Up past Help to Update Library: tapped it updates, held it rebuilds.
     press(&mut b, &lib, &[Key::Up, Key::Up]);
@@ -121,7 +124,7 @@ fn playlists_read_their_songs_by_path_with_favorites_always_first() {
         [("Favorites", &[][..]), ("Road Trip", &ids(&[2, 0, 1])[..])]
     );
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
     assert_eq!(b.view(), View::Playlists);
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!(
@@ -167,8 +170,8 @@ fn recently_played_is_kept_by_path_and_listed_with_the_playlists() {
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
-    // Music menu: Now Playing, Library, Playlists; then Favorites, Recently Played.
-    for key in [Key::Down, Key::Down, Key::A, Key::Down, Key::A] {
+    // Music menu: Now Playing, Queue, Library, Playlists; then Favorites, Recently Played.
+    for key in [Key::Down, Key::Down, Key::Down, Key::A, Key::Down, Key::A] {
         b.press(&cx, key);
     }
     assert_eq!(b.view(), View::RecentlyPlayed);
@@ -602,7 +605,7 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
     );
     let s = Settings::default();
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::A]);
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx(&lib, QueueView::default(), s));
     assert_eq!(page.rows, ["Artists", "Albums", "Songs", "Genres", "Years"]);
     // Years: the decades, then a decade's albums by year, played as one.
@@ -624,7 +627,11 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
     assert_eq!(tracks.len(), 2);
     // Genres: a genre's albums, which X adds to the queue whole.
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::A, Key::Up, Key::Up, Key::A]);
+    press(
+        &mut b,
+        &lib,
+        &[Key::Down, Key::Down, Key::A, Key::Up, Key::Up, Key::A],
+    );
     assert_eq!(
         b.page(&cx(&lib, QueueView::default(), s)).rows,
         ["Pop", "Rock"]
@@ -636,7 +643,7 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
     // Untagged, neither is offered.
     let (_d, plain) = library(&["X/A/01 one.mp3"]);
     let mut b = Browser::default();
-    press(&mut b, &plain, &[Key::Down, Key::A]);
+    press(&mut b, &plain, &[Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx(&plain, QueueView::default(), s));
     assert_eq!(page.rows, ["Artists", "Albums", "Songs"]);
 }

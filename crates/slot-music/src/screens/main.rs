@@ -61,6 +61,9 @@ pub(crate) fn screen(music: &Music) -> Screen {
     if music.scanning() {
         let (done, of) = music.reading();
         screen.corner = text::scanning(music.scan.ready, done, of);
+        if let (Body::List(list), true) = (&mut screen.body, of > 0) {
+            list.progress = Some(done as f32 / of as f32);
+        }
     } else if music.library.tracks.is_empty() {
         screen.corner = text::NOTHING_YET.into();
     } else if let (Body::List(list), Some((done, of))) =

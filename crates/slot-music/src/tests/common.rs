@@ -45,15 +45,23 @@ pub fn press(b: &mut Browser, lib: &Library, keys: &[Key]) -> Outcome {
         .unwrap_or(Outcome::None)
 }
 
-// The main screen: Now Playing, Library, Playlists, Settings; Library: Artists, Albums, Songs.
+// The main screen: Now Playing, Queue, Library, Playlists, Audiobooks, Settings; Library: Artists, Albums, Songs.
 // Artists and Albums open on Play All and Shuffle, so these go on to the first of them.
-pub const TO_ARTISTS: [Key; 5] = [Key::Down, Key::A, Key::A, Key::Down, Key::Down];
+pub const TO_ARTISTS: [Key; 6] = [Key::Down, Key::Down, Key::A, Key::A, Key::Down, Key::Down];
 
-pub const TO_ALBUMS: [Key; 6] = [Key::Down, Key::A, Key::Down, Key::A, Key::Down, Key::Down];
+pub const TO_ALBUMS: [Key; 7] = [
+    Key::Down,
+    Key::Down,
+    Key::A,
+    Key::Down,
+    Key::A,
+    Key::Down,
+    Key::Down,
+];
 
 pub const TO_SETTINGS: [Key; 2] = [Key::Up, Key::A];
 
-pub const TO_TRACKS: [Key; 5] = [Key::Down, Key::A, Key::Down, Key::Down, Key::A];
+pub const TO_TRACKS: [Key; 6] = [Key::Down, Key::Down, Key::A, Key::Down, Key::Down, Key::A];
 
 pub fn played(c: Option<Command>) -> PathBuf {
     match c {

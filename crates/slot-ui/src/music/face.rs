@@ -167,7 +167,7 @@ pub fn music_row_face(
     fit_w: u32,
     theme: &MusicTheme,
 ) -> Option<UndoFace> {
-    let h = (px + 12.0).ceil() as u32;
+    let h = (px + 2.0 * ROW_FACE_PAD).ceil() as u32;
     let context = match ink {
         Ink::Faint => Ink::Faint,
         _ => Ink::Dim,
@@ -413,6 +413,9 @@ fn run(text: &str, ink: [u8; 3], px: f32, h: u32) -> Option<UndoFace> {
 }
 
 /// `parts` side by side, centred on one line, with the menu's padding around them.
+/// The blank above and below a row's type in its face, so rows of any size centre alike.
+pub(super) const ROW_FACE_PAD: f32 = 6.0;
+
 fn padded(parts: &[UndoFace]) -> UndoFace {
     let h = parts.iter().map(|p| p.h).max().unwrap_or(MENU_H);
     let gaps = PART_GAP * (parts.len() as u32).saturating_sub(1);

@@ -1,4 +1,4 @@
-//! Music Settings: Left, Right and A change the highlighted setting, as in the quick menu.
+//! Settings: Left, Right and A change the highlighted setting, as in the quick menu.
 
 use crate::browse::{Key, Outcome};
 use crate::settings::Setting;

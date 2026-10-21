@@ -23,9 +23,8 @@ pub struct Make {
     pub album: AlbumId,
     pub song: PathBuf,
     pub label: PathBuf,
-    /// Its thumbnail, for a list's row, and when its newest song changed: a label as new is
-    /// the picture already found and shrunk, from which the thumbnail is made.
-    pub thumb: PathBuf,
+    /// When its newest song changed: a label as new is the picture already found and shrunk,
+    /// from which its thumbnail is made.
     pub changed: u64,
 }
 
@@ -42,18 +41,21 @@ pub fn label(root: &Path, lib: &Library, album: AlbumId) -> PathBuf {
         .join(format!("{:016x}.png", fnv(key.as_bytes())))
 }
 
-/// An album's thumbnail, beside its label.
-pub fn thumb(root: &Path, lib: &Library, album: AlbumId) -> PathBuf {
-    label(root, lib, album).with_extension("thumb.png")
+/// An album's thumbnail `px` square, beside its label `label`: named by its size, so a new size
+/// is made afresh.
+pub fn thumb(label: &Path, px: u32) -> PathBuf {
+    label.with_extension(format!("{px}.png"))
 }
 
-/// The albums whose label or thumbnail is missing, or older than their newest song.
-pub fn missing(root: &Path, lib: &Library) -> Vec<AlbumId> {
+/// The albums whose label or thumbnail, `thumb_px` square, is missing, or older than their
+/// newest song.
+pub fn missing(root: &Path, lib: &Library, thumb_px: u32) -> Vec<AlbumId> {
     (0..lib.albums.len())
         .map(AlbumId)
         .filter(|&a| {
             let changed = lib.albums[a].changed;
-            !current(&label(root, lib, a), changed) || !current(&thumb(root, lib, a), changed)
+            let label = label(root, lib, a);
+            !current(&label, changed) || !current(&thumb(&label, thumb_px), changed)
         })
         .collect()
 }
@@ -108,7 +110,6 @@ impl Covers {
             album,
             song,
             label: label(root, lib, album),
-            thumb: thumb(root, lib, album),
             changed: lib.albums[album].changed,
         })
     }
@@ -150,8 +151,9 @@ pub fn make(job: &Make, px: u32, thumb_px: u32) {
             .thumbnail(thumb_px, thumb_px)
             .to_rgba8()
     };
-    if let Err(e) = file_label(&small, &job.thumb) {
-        log::warn!("{}: {e}", job.thumb.display());
+    let thumb = thumb(label, thumb_px);
+    if let Err(e) = file_label(&small, &thumb) {
+        log::warn!("{}: {e}", thumb.display());
     }
 }
 
@@ -252,7 +254,8 @@ mod tests {
         let blank = image::RgbaImage::new(1, 1);
         for (name, age) in [("Old", 100), ("Current", 0)] {
             let a = album(name);
-            for path in [label(d.path(), &lib, a), thumb(d.path(), &lib, a)] {
+            let label = label(d.path(), &lib, a);
+            for path in [thumb(&label, 4), label] {
                 file_label(&blank, &path).unwrap();
                 aged(&path, age);
             }
@@ -267,7 +270,7 @@ mod tests {
         file_label(&blank, &label(d.path(), &lib, album("Half"))).unwrap();
         let mut want = vec![album("Old"), album("None"), album("Half")];
         want.sort();
-        assert_eq!(missing(d.path(), &lib), want);
+        assert_eq!(missing(d.path(), &lib, 4), want);
     }
 
     #[test]
@@ -293,7 +296,7 @@ mod tests {
         covers.made();
         assert_eq!(covers.progress(), None);
         assert_eq!(image::open(&path).unwrap().width(), 16, "shrunk to fit");
-        let small = image::open(thumb(d.path(), &lib, AlbumId(0))).unwrap();
+        let small = image::open(thumb(&label(d.path(), &lib, AlbumId(0)), 4)).unwrap();
         assert_eq!(
             (small.width(), small.height()),
             (4, 2),
@@ -313,7 +316,7 @@ mod tests {
         file_label(&big, &label(d.path(), &lib, AlbumId(0))).unwrap();
         let job = Covers::new(vec![AlbumId(0)]).next(d.path(), &lib).unwrap();
         make(&job, 16, 4);
-        let small = image::open(thumb(d.path(), &lib, AlbumId(0))).unwrap();
+        let small = image::open(thumb(&label(d.path(), &lib, AlbumId(0)), 4)).unwrap();
         assert_eq!(
             (small.width(), small.height()),
             (4, 4),

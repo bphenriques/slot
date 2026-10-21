@@ -192,7 +192,6 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
             done,
             left.max(0.0) / f64::from(speed),
         )),
-        color: music.settings.color,
         book: true,
     };
     Screen::new(

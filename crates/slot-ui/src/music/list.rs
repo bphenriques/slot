@@ -2,11 +2,12 @@
 //! values and favorites' hearts at the right as in the quick menu. Menus sit in the middle of
 //! the screen as slot's do; lists fill the room under the header.
 
+use super::face::ROW_FACE_PAD;
 use super::slot::{push, Canvas, Draw, MENU_PAD, MENU_PX, QUICK_EDGE, QUICK_PITCH};
 use super::theme::rgba;
 use super::{
-    draw_progress, Ink, ListFaces, MusicFace, MusicTheme, ACTION_SCALE, BAR_INSET, CARET_GAP,
-    LEGEND_Y, LIST_TYPE_PER_ROW, MUSIC_HEART_ROOM, PROGRESS_Y, ROWS_Y, THUMB_PX, THUMB_ROOM,
+    draw_progress, Ink, ListFaces, MusicFace, MusicTheme, BAR_INSET, CARET_GAP, LEGEND_Y,
+    LIST_TYPE_PER_ROW, MUSIC_HEART_ROOM, PROGRESS_Y, ROWS_Y, THUMB_PX, THUMB_ROOM,
 };
 
 /// The type size of a page's rows: the quick menu's for menus, from the spacing for lists.
@@ -17,6 +18,16 @@ pub fn music_row_px(menu: bool, per_page: usize) -> f32 {
         (Grid::new(menu, per_page).pitch * LIST_TYPE_PER_ROW).round()
     }
 }
+
+/// The type of a two-line row: its name at a list's usual size, eight a page, and who made it a
+/// size down below.
+pub fn music_rich_px() -> (u32, u32) {
+    let title = music_row_px(false, 8);
+    (title as u32, (title * 0.8).round() as u32)
+}
+
+/// The gap between a two-line row's lines, their type to type.
+const LINE_GAP: f32 = 6.0;
 
 /// Room left between a row's text and its value.
 const VALUE_GAP: u32 = 20;
@@ -43,18 +54,12 @@ pub fn music_row_text_w(width: u32, heart: bool, value_w: u32, thumbed: bool) ->
 /// album with no picture.
 const THUMB_BLANK: f32 = 0.15;
 
-/// Action rows are a size down.
-pub fn music_action_px(menu: bool, per_page: usize) -> f32 {
-    (music_row_px(menu, per_page) * ACTION_SCALE).round()
-}
-
-/// Where a page's rows go: the first one's top, the spacing, how many action rows lead, and how
-/// far rows are from their places as they slide there.
+/// Where a page's rows go: the first one's top, the spacing, and how far rows are from their
+/// places as they slide there.
 #[derive(Copy, Clone)]
 struct Grid<'a> {
     top: f32,
     pitch: f32,
-    head: usize,
     offsets: &'a [f32],
 }
 
@@ -67,62 +72,41 @@ impl<'a> Grid<'a> {
             Grid {
                 top: ((LEGEND_Y - QUICK_PITCH * rows) / 2.0).round(),
                 pitch: QUICK_PITCH,
-                head: 0,
                 offsets: &[],
             }
         } else {
             Grid {
                 top: ROWS_Y,
                 pitch: ((LEGEND_Y - 8.0 - ROWS_Y) / rows).floor(),
-                head: 0,
                 offsets: &[],
             }
         }
     }
 
-    /// The page `list` lays out. Action rows are set a size down and as much closer; the room
-    /// saved goes above the rule under them, so the rows after keep their places.
+    /// The page `list` lays out.
     fn of(list: &'a ListFaces) -> Grid<'a> {
         Grid {
-            head: list.head,
             offsets: &list.offsets,
             ..Grid::new(list.menu, list.per_page)
         }
     }
 
-    fn height(self, i: usize) -> f32 {
-        if i < self.head {
-            self.pitch * ACTION_SCALE
-        } else {
-            self.pitch
-        }
-    }
-
     /// The top of row `i`, or between two rows while the highlight glides.
     fn row_top(self, i: f32) -> f32 {
-        let head = self.head as f32;
-        let action = |i: f32| self.top + i * self.pitch * ACTION_SCALE;
-        if i <= head - 1.0 {
-            action(i)
-        } else if i < head {
-            let (from, to) = (action(head - 1.0), self.top + head * self.pitch);
-            from + (to - from) * (i - (head - 1.0))
-        } else {
-            self.top + i * self.pitch
-        }
+        self.top + i * self.pitch
     }
 
     /// The top of a face `h` tall, centred in row `i`, or on its way there.
     fn row_mid(self, i: usize, h: u32) -> f32 {
         let sliding = self.offsets.get(i).copied().unwrap_or(0.0) * self.pitch;
-        self.row_top(i as f32) + (self.height(i) - h as f32) / 2.0 + sliding
+        self.row_top(i as f32) + (self.pitch - h as f32) / 2.0 + sliding
     }
 
     /// A rule above row `i`: midway between it and the end of the row before.
     fn rule_y(self, i: usize) -> f32 {
         let top = self.row_top(i as f32);
         match i.checked_sub(1) {
-            Some(above) => (self.row_top(above as f32) + self.height(above) + top) / 2.0,
+            Some(above) => (self.row_top(above as f32) + self.pitch + top) / 2.0,
             None => top,
         }
     }
@@ -146,9 +130,22 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
         if list.thumbed && i >= list.head {
             draw_thumb(list, grid, i, theme, out);
         }
-        if let Some((tex, w, h)) = list.rows[i] {
-            let x = if i >= list.head { shift } else { 0.0 };
-            push(out, tex, QUICK_EDGE - pad + x, grid.row_mid(i, h), w, h);
+        let x = QUICK_EDGE - pad + if i >= list.head { shift } else { 0.0 };
+        let second = list.seconds.get(i).copied().flatten();
+        match (list.rows[i], second) {
+            // Two lines, their type centred together in the row, the blank each face keeps above
+            // and below left out: the name, then who made it below.
+            (Some((tex, w, h)), Some((stex, sw, sh))) => {
+                let (name, by) = (
+                    h as f32 - 2.0 * ROW_FACE_PAD,
+                    sh as f32 - 2.0 * ROW_FACE_PAD,
+                );
+                let top = grid.row_mid(i, (name + LINE_GAP + by).round() as u32);
+                push(out, tex, x, top - ROW_FACE_PAD, w, h);
+                push(out, stex, x, top + name + LINE_GAP - ROW_FACE_PAD, sw, sh);
+            }
+            (Some((tex, w, h)), None) => push(out, tex, x, grid.row_mid(i, h), w, h),
+            _ => {}
         }
     };
     for i in (0..list.rows.len()).filter(|&i| Some(i) != card) {
@@ -190,7 +187,7 @@ fn draw_bar(list: &ListFaces, grid: Grid, canvas: Canvas, theme: &MusicTheme, ou
         x: 0.0,
         y: grid.row_top(at).round() + BAR_INSET,
         w: canvas.w,
-        h: grid.height(at.round() as usize) - 2.0 * BAR_INSET,
+        h: grid.pitch - 2.0 * BAR_INSET,
         colour: if list.lifted {
             lifted(theme)
         } else {
@@ -297,8 +294,14 @@ mod tests {
     }
 
     #[test]
-    fn a_thumbnail_fits_inside_a_list_row_s_highlight() {
-        let row = Grid::new(false, 8).pitch - 2.0 * BAR_INSET;
+    fn a_thumbnail_and_two_lines_fit_inside_a_two_line_row_s_highlight_with_room_round_them() {
+        let row = Grid::new(false, 5).pitch - 2.0 * BAR_INSET;
+        let (title, second) = music_rich_px();
+        // Room above the first line and below the second, as much as between them.
+        assert!(
+            (title + second) as f32 + 3.0 * LINE_GAP <= row,
+            "two lines in {row}"
+        );
         assert!(THUMB_PX as f32 <= row, "{THUMB_PX} in {row}");
     }
 

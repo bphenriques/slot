@@ -5,7 +5,7 @@ use slot_gfx::Compositor;
 use slot_input::Millis;
 use slot_music::{AlbumId, Art, ListBody, RowText};
 use slot_ui::music::{
-    music_action_px, music_half_w, music_row_ink, music_row_px, music_row_text_w, music_text_width,
+    music_half_w, music_rich_px, music_row_ink, music_row_px, music_row_text_w, music_text_width,
     Ink, ListFaces, MusicFace,
 };
 use slot_ui::Canvas;
@@ -28,7 +28,12 @@ pub(super) fn faces(
         .ms((Some(selected), focus.unwrap_or_default()), now);
     let bar = text.motion.bar(&body.rows, selected, now);
     let row_px = music_row_px(body.menu, body.per_page) as u32;
-    let action_px = music_action_px(body.menu, body.per_page) as u32;
+    // Two-line rows: the name at a list's usual size, and who made it a size down, dim, below.
+    let (row_px, second_px) = if body.thumbs {
+        music_rich_px()
+    } else {
+        (row_px, 0)
+    };
     let width = music_text_width(false, canvas);
     let hearts: Vec<bool> = body.rows.iter().map(|r| r.favorite).collect();
     let thumbs = thumbs(text, compositor, &body.rows, arts);
@@ -47,15 +52,30 @@ pub(super) fn faces(
                 .sync(compositor, text.theme, i, spec, value_w, None),
         );
     }
+    let mut seconds = Vec::with_capacity(body.rows.len());
     let mut rows = Vec::with_capacity(body.rows.len());
-    for (i, row) in body.rows.into_iter().enumerate() {
-        // Action rows are a size down. Faint rows read dim on the highlight; only it scrolls,
-        // or every row of a list that only tells.
-        let px = if row.action { action_px } else { row_px };
+    for (i, mut row) in body.rows.into_iter().enumerate() {
+        let second = (body.thumbs && !row.after.is_empty()).then(|| std::mem::take(&mut row.after));
+        seconds.push(second.and_then(|after| {
+            let spec = Spec::Row {
+                text: RowText::plain(after),
+                ink: Ink::Dim,
+                px: second_px,
+            };
+            let width = music_row_text_w(width, false, 0, true);
+            text.seconds
+                .sync(compositor, text.theme, i, spec, width, None)
+        }));
+        // Faint rows read dim on the highlight; only it scrolls, or every row of a list that only
+        // tells.
         let ink = music_row_ink(row.faint, i == selected);
         let value = values.get(i).copied().flatten().map_or(0, |(_, w, _)| w);
         let width = music_row_text_w(width, row.favorite, value, body.thumbs);
-        let spec = Spec::Row { text: row, ink, px };
+        let spec = Spec::Row {
+            text: row,
+            ink,
+            px: row_px,
+        };
         let scroll = (body.readonly || i == selected).then_some(scroll);
         rows.push(
             text.lines
@@ -82,6 +102,7 @@ pub(super) fn faces(
         heart,
         thumbed: body.thumbs,
         thumbs,
+        seconds,
     }
 }
 

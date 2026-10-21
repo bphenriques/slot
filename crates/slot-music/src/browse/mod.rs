@@ -22,6 +22,8 @@ use std::time::Instant;
 pub const MENU_ROWS: usize = 7;
 /// Rows on a page of a list: the library's lists and the queue.
 pub const LIST_ROWS: usize = 8;
+/// Rows on a page of a list of two lines a row, with room round each line.
+pub const RICH_ROWS: usize = 5;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum View {
@@ -32,11 +34,14 @@ pub enum View {
     /// The song's lyrics, from Now Playing with X.
     Lyrics,
     Settings,
-    /// The sound settings slot's player has, a page of Music Settings; and the audiobooks'.
-    Sound,
+    /// Settings' page of how music plays (the sound settings slot's player has), and the
+    /// audiobooks' page.
+    MusicSettings,
     BookSettings,
     /// What helps say how the device does: the performance log and the detailed log.
     Advanced,
+    /// What is still being shaped, under Advanced.
+    Experimental,
     /// The library's ways in: artists, albums, songs, genres and years.
     Library,
     Artists,
@@ -99,9 +104,10 @@ impl View {
                 | View::Library
                 | View::Books
                 | View::Settings
-                | View::Sound
+                | View::MusicSettings
                 | View::BookSettings
                 | View::Advanced
+                | View::Experimental
                 | View::PlayingMenu
                 | View::QueueMenu
                 | View::SongMenu(_)
@@ -123,6 +129,25 @@ impl View {
                 | View::SongMenu(_)
                 | View::BookMenu(_)
                 | View::SongInfo(_)
+        )
+    }
+
+    /// Whether its rows are two lines, the name over who made it, beside their album's thumbnail:
+    /// the lists of albums, songs from across albums and books.
+    pub(crate) fn rich(self) -> bool {
+        matches!(
+            self,
+            View::Albums
+                | View::Artist(_)
+                | View::RecentlyAdded
+                | View::Genre(_)
+                | View::Decade(_)
+                | View::Tracks
+                | View::Playlist(_)
+                | View::RecentlyPlayed
+                | View::Queue
+                | View::BookList(_)
+                | View::Author(_)
         )
     }
 
@@ -355,7 +380,8 @@ pub struct Page {
     /// Rows on this page with a rule above them: under the action rows, between discs, and
     /// under Recently Added.
     pub rules: Vec<usize>,
-    /// Its rows start with their album's thumbnail: albums, books, songs from across albums.
+    /// Its rows are two lines beside their album's thumbnail: albums, books, songs from across
+    /// albums.
     pub thumbs: bool,
 }
 
@@ -438,7 +464,6 @@ impl Browser {
     pub fn at_end(&self, cx: &Context, key: Key) -> bool {
         let n = match self.view() {
             View::Lyrics => cx.lyrics.lines,
-            View::Help => text::help().len(),
             view => rows(cx, view).len(),
         };
         match key {
@@ -487,7 +512,6 @@ impl Browser {
             (View::NowPlaying, Some(_)) => return screens::book::press(cx, key),
             (View::NowPlaying, None) => return screens::now_playing::press(self, cx, key),
             (View::Lyrics, _) => return screens::lyrics::press(self, cx, key),
-            (View::Help, _) => return screens::help::press(self, key),
             _ => {}
         }
         let rows = rows(cx, self.view());
@@ -546,7 +570,7 @@ impl Browser {
                     }
                 })
                 .collect(),
-            thumbs: shown().any(|&r| rows::album(cx, view, r).is_some()),
+            thumbs: view.rich(),
             pages: rows.len().div_ceil(per).max(1),
             item: at.checked_sub(fixed).map(|i| i + 1),
             items: rows.len() - fixed,
@@ -659,10 +683,12 @@ impl Browser {
     }
 }
 
-/// Rows a page of `view` holds: menus keep slot's size, lists their own.
+/// Rows a page of `view` holds: menus keep slot's size, lists their own, fewer of two lines.
 pub fn per_page(view: View) -> usize {
     if view.is_menu() {
         MENU_ROWS
+    } else if view.rich() {
+        RICH_ROWS
     } else {
         LIST_ROWS
     }

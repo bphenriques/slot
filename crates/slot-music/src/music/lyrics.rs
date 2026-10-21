@@ -7,9 +7,9 @@ use crate::browse::{LyricsAt, View};
 use crate::lyrics::Lyrics;
 
 impl Music {
-    /// Asks for the playing song's lyrics and the next's on Now Playing or the lyrics, each once,
-    /// so X shows only where there are some; a new song's are shown from the top. A book has
-    /// none.
+    /// Asks for the playing song's lyrics, the next's and the one before's on Now Playing or the
+    /// lyrics, each once, so X shows only where there are some, and a skip either way finds them
+    /// read and its hints steady; a new song's are shown from the top. A book has none.
     pub(crate) fn read_lyrics(&mut self) {
         let view = self.browser.view();
         let shown = matches!(view, View::Lyrics | View::NowPlaying) && self.book().is_none();
@@ -20,7 +20,7 @@ impl Music {
             self.browser.set_at(0);
             self.browser.scrolled = None;
         }
-        let wanted: Vec<_> = [Some(t), self.player.up_next()]
+        let wanted: Vec<_> = [Some(t), self.player.up_next(), self.player.previous()]
             .into_iter()
             .flatten()
             .collect();

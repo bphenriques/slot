@@ -442,6 +442,12 @@ impl Player {
         at.is_some_and(|i| album.get(i + 1) == Some(&next))
     }
 
+    /// The track before this one: the one before in the queue, or the last under Repeat All.
+    pub fn previous(&self) -> Option<TrackId> {
+        let to = self.queue.step(-1, self.repeat == Repeat::All)?;
+        (to != self.queue.at()).then(|| self.queue.tracks()[to])
+    }
+
     /// The track after this one: the next in the queue, or the first again under Repeat All.
     pub fn up_next(&self) -> Option<TrackId> {
         let to = self.queue.step(1, self.repeat == Repeat::All)?;

@@ -1,4 +1,4 @@
-//! What the worker reads for a song before it is wanted: the one playing and the one after it,
+//! What the worker reads for a song before it is wanted: the one playing and those either side,
 //! so a song and what belongs to it, its lyrics or its chapters, change together.
 
 use crate::library::TrackId;

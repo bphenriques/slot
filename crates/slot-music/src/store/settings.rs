@@ -45,9 +45,9 @@ impl Settings {
         Settings {
             repeat: get("repeat").and_then(Repeat::parse).unwrap_or_default(),
             play_screen_off: is("screen_off", "play"),
+            open_playing: is("open", "playing"),
             // Named in music.txt, and found among the presets: `Store::equalizer`.
             eq: 0,
-            color: !is("color", "off"),
             jump: get("jump")
                 .and_then(|v| v.parse().ok())
                 .filter(|j| JUMPS.contains(j))
@@ -74,7 +74,7 @@ impl Settings {
         let entries = [
             ("repeat", self.repeat.key()),
             ("screen_off", pick(self.play_screen_off, "play", "pause")),
-            ("color", pick(self.color, "on", "off")),
+            ("open", pick(self.open_playing, "playing", "left")),
             ("jump", jump.as_str()),
             ("mono", pick(self.mono, "on", "off")),
             ("leveling", pick(self.leveling, "on", "off")),

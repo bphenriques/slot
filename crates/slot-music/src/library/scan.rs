@@ -41,6 +41,12 @@ impl Progress {
         self.lock().0 += 1;
     }
 
+    /// So far, and of how many, as a test has it.
+    #[cfg(test)]
+    pub fn set(&self, done: usize, of: usize) {
+        *self.lock() = (done, of);
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, (usize, usize)> {
         self.0
             .lock()

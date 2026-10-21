@@ -102,7 +102,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
         next: player
             .up_next()
             .map(|t| text::up_next(&lib.tracks[t].title, &lib.tracks[t].artist)),
-        color: music.settings.color,
         book: false,
     };
     Screen::new(

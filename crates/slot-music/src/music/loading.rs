@@ -19,6 +19,8 @@ use slot_player::{Command, PlayState};
 /// The library being read, and what is put back once it is.
 pub(crate) struct Scan {
     pub(crate) rx: Option<Receiver<Found>>,
+    /// The thumbnails' size, to tell which albums need theirs made.
+    pub(crate) thumb_px: u32,
     /// A library is shown: the cache's, or the card's.
     pub(crate) ready: bool,
     /// The queue and Recently Played to put back once the library is read, by path: as the
@@ -60,7 +62,8 @@ impl Music {
         self.library = Library::default();
         self.scan.ready = false;
         self.scan.progress = Arc::new(scan::Progress::default());
-        self.scan.rx = Some(spawn_scan(&self.root, full, self.scan.progress.clone()));
+        let progress = self.scan.progress.clone();
+        self.scan.rx = Some(spawn_scan(&self.root, full, progress, self.scan.thumb_px));
     }
 
     /// Whether the library is being read.
@@ -159,7 +162,7 @@ impl Music {
     }
 
     /// Saves the queue when the player reports a change, and, while a song plays, its place now
-    /// and then, as a book's is: a sudden power cut loses a minute at most.
+    /// and then: a sudden power cut loses two minutes at most.
     pub(crate) fn keep_queue(&mut self) {
         let now = self.now.at;
         let playing = self.player.state() == PlayState::Playing && self.book().is_none();
@@ -200,7 +203,7 @@ impl Music {
 }
 
 /// How often a song's place is saved as it plays.
-const QUEUE_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+const QUEUE_EVERY: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Reads the library in the background: the cache's at once, then the card's, reading what
 /// changed, or every song when `full`.
@@ -208,6 +211,7 @@ pub(crate) fn spawn_scan(
     root: &Path,
     full: bool,
     progress: Arc<scan::Progress>,
+    thumb_px: u32,
 ) -> Receiver<Found> {
     let (tx, rx) = mpsc::channel();
     let root: PathBuf = root.to_path_buf();
@@ -223,7 +227,7 @@ pub(crate) fn spawn_scan(
                     .is_some_and(|lib| tx.send(Found::Cached(Box::new(lib))).is_ok());
             frames.unpark();
             let (lib, changed) = scan::scan(&root, full, &progress);
-            let missing = covers::missing(&root, &lib);
+            let missing = covers::missing(&root, &lib, thumb_px);
             log::info!("library read in {} ms", started.elapsed().as_millis());
             let _ = tx.send(if shown && !changed {
                 Found::Same(missing)
@@ -245,7 +249,7 @@ mod tests {
     #[test]
     fn a_library_read_wakes_the_frame_loop_resting() {
         let card = tempfile::tempdir().unwrap();
-        let rx = spawn_scan(card.path(), true, Arc::new(scan::Progress::default()));
+        let rx = spawn_scan(card.path(), true, Arc::new(scan::Progress::default()), 8);
         let began = Instant::now();
         while rx.try_recv().is_err() {
             std::thread::park_timeout(std::time::Duration::from_secs(5));

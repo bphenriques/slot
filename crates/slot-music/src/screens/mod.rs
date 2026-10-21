@@ -204,7 +204,8 @@ pub struct ListBody {
     pub lifted: bool,
     /// Rows that only tell, like Song Info's: no highlight, and every long one scrolls.
     pub readonly: bool,
-    /// Its rows start with their album's thumbnail, or room for it until it is read.
+    /// Its rows are two lines, the name over who made it (`after`), beside their album's
+    /// thumbnail, or room for it until it is read.
     pub thumbs: bool,
 }
 
@@ -225,8 +226,6 @@ pub struct NowPlayingBody {
     pub next: Option<String>,
     /// Where bookmarks are along the bar, 0 to 1: a book's, in its chapter.
     pub marks: Vec<f32>,
-    /// Whether the screen takes its colour from the album picture.
-    pub color: bool,
     /// A book's: with no picture, the square shows a book rather than a note.
     pub book: bool,
 }
@@ -272,9 +271,11 @@ impl Music {
     fn build_screen(&self) -> Screen {
         let screen = match self.browser.view() {
             View::Main => main::screen(self),
-            View::Settings | View::Sound | View::BookSettings | View::Advanced => {
-                list::rows_screen(self)
-            }
+            View::Settings
+            | View::MusicSettings
+            | View::BookSettings
+            | View::Advanced
+            | View::Experimental => list::rows_screen(self),
             View::Queue => queue::screen(self),
             View::Lyrics => lyrics::screen(self),
             View::Help => help::screen(self),
@@ -398,15 +399,17 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             },
             _ => Legend::Back,
         },
-        // Update Library updates, or held rebuilds; the pages it opens open.
-        View::Settings | View::Sound | View::BookSettings | View::Advanced => match row {
+        // Update Library updates, or held rebuilds; a page opens, with nothing to change.
+        View::Settings
+        | View::MusicSettings
+        | View::BookSettings
+        | View::Advanced
+        | View::Experimental => match row {
             Some(Row::Rescan) => Legend::Update,
-            Some(
-                Row::Open(View::Sound)
-                | Row::Open(View::BookSettings)
-                | Row::Open(View::Help)
-                | Row::Open(View::Advanced),
-            ) => Legend::Menu,
+            Some(Row::Open(_)) => Legend::Main {
+                playing: something,
+                hold: None,
+            },
             _ => Legend::Settings,
         },
         View::SongInfo(_) | View::Help => Legend::Back,

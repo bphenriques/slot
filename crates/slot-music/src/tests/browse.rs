@@ -11,6 +11,7 @@ fn the_main_screen_keeps_its_rows_whether_or_not_anything_plays() {
         page.rows,
         [
             "Shuffle Library",
+            "Queue",
             "Library",
             "Playlists",
             "Audiobooks",
@@ -241,7 +242,7 @@ fn rows_name_their_context_dim_and_mark_what_plays() {
 fn the_main_screen_counts_what_its_rows_lead_to() {
     let (_d, lib) = library(&["X/A/01 one.mp3", "X/B/01 two.mp3"]);
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::A]);
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     let values: Vec<Option<&str>> = page.values.iter().map(Option::as_deref).collect();
     assert_eq!(
@@ -341,7 +342,7 @@ fn shuffle_deals_what_the_list_shows() {
     press(
         &mut b,
         &lib,
-        &[Key::Down, Key::A, Key::Down, Key::A, Key::Down],
+        &[Key::Down, Key::Down, Key::A, Key::Down, Key::A, Key::Down],
     );
     assert_eq!(
         b.page(&cx(&lib, QueueView::default(), s)).rows[1],
@@ -642,8 +643,9 @@ fn a_held_on_the_music_menu_shuffles_a_list_or_plays_on_the_latest_book() {
         shelf: &shelf,
         ..Context::new(&lib, at(0))
     };
-    // Shuffle Library, then Library, which held shuffles every song.
+    // Shuffle Library, Queue, then Library, which held shuffles every song.
     let mut b = Browser::default();
+    b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     assert_eq!(b.mode(&cx, Key::A), Mode::Hold);
     let Outcome::Play {
@@ -658,6 +660,7 @@ fn a_held_on_the_music_menu_shuffles_a_list_or_plays_on_the_latest_book() {
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
+    b.press(&cx, Key::Down);
     assert_eq!(
         b.held(&cx, Key::A),
         Outcome::PlayBook {
@@ -667,6 +670,7 @@ fn a_held_on_the_music_menu_shuffles_a_list_or_plays_on_the_latest_book() {
     );
     // In Audiobooks' lists, Y lists a book's bookmarks.
     let mut b = Browser::default();
+    b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);

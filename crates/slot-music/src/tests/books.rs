@@ -93,7 +93,11 @@ fn audiobooks_are_kept_apart_from_the_music_and_open_from_the_menu() {
     );
     let mut b = Browser::default();
     // Shuffle Library, Library, Playlists, then Audiobooks.
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
+    press(
+        &mut b,
+        &lib,
+        &[Key::Down, Key::Down, Key::Down, Key::Down, Key::A],
+    );
     assert_eq!(b.view(), View::Books);
     let page = b.page(&Context::new(&lib, at(0)));
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
@@ -129,7 +133,11 @@ fn the_audiobooks_menu_continues_the_latest_and_lists_them_by_progress_and_autho
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
+    press(
+        &mut b,
+        &lib,
+        &[Key::Down, Key::Down, Key::Down, Key::Down, Key::A],
+    );
     let page = b.page(&cx);
     let rows: Vec<(&str, &str)> = page
         .rows
@@ -292,7 +300,7 @@ fn a_library_with_books_has_their_settings_on_a_page_of_their_own() {
         .iter()
         .map(|r| r.text.clone())
         .collect();
-    assert_eq!(rows, ["Jump Length", "Skip Silence", "Volume Boost"]);
+    assert_eq!(rows, ["Jump Length", "Volume Boost"]);
 }
 
 #[test]
@@ -318,7 +326,11 @@ fn a_finished_book_leaves_in_progress_for_finished_last_on_the_menu() {
         ..Context::new(&lib, at(0))
     };
     let mut b = Browser::default();
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down, Key::A]);
+    press(
+        &mut b,
+        &lib,
+        &[Key::Down, Key::Down, Key::Down, Key::Down, Key::A],
+    );
     let page = b.page(&cx);
     let rows: Vec<&str> = page.rows.iter().map(|r| r.text.as_str()).collect();
     assert_eq!(

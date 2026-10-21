@@ -16,6 +16,7 @@ pub const NOW_PLAYING: &str = "Now Playing";
 pub const QUEUE: &str = "Queue";
 pub const SAVED_QUEUE: &str = "Saved Queue";
 pub const ADVANCED: &str = "Advanced";
+pub const EXPERIMENTAL: &str = "Experimental";
 pub const HELP: &str = "Help";
 
 /// Help's keys: those the hints leave out, by where they act, each with what it does.
@@ -55,10 +56,7 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
             ("Y held", "Bookmarks"),
         ],
     ),
-    (
-        "Pocket",
-        &[("Two shoulders held", "Lock / unlock the keys")],
-    ),
+    ("Pocket", &[("Two shoulders held", "Lock or unlock")]),
     (
         "Lid closed",
         &[
@@ -70,24 +68,44 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
     ),
 ];
 
-/// Help's first lines: what the screens do not say, a paragraph each.
-pub const TIPS_TEXT: [&str; 6] = [
-    "A hint like Play (Next) is a tap, and in brackets a hold. A ring fills while you hold.",
-    "Songs go in Music, audiobooks in Audiobooks: a folder per book, or one .m4b.",
-    "Playlists are .m3u files in Music/Playlists. Y adds a song to Favorites.",
-    "Lyrics come from an .lrc file beside the song, or its tags. X on Now Playing shows them.",
-    "Asked for a log? Turn on Settings, Advanced, Detailed Log, play a while, then send Logs/slot.log from the card.",
-    "This page is in Settings, Help. B closes it. The keys the hints leave out follow.",
+/// Help's first lines: what the screens do not say, a line each.
+pub const TIPS: [&str; 4] = [
+    "A hint is a tap, then a hold: Play (Next).",
+    "Songs go in Music, books in Audiobooks.",
+    "Playlists go in Music/Playlists.",
+    "B closes this page; it is in Settings.",
 ];
 
-/// Help, a line each: the tips, then each place's keys under its name.
-pub fn help() -> Vec<String> {
-    let mut lines: Vec<String> = TIPS_TEXT.map(String::from).to_vec();
-    for (place, keys) in KEYS {
-        lines.push(place.to_string());
-        lines.extend(keys.iter().map(|(key, does)| format!("{key}: {does}")));
+/// Help's line `i`: a tip; a place's name, as a heading; or one of its keys and what it does.
+/// None past the last.
+pub fn help(i: usize) -> Option<HelpLine> {
+    if let Some(&tip) = TIPS.get(i) {
+        return Some(HelpLine::Tip(tip));
     }
-    lines
+    let mut at = i - TIPS.len();
+    for (place, keys) in KEYS {
+        if at == 0 {
+            return Some(HelpLine::Place(place));
+        }
+        if let Some(&(key, does)) = keys.get(at - 1) {
+            return Some(HelpLine::Key(key, does));
+        }
+        at -= 1 + keys.len();
+    }
+    None
+}
+
+/// How many lines Help has.
+pub fn help_len() -> usize {
+    TIPS.len() + KEYS.iter().map(|(_, keys)| 1 + keys.len()).sum::<usize>()
+}
+
+/// A line of Help.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum HelpLine {
+    Tip(&'static str),
+    Place(&'static str),
+    Key(&'static str, &'static str),
 }
 pub const NONE: &str = "None";
 pub const RECENTLY_PLAYED: &str = "Recently Played";
@@ -111,7 +129,8 @@ pub const NOTHING_PLAYING: &str = "Nothing playing";
 pub const FAVORITES: &str = "Favorites";
 pub const UP_NEXT: &str = "Up Next";
 pub const LYRICS: &str = "Lyrics";
-pub const SOUND: &str = "Sound";
+/// Settings' page of how music plays, beside its Audiobooks page.
+pub const MUSIC_SETTINGS: &str = "Music";
 pub const NO_LYRICS: &str = "No lyrics for this song";
 pub const FAVORITE: &str = "Add to Favorites";
 pub const UNFAVORITE: &str = "Remove from Favorites";
@@ -130,10 +149,11 @@ pub fn title(view: View) -> Option<&'static str> {
         View::Years => YEARS,
         View::Lyrics => LYRICS,
         View::Queue => QUEUE,
-        View::Settings => "Music Settings",
-        View::Sound => SOUND,
+        View::Settings => "Settings",
+        View::MusicSettings => MUSIC_SETTINGS,
         View::BookSettings => BOOKS,
         View::Advanced => ADVANCED,
+        View::Experimental => EXPERIMENTAL,
         View::Help => HELP,
         View::Artists => "Artists",
         View::Albums => "Albums",
@@ -180,6 +200,7 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         Row::ClearQueue => "Clear Queue",
         Row::Setting(s) => match s {
             Setting::ScreenOff => "Screen Off",
+            Setting::OpenPlaying => "Open on Now Playing",
             Setting::Jump => "Jump Length",
             Setting::Mono => "Mono Audio",
             Setting::Equalizer => "Equalizer",
@@ -192,7 +213,6 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             Setting::Leveling => "Volume Leveling",
             Setting::Repeat => "Repeat",
             Setting::SleepTimer => "Sleep Timer",
-            Setting::Color => "Dynamic Color",
         },
         Row::PlayAll => "Play All",
         Row::Shuffle => match view {
@@ -209,6 +229,7 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         | Row::Track(_)
         | Row::Queued(_)
         | Row::Info(_)
+        | Row::HelpLine(_)
         | Row::Playlist(_)
         | Row::Book(_)
         | Row::BookChapter { .. }
@@ -253,12 +274,12 @@ pub fn setting(
     let pick = |on: bool, yes: &str, no: &str| if on { yes } else { no }.to_string();
     match setting {
         Setting::ScreenOff => pick(settings.play_screen_off, "Keep Playing", "Pause"),
+        Setting::OpenPlaying => on_off(settings.open_playing),
         Setting::SleepTimer => match sleep {
             None => on_off(false),
             Some(Sleep::Minutes(m)) => minutes(m),
             Some(Sleep::End) => pick(book, "End of Chapter", "End of Song"),
         },
-        Setting::Color => on_off(settings.color),
         Setting::Mono => on_off(settings.mono),
         Setting::SkipSilence => on_off(settings.skip_silence),
         Setting::PerfLog => on_off(settings.perf),

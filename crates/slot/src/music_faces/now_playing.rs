@@ -73,7 +73,7 @@ pub(super) fn faces(
             .sync(compositor, text.theme, 5, Spec::small(next), wide, scroll)
     });
     let art = art(text, app, compositor, now);
-    let tint = art.filter(|_| body.color).map(|p| MusicTint {
+    let tint = art.map(|p| MusicTint {
         now: p.tint,
         was: text.art_was.map(|w| w.tint),
     });

@@ -21,7 +21,8 @@ pub(super) fn start(root: &std::path::Path) -> Music {
 
 impl App {
     pub(super) fn open_music(&mut self) {
-        if self.music.is_some() {
+        if let Some(music) = &mut self.music {
+            music.open();
             self.phase = Phase::Music;
         }
     }
@@ -227,11 +228,15 @@ impl App {
     }
 
     /// Whether music takes the keys: shown, or playing on with the screen off.
+    /// Whether the music reads the buttons: on its screen; and with the screen off, only while it
+    /// plays on (`screen_off = play`) and was in use, its screen open when the screen went off or
+    /// still sounding. A screen gone off over a game or the shelf leaves the keys alone, so a
+    /// shoulder pressed in a pocket never starts the music behind a game.
     pub fn music_takes_keys(&self) -> bool {
-        let dark = self.music.as_ref().is_some_and(Music::plays_screen_off);
+        let plays_on = self.music.as_ref().is_some_and(Music::plays_screen_off);
         match self.phase {
             Phase::Music => true,
-            Phase::Doze { .. } => dark,
+            Phase::Doze { .. } => plays_on && (self.music_on_wake || self.music_audible()),
             _ => false,
         }
     }
@@ -349,6 +354,31 @@ fn still<T: PartialEq>(then: &T, wake: Option<Millis>, shown: &T, now: Millis) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_the_screen_off_over_a_game_the_music_leaves_the_keys_alone() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("Config")).unwrap();
+        std::fs::write(
+            d.path().join("Config/music.txt"),
+            "screen_off = play\nhelp = seen\n",
+        )
+        .unwrap();
+        let mut app = App::new(Vec::new());
+        app.music = Some(start(d.path()));
+        app.phase = Phase::Doze { cart: None };
+        assert!(
+            !app.music_takes_keys(),
+            "gone off over a game, the music paused: not its keys"
+        );
+        app.music_on_wake = true;
+        assert!(
+            app.music_takes_keys(),
+            "gone off on the music screen: the shoulders still play"
+        );
+        app.phase = Phase::Music;
+        assert!(app.music_takes_keys());
+    }
 
     #[test]
     fn what_was_drawn_stands_while_it_shows_what_would_be_and_nothing_is_due() {
