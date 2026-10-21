@@ -1,6 +1,6 @@
 use slot_ui::{
-    ease, Draw, Millis, TexId, ADAPTER_BASE_X, ADAPTER_BASE_Y, ARCS, ARROW_LEFT_X, ARROW_RIGHT_X,
-    ARROW_Y, CLICKS_X, CLICKS_Y, NET_X, NET_Y, OUT_W, PLUG_H, PLUG_TIP_X, PORT_Y,
+    ease, Canvas, Draw, Millis, TexId, ADAPTER_BASE_X, ADAPTER_BASE_Y, ARCS, ARROW_LEFT_X,
+    ARROW_RIGHT_X, ARROW_Y, CLICKS_X, CLICKS_Y, NET_X, NET_Y, OUT_W, PLUG_H, PLUG_TIP_X, PORT_Y,
 };
 
 use crate::app::{GameMenu, LinkRow};
@@ -184,6 +184,7 @@ fn tex(out: &mut Vec<Draw>, s: Sprite, x: f32, y: f32, alpha: f32) {
 }
 
 pub fn draw_link_art(
+    canvas: Canvas,
     menu: GameMenu,
     kind: LinkKind,
     now: Millis,
@@ -192,7 +193,8 @@ pub fn draw_link_art(
 ) {
     let host = role_of(menu) == LinkRow::Host;
     let alpha = art_alpha(menu, now);
-    let centre = OUT_W as f32 / 2.0;
+    let dx = canvas.centred(OUT_W as f32);
+    let centre = canvas.w / 2.0;
     match kind {
         LinkKind::Cable => {
             let tip = plug_tip(menu, now);
@@ -212,10 +214,10 @@ pub fn draw_link_art(
                     turn,
                 });
             }
-            tex(out, s.port, 0.0, PORT_Y, 1.0);
+            tex(out, s.port, dx, PORT_Y, 1.0);
             let clicks = clicks_alpha(menu, now);
             if clicks > 0.0 {
-                tex(out, s.clicks, CLICKS_X, CLICKS_Y, clicks);
+                tex(out, s.clicks, CLICKS_X + dx, CLICKS_Y, clicks);
             }
         }
         LinkKind::Wireless => {
@@ -227,21 +229,27 @@ pub fn draw_link_art(
                 base - ADAPTER_BASE_Y,
                 alpha,
             );
-            tex(out, s.port, 0.0, PORT_Y, 1.0);
+            tex(out, s.port, dx, PORT_Y, 1.0);
             let dy = base - PORT_Y;
             for (i, a) in arc_alphas(menu, now).into_iter().enumerate() {
                 if a <= 0.0 {
                     continue;
                 }
                 let (x, y, w, _) = ARCS[i];
-                tex(out, s.arcs_right[i], x, y + dy, a);
-                tex(out, s.arcs_left[i], OUT_W as f32 - x - w as f32, y + dy, a);
+                tex(out, s.arcs_right[i], x + dx, y + dy, a);
+                tex(
+                    out,
+                    s.arcs_left[i],
+                    OUT_W as f32 - x - w as f32 + dx,
+                    y + dy,
+                    a,
+                );
             }
         }
     }
     if matches!(menu, GameMenu::Pick(_)) {
-        tex(out, s.arrow_left, ARROW_LEFT_X, ARROW_Y, ARROW_ALPHA);
-        tex(out, s.arrow_right, ARROW_RIGHT_X, ARROW_Y, ARROW_ALPHA);
+        tex(out, s.arrow_left, ARROW_LEFT_X + dx, ARROW_Y, ARROW_ALPHA);
+        tex(out, s.arrow_right, ARROW_RIGHT_X + dx, ARROW_Y, ARROW_ALPHA);
     }
 }
 
@@ -249,14 +257,20 @@ pub fn draw_link_art(
 /// role picker, where the choice of who hosts is made and a player about to press A is about to
 /// find out whether they and the other player are on the same one. Drawn over the console strip
 /// after the art, and quiet: no motion, since nothing about the network moves.
-pub fn draw_network_label(menu: GameMenu, home: bool, s: &LinkSprites, out: &mut Vec<Draw>) {
+pub fn draw_network_label(
+    canvas: Canvas,
+    menu: GameMenu,
+    home: bool,
+    s: &LinkSprites,
+    out: &mut Vec<Draw>,
+) {
     if !matches!(menu, GameMenu::Pick(_)) {
         return;
     }
     tex(
         out,
         if home { s.net_home } else { s.net_direct },
-        NET_X,
+        NET_X + canvas.centred(OUT_W as f32),
         NET_Y,
         NET_ALPHA,
     );

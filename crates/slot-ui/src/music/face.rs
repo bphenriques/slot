@@ -10,6 +10,7 @@ use super::{
     MusicTheme, FIT_MIN, LETTER_BOX, LETTER_PX, MARQUEE_BEAT_MS, MARQUEE_REST_MS, MARQUEE_STEP,
     NO_ART_PX, PART_GAP, RING_PX, RING_STROKE, SECOND_PX, SMALL_H, SMALL_PX, STATUS_PX,
 };
+use crate::text::Layout;
 
 /// The music screens' inks, as slot's quick menu sets them, and one more; a theme says their
 /// colours:
@@ -59,7 +60,6 @@ pub fn music_caret_face(right: bool, theme: &MusicTheme) -> UndoFace {
 const HEART: &str = "M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 \
     10.91,3.81 12,4.88C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 \
     13.45,20.03L12,21.35Z";
-const MOON: &str = "M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z";
 /// What the square shows with no picture: a note for a song, a book for a book.
 const NOTE: &str =
     "M12 3V13.55C11.41 13.21 10.73 13 10 13C7.79 13 6 14.79 6 17S7.79 21 10 21 14 19.21 14 \
@@ -73,15 +73,17 @@ pub fn music_heart_face(theme: &MusicTheme) -> UndoFace {
     icon(HEART, STATUS_PX, MENU_H, theme.lit)
 }
 
-/// The sleep timer's moon, beside the state symbols while it counts down.
-pub fn music_moon_face(theme: &MusicTheme) -> UndoFace {
-    icon(MOON, STATUS_PX * 0.85, MENU_H, theme.lit)
-}
-
 /// What Now Playing's square shows with no picture, as players have it: a note, or a `book`.
 pub fn music_no_art_face(book: bool, theme: &MusicTheme) -> UndoFace {
     let path = if book { BOOK } else { NOTE };
     icon(path, NO_ART_PX, NO_ART_PX.round() as u32, theme.dim)
+}
+
+/// What a list's empty thumbnail shows, as Now Playing's square does, at its size.
+pub fn music_thumb_blank_face(book: bool, theme: &MusicTheme) -> UndoFace {
+    let path = if book { BOOK } else { NOTE };
+    let px = super::THUMB_PX as f32 * 0.5;
+    icon(path, px, px.round() as u32, theme.dim)
 }
 
 /// A favorite's heart at the right of a list row, sized to the row's type.
@@ -121,7 +123,20 @@ pub fn music_line_face(
         LineInk::Lit => theme.lit,
         _ => theme.dim,
     };
-    fitted(fit_w, px, |px| Some(padded(&[run(text, tone, px, h)?])))
+    // A second line is set in its own case, a level under the name above it.
+    let cased = ink == LineInk::Second;
+    fitted(fit_w, px, |px| {
+        Some(padded(&[set(text, tone, px, h, cased)?]))
+    })
+}
+
+/// A two-line row's second line: who made it, dim, `px` high and in its own case, a level under
+/// the name above; as tall as a row's face is for its size, so the two stack alike.
+pub fn music_second_face(text: &str, px: f32, fit_w: u32, theme: &MusicTheme) -> Option<UndoFace> {
+    let h = (px + 2.0 * ROW_FACE_PAD).ceil() as u32;
+    fitted(fit_w, px, |px| {
+        Some(padded(&[set(text, theme.dim, px, h, true)?]))
+    })
 }
 
 /// A paragraph in `ink`, wrapped to `width` and each line centred, as the text view shows its
@@ -155,7 +170,9 @@ pub fn music_paragraph_face(
 const PARAGRAPH_LINES: usize = 8;
 
 /// A list row: icon, number, name in `ink`, artist; empty parts are skipped. The number and
-/// artist are dim, or faint with a faint name. Fitted to `fit_w` as lines are.
+/// artist are dim, or faint with a faint name. The name is a label in capitals, or, `cased`, a
+/// sentence set as written; what follows it, a name or what a key does, is set as written, as a
+/// second line is. Fitted to `fit_w` as lines are.
 #[allow(clippy::too_many_arguments)]
 pub fn music_row_face(
     icon: Option<char>,
@@ -165,6 +182,7 @@ pub fn music_row_face(
     ink: Ink,
     px: f32,
     fit_w: u32,
+    cased: bool,
     theme: &MusicTheme,
 ) -> Option<UndoFace> {
     let h = (px + 2.0 * ROW_FACE_PAD).ceil() as u32;
@@ -177,8 +195,8 @@ pub fn music_row_face(
         let parts: Vec<UndoFace> = [
             icon.map(|g| glyph_face(g, px * 0.9, h, name)),
             run(before, context, px, h),
-            run(text, name, px, h),
-            run(after, context, px, h),
+            set(text, name, px, h, cased),
+            set(after, context, px, h, true),
         ]
         .into_iter()
         .flatten()
@@ -206,7 +224,12 @@ fn fitted(w: u32, px: f32, build: impl Fn(f32) -> Option<UndoFace>) -> Option<Un
 
 /// The letter a list jumped to, large, for the box in the middle of the screen.
 pub fn music_letter_face(letter: char, theme: &MusicTheme) -> Option<UndoFace> {
-    run(&letter.to_string(), theme.lit, LETTER_PX, LETTER_BOX as u32)
+    run(
+        &letter.to_string(),
+        theme.ground,
+        LETTER_PX,
+        LETTER_BOX as u32,
+    )
 }
 
 /// The ring that fills as a key is held, round from the top: its track `faint`, the part
@@ -351,8 +374,30 @@ pub fn music_window(face: &UndoFace, x: u32, w: u32) -> UndoFace {
     for row in face.rgba.chunks_exact((face.w * 4) as usize) {
         rgba.extend_from_slice(&row[(x * 4) as usize..((x + w) * 4) as usize]);
     }
+    // An edge with more of the line beyond it fades out, so a cut line reads as going on; its
+    // padding is left clear there, so the ink stops at the margin as a whole line's does.
+    let (left, right) = (x > 0, x + w < face.w);
+    for row in rgba.chunks_exact_mut((w * 4) as usize) {
+        for i in 0..w.min(MENU_PAD + WINDOW_FADE) {
+            let keep = (i.saturating_sub(MENU_PAD) as f32 + 0.5) / WINDOW_FADE as f32;
+            let keep = if i < MENU_PAD { 0.0 } else { keep };
+            let mut fade = |at: u32| {
+                let a = &mut row[(at * 4 + 3) as usize];
+                *a = (f32::from(*a) * keep).round() as u8;
+            };
+            if right {
+                fade(w - 1 - i);
+            }
+            if left {
+                fade(i);
+            }
+        }
+    }
     UndoFace { rgba, w, h: face.h }
 }
+
+/// How far a cut line's edge fades out, in pixels.
+const WINDOW_FADE: u32 = 28;
 
 /// How far a line `overflow` px too long has scrolled after `ms`: rest, scroll, rest, repeat.
 pub fn marquee_offset(overflow: u32, ms: u64) -> u32 {
@@ -393,13 +438,27 @@ fn glyph_face(glyph: char, px: f32, h: u32, ink: [u8; 3]) -> UndoFace {
     UndoFace { rgba, w, h }
 }
 
-/// Unpadded text in `ink`, `px` high in a face `h` tall.
+/// Unpadded text in `ink`, `px` high in a face `h` tall, in capitals as slot sets its labels.
 fn run(text: &str, ink: [u8; 3], px: f32, h: u32) -> Option<UndoFace> {
+    set(text, ink, px, h, false)
+}
+
+/// As `run`, or, `cased`, in the case it is written in: a second line under a name, set apart
+/// from it as players set an artist under a title.
+fn set(text: &str, ink: [u8; 3], px: f32, h: u32, cased: bool) -> Option<UndoFace> {
     let font = label_font()?;
     if text.is_empty() {
         return None;
     }
     let layout = fit(font, text, f32::INFINITY, 1, px, px);
+    let layout = if cased {
+        Layout {
+            lines: vec![text.to_string()],
+            ..layout
+        }
+    } else {
+        layout
+    };
     let set = layout
         .lines
         .iter()
@@ -434,6 +493,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_cut_line_fades_out_at_an_edge_with_more_beyond_it_and_only_there() {
+        let face = UndoFace {
+            rgba: vec![255; 200 * 2 * 4],
+            w: 200,
+            h: 2,
+        };
+        let alpha = |f: &UndoFace, x: u32| f.rgba[(x * 4 + 3) as usize];
+        let start = music_window(&face, 0, 120);
+        assert_eq!(alpha(&start, 0), 255, "its start, nothing before it");
+        assert!(alpha(&start, 119) < 16, "faded where it goes on");
+        assert_eq!(alpha(&start, 60), 255);
+        let pad = 120 - MENU_PAD;
+        assert_eq!(alpha(&start, pad), 0, "clear in the padding, at the margin");
+        assert!(alpha(&start, pad - 1) > 0, "fading in from there");
+        let middle = music_window(&face, 40, 120);
+        assert!(
+            alpha(&middle, 0) < 16 && alpha(&middle, 119) < 16,
+            "both ways"
+        );
+        let end = music_window(&face, 80, 120);
+        assert!(
+            alpha(&end, 0) < 16 && alpha(&end, 119) == 255,
+            "its end, nothing after it"
+        );
+    }
+
+    #[test]
     fn a_cap_s_ring_sits_just_outside_it_and_fills_from_the_top() {
         let theme = MusicTheme::dark();
         let ink = [0xff, 0, 0];
@@ -451,12 +537,10 @@ mod tests {
     }
 
     #[test]
-    fn the_heart_and_moon_are_drawn_as_tall_as_the_state_symbols() {
-        let theme = MusicTheme::dark();
-        for face in [music_heart_face(&theme), music_moon_face(&theme)] {
-            assert_eq!(face.h, MENU_H);
-            assert!(face.rgba.chunks_exact(4).any(|p| p[3] == 255), "drawn");
-        }
+    fn the_heart_is_drawn_as_tall_as_the_state_symbols() {
+        let face = music_heart_face(&MusicTheme::dark());
+        assert_eq!(face.h, MENU_H);
+        assert!(face.rgba.chunks_exact(4).any(|p| p[3] == 255), "drawn");
     }
 
     #[test]
@@ -566,12 +650,20 @@ mod tests {
             w: 5,
             h: 2,
         };
+        // Its colours, column for column; its alpha fades where the line goes on, as tested apart.
+        let colours = |px: &[u8]| -> Vec<u8> {
+            px.iter()
+                .enumerate()
+                .filter(|(i, _)| i % 4 != 3)
+                .map(|(_, &c)| c)
+                .collect()
+        };
         let w = music_window(&face, 1, 2);
         assert_eq!((w.w, w.h), (2, 2));
-        assert_eq!(&w.rgba[..8], &face.rgba[4..12]);
-        assert_eq!(&w.rgba[8..], &face.rgba[24..32]);
+        assert_eq!(colours(&w.rgba[..8]), colours(&face.rgba[4..12]));
+        assert_eq!(colours(&w.rgba[8..]), colours(&face.rgba[24..32]));
         let w = music_window(&face, 9, 3);
-        assert_eq!(&w.rgba[..12], &face.rgba[8..20]);
+        assert_eq!(colours(&w.rgba[..12]), colours(&face.rgba[8..20]));
         assert_eq!(music_window(&face, 0, 9).w, 5);
     }
 

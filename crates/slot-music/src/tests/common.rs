@@ -46,18 +46,10 @@ pub fn press(b: &mut Browser, lib: &Library, keys: &[Key]) -> Outcome {
 }
 
 // The main screen: Now Playing, Queue, Library, Playlists, Audiobooks, Settings; Library: Artists, Albums, Songs.
-// Artists and Albums open on Play All and Shuffle, so these go on to the first of them.
-pub const TO_ARTISTS: [Key; 6] = [Key::Down, Key::Down, Key::A, Key::A, Key::Down, Key::Down];
+// Artists and Albums open on Play All, so these go on to the first of them.
+pub const TO_ARTISTS: [Key; 5] = [Key::Down, Key::Down, Key::A, Key::A, Key::Down];
 
-pub const TO_ALBUMS: [Key; 7] = [
-    Key::Down,
-    Key::Down,
-    Key::A,
-    Key::Down,
-    Key::A,
-    Key::Down,
-    Key::Down,
-];
+pub const TO_ALBUMS: [Key; 6] = [Key::Down, Key::Down, Key::A, Key::Down, Key::A, Key::Down];
 
 pub const TO_SETTINGS: [Key; 2] = [Key::Up, Key::A];
 

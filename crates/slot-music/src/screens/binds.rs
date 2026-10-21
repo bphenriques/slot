@@ -85,17 +85,17 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
         // A book plays on, X lists its chapters, Y its bookmarks, and START has its menu.
         Legend::List(Target::Book) => {
             let mut binds = vec![
+                tap(Key::B, Word::Back),
                 tap(Key::A, Word::Play),
                 tap(Key::X, Word::Chapters),
                 tap(Key::Y, Word::Bookmarks),
-                tap(Key::Start, Word::Menu),
             ];
             binds.extend(repeat(&MOVES));
             binds.extend(repeat(&PAGES));
             binds
         }
         Legend::List(Target::Author) => {
-            let mut binds = vec![tap(Key::A, Word::Open)];
+            let mut binds = vec![tap(Key::B, Word::Back), tap(Key::A, Word::Open)];
             binds.extend(repeat(&MOVES));
             binds.extend(repeat(&PAGES));
             binds
@@ -103,16 +103,15 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
         // A also puts the row's songs next when held, X adds them to the queue, Y puts a song in
         // Favorites or takes it out, and START has a song's menu, as a book's list has.
         Legend::List(target) => {
-            let open = match target {
-                Target::Song | Target::All => Word::Play,
-                _ => Word::Open,
+            // Play All plays, held it shuffles; a row of the list plays or opens, held it is next.
+            let a = match target {
+                Target::All => hold(Key::A, Word::Play, Word::Shuffle),
+                Target::Song => hold(Key::A, Word::Play, Word::Next),
+                _ => hold(Key::A, Word::Open, Word::Next),
             };
-            let mut binds = vec![
-                hold(Key::A, open, Word::Next),
-                tap(Key::X, Word::AddToQueue),
-            ];
+            let mut binds = vec![tap(Key::B, Word::Back), a, tap(Key::X, Word::AddToQueue)];
             if target == Target::Song {
-                binds.extend([tap(Key::Y, Word::Favorite), tap(Key::Start, Word::Menu)]);
+                binds.push(tap(Key::Y, Word::Favorite));
             }
             binds.extend(repeat(&MOVES));
             binds.extend(repeat(&PAGES));
@@ -122,6 +121,7 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
         // taking tracks out; Y held lifts one to carry. START saves or clears it all.
         Legend::Queue { restart } => {
             let mut binds = vec![
+                tap(Key::B, Word::Back),
                 if restart {
                     tap(Key::A, Word::Restart)
                 } else {
@@ -129,7 +129,6 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
                 },
                 acting(tap(Key::X, Word::Remove), Mode::Repeat),
                 hold(Key::Y, Word::Favorite, Word::Move),
-                tap(Key::Start, Word::Menu),
             ];
             binds.extend(repeat(&MOVES));
             binds.extend(repeat(&PAGES));
@@ -148,7 +147,8 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
         Legend::NowPlaying { playing, lyrics } => {
             let mut binds = vec![tap(Key::A, play(playing))];
             binds.extend(lyrics.then(|| tap(Key::X, Word::Lyrics)));
-            binds.extend([tap(Key::Y, Word::Favorite), tap(Key::Select, Word::Queue)]);
+            // SELECT opens the queue, as it does from anywhere: Help says so, not the hints.
+            binds.push(tap(Key::Y, Word::Favorite));
             binds.extend(BACK_KEYS.map(|k| quiet(k, Mode::HoldRepeat)));
             binds
         }
@@ -257,7 +257,7 @@ pub(crate) fn mode(binds: &[Bind], key: Key) -> Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::text::{self, Word};
+    use crate::text;
 
     /// Every screen's table, and the lid's.
     fn tables() -> Vec<(String, Vec<Bind>)> {
@@ -271,16 +271,25 @@ mod tests {
     }
 
     #[test]
-    fn a_song_s_list_and_a_book_s_say_start_opens_its_menu() {
-        for target in [Target::Song, Target::Book] {
-            let start = binds(Legend::List(target))
-                .into_iter()
-                .find(|b| b.key == Key::Start);
-            assert_eq!(
-                start.and_then(|b| b.hint),
-                Some((Word::Menu, None)),
-                "{target:?}"
+    fn no_screen_hints_more_than_four_keys_so_the_hints_fit_in_one_row() {
+        for (name, binds) in tables() {
+            let hinted = binds.iter().filter(|b| b.hint.is_some()).count();
+            assert!(hinted <= 4, "{name}: {hinted} hints");
+        }
+    }
+
+    #[test]
+    fn every_screen_b_goes_back_from_hints_back_but_the_playing_screens() {
+        for legend in Legend::all() {
+            let playing = matches!(
+                legend,
+                Legend::NowPlaying { .. } | Legend::Lyrics { .. } | Legend::Book { .. }
             );
+            let back = binds(legend)
+                .iter()
+                .any(|b| b.key == Key::B && b.hint == Some((Word::Back, None)));
+            let carry = legend == Legend::Carry;
+            assert_eq!(back, !playing && !carry, "{legend:?}");
         }
     }
 

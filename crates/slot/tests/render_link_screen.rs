@@ -14,8 +14,8 @@ use slot::link_start::{LinkFail, LinkStarter, LinkStep};
 use slot_input::Action;
 use slot_store::Core;
 use slot_ui::{
-    arrows_hint_face, hint_face, link_art, menu_face, toast_face, CartFace, Draw, TexId, Toast,
-    UndoFace, OUT_H, OUT_W, PORT_Y,
+    arrows_hint_face, hint_face, link_art, menu_face, toast_face, Canvas, CartFace, Draw, TexId,
+    Toast, UndoFace, OUT_H, OUT_W, PORT_Y,
 };
 
 struct Face {
@@ -154,7 +154,7 @@ fn at(px: &[u8], x: usize, y: usize) -> [u8; 3] {
 fn render(menu: GameMenu, kind: LinkKind, now: u64, name: &str) -> Vec<u8> {
     let (sprites, faces) = sprites_and_faces();
     let mut out = Vec::new();
-    draw_link_art(menu, kind, now, &sprites, &mut out);
+    draw_link_art(Canvas::FRAMED, menu, kind, now, &sprites, &mut out);
     let px = composite(&out, &faces);
     dump(&px, name);
     px
@@ -165,8 +165,8 @@ fn render_picker(kind: LinkKind, home: bool, name: &str) -> Vec<u8> {
     let (sprites, faces) = sprites_and_faces();
     let mut out = Vec::new();
     let menu = GameMenu::Pick(LinkRow::Host);
-    draw_link_art(menu, kind, 0, &sprites, &mut out);
-    draw_network_label(menu, home, &sprites, &mut out);
+    draw_link_art(slot_ui::Canvas::FRAMED, menu, kind, 0, &sprites, &mut out);
+    draw_network_label(slot_ui::Canvas::FRAMED, menu, home, &sprites, &mut out);
     let px = composite(&out, &faces);
     dump(&px, name);
     px
@@ -527,7 +527,7 @@ fn mode_cap_ink() -> usize {
 
 #[test]
 fn the_legend_shows_select_mode_only_where_the_hardware_can_be_switched() {
-    let switchable = legend_pixels("POKEMON RUBY", "AXVE", "legend-switchable");
+    let switchable = legend_pixels("POKEMON EMER", "BPEE", "legend-switchable");
     let fixed = legend_pixels("MARIO GOLF", "BMGE", "legend-fixed");
 
     assert!(

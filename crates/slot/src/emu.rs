@@ -7,9 +7,8 @@ use std::time::{Duration, Instant};
 
 use crate::cable::{self, Cable};
 use slot_retro::{
-    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
+    ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
 };
-use slot_store::RUN_AHEAD_MAX;
 
 use crate::audio::Ring;
 use crate::drc::{drc_ratio, drc_target};
@@ -96,7 +95,6 @@ struct Shared {
     volume: AtomicU8,
     fast_steps: AtomicU32,
     ff_sound: AtomicBool,
-    runahead: AtomicU8,
     published: AtomicU64,
     resume_refused: AtomicBool,
     sav_refused: AtomicBool,
@@ -141,6 +139,14 @@ impl EmuHandle {
         Self::spawn_as(core, rom, ring, sav, resume, Some(player))
     }
 
+    pub fn refuse_save_ram(&self) {
+        self.shared.sav_refused.store(true, Ordering::Release);
+    }
+
+    pub fn refuse_resume(&self) {
+        self.shared.resume_refused.store(true, Ordering::Release);
+    }
+
     fn spawn_as(
         core: Box<dyn RetroCore>,
         rom: PathBuf,
@@ -165,7 +171,6 @@ impl EmuHandle {
             volume: AtomicU8::new(100),
             fast_steps: AtomicU32::new(FAST_STEPS),
             ff_sound: AtomicBool::new(false),
-            runahead: AtomicU8::new(0),
             published: AtomicU64::new(0),
             resume_refused: AtomicBool::new(false),
             sav_refused: AtomicBool::new(false),
@@ -368,16 +373,6 @@ impl EmuHandle {
 
     pub fn ff_sound(&self) -> bool {
         self.shared.ff_sound.load(Ordering::Relaxed)
-    }
-
-    pub fn set_runahead(&self, frames: u8) {
-        self.shared
-            .runahead
-            .store(frames.min(RUN_AHEAD_MAX), Ordering::Relaxed);
-    }
-
-    pub fn runahead(&self) -> u8 {
-        self.shared.runahead.load(Ordering::Relaxed)
     }
 
     pub fn set_rewinding(&self, on: bool) {
@@ -607,7 +602,6 @@ impl Worker {
         let mut cable_core = Duration::ZERO;
         let mut cable_wait = Duration::ZERO;
         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
-        let mut runahead = RunAhead::default();
         while !self.shared.stop.load(Ordering::Relaxed) {
             for cmd in self.cmds.try_iter() {
                 self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
@@ -631,6 +625,8 @@ impl Worker {
                                         "slot: cable: restored {} bytes, running the host's game",
                                         state.len()
                                     );
+                                        self.shared.sav_refused.store(true, Ordering::Release);
+                                        self.shared.resume_refused.store(true, Ordering::Release);
                                         c.prime();
                                         t.send(NETPACKET_RELIABLE, &cable::ready_packet());
                                     }
@@ -685,13 +681,6 @@ impl Worker {
                 fallback = false;
                 self.shared.clocked.notify_all();
             }
-            let ahead =
-                if speed == Speed::Normal && !rewinding && transport.is_none() && !runahead.refused
-                {
-                    u32::from(self.shared.runahead.load(Ordering::Relaxed))
-                } else {
-                    0
-                };
             let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
             let mut span = 1u32;
             let ceiling = match speed {
@@ -724,7 +713,6 @@ impl Worker {
                 let began = Instant::now();
                 let mut ran = 0u32;
                 let (mut skipped, mut drawn) = (None::<Duration>, Duration::ZERO);
-                let mut shown = false;
                 loop {
                     ran += 1;
                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
@@ -774,16 +762,6 @@ impl Worker {
                                 }
                             }
                         }
-                        None if ahead > 0 => {
-                            crate::latency::emu_frame(input.0);
-                            match runahead.run(core.as_mut(), input, ahead) {
-                                Ok(()) => shown = true,
-                                Err(e) => {
-                                    eprintln!("slot: run-ahead: {e}, off for this game");
-                                    runahead.refused = true;
-                                }
-                            }
-                        }
                         None => {
                             crate::latency::emu_frame(input.0);
                             core.run_frame(input);
@@ -807,9 +785,7 @@ impl Worker {
                     let elapsed = trace_began.elapsed().as_secs_f64();
                     eprintln!("slot: emu: {committed} committed, {presents} presents, {:.3} game fps, {:.2} ms core/present, speed {speed:?}", committed as f64 / elapsed, core_cost.as_secs_f64() * 1000.0 / presents as f64);
                 }
-                if ahead == 0 {
-                    cost.measured(skipped, drawn);
-                }
+                cost.measured(skipped, drawn);
                 if cable.is_some() {
                     cable_presents += 1;
                     cable_core += core_time;
@@ -850,11 +826,7 @@ impl Worker {
                     }
                 }
                 flush_outbound(&mut transport, &link);
-                self.publish(if shown {
-                    &runahead.video
-                } else {
-                    core.video_xrgb8888()
-                });
+                self.publish(core.video_xrgb8888());
                 if fallback {
                     let acknowledged = self.fallback_done();
                     if acknowledged > served {
@@ -874,11 +846,7 @@ impl Worker {
                 }
                 if since_snapshot >= SNAPSHOT_EVERY {
                     since_snapshot = 0;
-                    let state = match shown {
-                        true => Ok(std::mem::take(&mut runahead.state)),
-                        false => core.serialize(),
-                    };
-                    if let Ok(state) = state {
+                    if let Ok(state) = core.serialize() {
                         rewind.push(state);
                         self.shared
                             .rewind_fill
@@ -886,11 +854,7 @@ impl Worker {
                     }
                 }
 
-                let mut audio = if shown {
-                    std::mem::take(&mut runahead.audio)
-                } else {
-                    core.take_audio()
-                };
+                let mut audio = core.take_audio();
                 if speed == Speed::Normal || ff_sound {
                     let target = drc_target(ring.capacity_frames());
                     let queued = ring.queued_frames();
@@ -1251,36 +1215,6 @@ impl FrameCost {
     }
 }
 
-#[derive(Default)]
-struct RunAhead {
-    state: Vec<u8>,
-    video: Vec<u8>,
-    audio: Vec<i16>,
-    refused: bool,
-}
-
-impl RunAhead {
-    fn run(
-        &mut self,
-        core: &mut dyn RetroCore,
-        input: ButtonMask,
-        frames: u32,
-    ) -> Result<(), CoreError> {
-        core.set_frame_skip(true);
-        core.run_frame(input);
-        self.state = core.serialize()?;
-        for left in (0..frames).rev() {
-            let _ = core.take_audio();
-            core.set_frame_skip(left > 0);
-            core.run_frame(input);
-        }
-        self.audio = core.take_audio();
-        self.video.clear();
-        self.video.extend_from_slice(core.video_xrgb8888());
-        core.unserialize(&self.state)
-    }
-}
-
 fn drain_transport(transport: &mut dyn LinkChannel, link: &Link, cap: u32) {
     for _ in 0..cap {
         let Some(packet) = transport.try_recv() else {
@@ -1293,7 +1227,7 @@ fn drain_transport(transport: &mut dyn LinkChannel, link: &Link, cap: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slot_retro::{LoopbackLink, MockCore};
+    use slot_retro::LoopbackLink;
 
     fn frames_in(cost: &FrameCost, budget: Duration, ceiling: u32) -> u32 {
         cost.frames(budget, ceiling)
@@ -1324,38 +1258,6 @@ mod tests {
             seeded: false,
         };
         assert_eq!(cost.span(ms(11.9), 6), 1);
-    }
-
-    #[test]
-    fn run_ahead_keeps_the_picture_and_sound_it_shows_and_puts_the_game_back() {
-        for frames in 1..=u32::from(RUN_AHEAD_MAX) {
-            let mut core = MockCore::new();
-            let mut runahead = RunAhead::default();
-            for real in 1..=3u64 {
-                runahead
-                    .run(&mut core, ButtonMask(0), frames)
-                    .expect("the mock always saves and loads");
-                let shown = real + u64::from(frames);
-                let mut reference = MockCore::new();
-                reference
-                    .unserialize(&(shown - 1).to_le_bytes())
-                    .expect("the reference refused its frame");
-                reference.run_frame(ButtonMask(0));
-                assert_eq!(
-                    core.serialize().expect("the mock always saves"),
-                    real.to_le_bytes(),
-                    "at {frames} the game is not back on frame {real}"
-                );
-                assert!(
-                    runahead.video == reference.video_xrgb8888(),
-                    "at {frames} the picture kept is not frame {shown}"
-                );
-                assert!(
-                    runahead.audio == reference.take_audio(),
-                    "at {frames} the sound kept is not frame {shown}'s alone"
-                );
-            }
-        }
     }
 
     fn ms(ms: f64) -> Duration {

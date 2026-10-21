@@ -9,7 +9,7 @@ use crate::books::Shelf;
 use crate::browse::keys::Mode;
 use crate::library::covers::Art;
 use crate::library::Library;
-use crate::library::{AlbumId, ArtistId, BookId, GenreId, TrackId};
+use crate::library::{AlbumId, ArtistId, BookId, FolderId, GenreId, TrackId};
 use crate::music::ReadAhead;
 use crate::playback::fade::Sleep;
 use crate::screens;
@@ -42,7 +42,7 @@ pub enum View {
     Advanced,
     /// What is still being shaped, under Advanced.
     Experimental,
-    /// The library's ways in: artists, albums, songs, genres and years.
+    /// The library's ways in: artists, albums, songs, genres, years and folders.
     Library,
     Artists,
     Artist(ArtistId),
@@ -55,6 +55,8 @@ pub enum View {
     Genre(GenreId),
     Years,
     Decade(u32),
+    /// Music's folders as on the card, from Music itself: its folders, then its songs.
+    Folder(FolderId),
     Playlists,
     Playlist(usize),
     /// The albums last added, newest first.
@@ -123,6 +125,7 @@ impl View {
                 | View::Album(_)
                 | View::Playlist(_)
                 | View::Genre(_)
+                | View::Folder(_)
                 | View::Author(_)
                 | View::BookChapters(_)
                 | View::Bookmarks(_)
@@ -156,6 +159,7 @@ impl View {
         matches!(
             self,
             View::Artists
+                | View::Playlists
                 | View::Albums
                 | View::Tracks
                 | View::Genres
@@ -455,6 +459,10 @@ impl Browser {
             (_, _, Some(Row::Queued(i))) => screens::queue::held(self, cx, i, key),
             (_, _, Some(Row::Rescan)) => Outcome::Rescan(true),
             (_, View::Main | View::Library, Some(row)) => screens::main::held(self, cx, row, key),
+            // Play All held shuffles, as its Shuffle row did.
+            (_, _, Some(Row::PlayAll)) if key == Key::A => {
+                screens::list::open(self, cx, Row::Shuffle, 0)
+            }
             (_, view, Some(row)) if !view.is_menu() => screens::list::held(cx, view, row, key),
             _ => Outcome::None,
         }
@@ -539,8 +547,9 @@ impl Browser {
         let fixed = rows::fixed(view).len();
         let at = self.at().min(rows.len().saturating_sub(1));
         let per = per_page(view);
-        let page = at / per;
-        let shown = || rows.iter().skip(page * per).take(per);
+        let page = page_of(view, at);
+        let span = page_rows(view, page, rows.len());
+        let shown = || rows[span.clone()].iter();
         Page {
             title: match view {
                 View::Artist(a) => cx.lib.artists[a].name.clone(),
@@ -548,16 +557,20 @@ impl Browser {
                 View::Playlist(0) => text::FAVORITES.into(),
                 View::Playlist(p) => cx.lib.playlists[p].name.clone(),
                 View::Genre(g) => cx.lib.genres[g].name.clone(),
+                View::Folder(f) if f != FolderId(0) => cx.lib.folders[f].name.clone(),
                 View::Decade(d) => text::decade(d),
+                // A START menu on a song or a book is headed by its name.
+                View::SongMenu(t) => cx.lib.tracks[t].title.clone(),
+                View::BookMenu(b) => cx.lib.albums[cx.lib.books[b].album].name.clone(),
                 view => text::title(view).unwrap_or_default().into(),
             },
             rows: shown().map(|&r| label(cx, view, r)).collect(),
             values: shown().map(|&r| value(cx, r)).collect(),
-            selected: at % per,
+            selected: at - span.start,
             highlighted: rows.get(at).copied(),
-            rules: (1..per)
+            rules: (1..span.len())
                 .filter(|&i| {
-                    let (above, row) = (page * per + i - 1, page * per + i);
+                    let (above, row) = (span.start + i - 1, span.start + i);
                     match (rows.get(above), rows.get(row)) {
                         (Some(_), Some(_)) if row == fixed => true,
                         // The lists pinned first are kept apart from the playlists made.
@@ -571,7 +584,7 @@ impl Browser {
                 })
                 .collect(),
             thumbs: view.rich(),
-            pages: rows.len().div_ceil(per).max(1),
+            pages: page_of(view, rows.len().saturating_sub(1)) + 1,
             item: at.checked_sub(fixed).map(|i| i + 1),
             items: rows.len() - fixed,
             per_page: per,
@@ -692,4 +705,26 @@ pub fn per_page(view: View) -> usize {
     } else {
         LIST_ROWS
     }
+}
+
+/// The action rows (Play All) that lead the first page of `view` besides its `per_page`: a
+/// one-line row's height, they fit over a page of two-line rows; in a one-line list, none.
+fn lead(view: View) -> usize {
+    if view.rich() {
+        rows::fixed(view).len()
+    } else {
+        0
+    }
+}
+
+/// The page of `view` row `at` is on.
+pub(crate) fn page_of(view: View, at: usize) -> usize {
+    at.saturating_sub(lead(view)) / per_page(view)
+}
+
+/// The rows page `page` of `view` shows, of `n`.
+pub(crate) fn page_rows(view: View, page: usize, n: usize) -> std::ops::Range<usize> {
+    let (lead, per) = (lead(view), per_page(view));
+    let start = if page == 0 { 0 } else { lead + page * per };
+    start.min(n)..(lead + (page + 1) * per).min(n)
 }

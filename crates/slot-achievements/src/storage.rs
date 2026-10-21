@@ -66,6 +66,12 @@ pub(crate) struct Game {
     pub achievements: Vec<Achievement>,
 }
 
+impl Game {
+    pub fn supported_console(&self) -> bool {
+        matches!(self.console, 4..=6) // Game Boy, Game Boy Advance, Game Boy Color
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Unlock {
     pub id: u32,

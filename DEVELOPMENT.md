@@ -42,7 +42,7 @@ nix-shell --run "cargo test -p slot --no-default-features --features slot/device
 nix-shell --run "cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings"
 nix-shell --run "cargo clippy -p slot-music -p slot-ui -p slot-input -p slot-player --tests -- -D warnings"
 nix-shell --run "cargo fmt -p slot-music -p slot-ui -p slot -p slot-player"
-git checkout -- crates/slot/tests/prefetch.rs crates/slot/tests/runahead.rs   # fmt touches these upstream files; keep them as upstream has them
+git checkout -- crates/slot/tests/prefetch.rs   # fmt touches this upstream file; keep it as upstream has it
 ```
 
 All of it passes before anything goes on a card. On an x86 laptop, slot's own `input`, `bios`,
@@ -84,6 +84,11 @@ here (2026-10-19, the same song, the lid closed): writing 0.90% against 0.64%, A
 against 0.12%, the player's thread 3.2% against 3.0%, likely as the mapped buffer is uncached and
 the half second kept for a pause's fade is read back out of it; so the write stays as it is.
 
+To see the screens without the device: `nix-shell --run "task shots"` draws each music screen,
+light and dark, into `target/shots/` as slot draws it (its faces and kit, put into pixels instead of
+the GPU, on a card made for the test, playing into silence). The same drawing backs a test that
+holds a two-line row's text inside its highlight; a screen's pixels can be checked so.
+
 Logging: `log::warn!` for what went wrong, always written; `log::info!` for what happens, only
 with Advanced › Detailed Log on (`log = on`), so a user asked for help turns it on and sends
 `Logs/slot.log`. Nothing prints directly (`rules.rs` holds it so); the launcher keeps the last
@@ -115,7 +120,7 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 
 - Commit only features the owner has tested end to end on the device; never per change.
 - Author email `4727729+bphenriques@users.noreply.github.com`; no other address ever.
-- Never push or tag without an explicit go. The version is `v1.7.0-bphenriques.1`.
+- Never push or tag without an explicit go. The version is `v1.8.0-bphenriques.1`, shown on About from the nearest tag.
 - `stash@{0}` is old music work from before the v1.7.0 merge; drop it once happy.
 
 ## Device quirks
@@ -132,6 +137,7 @@ device build is plain release, and these are the hardware's and BaseOS's.
 | The place the device says it is at moves in steps, behind what it is reading. | A click when all it held was taken back; and the place said going back a little after each write, the bar redrawn twice as often as it moves. | `alsa.rs`, `taken_back`: 50 ms is left to play out; `engine.rs`, `Writer::write`: what is said heard never goes back. |
 | The codec's level is `lineout volume` on `hw:0`, 0 to 31 at 1.5 dB a step, as plorpOS found. | Music played straight to the codec, at slot's volume. | `slot/src/audio/line_out.rs`, followed through music's fades. |
 | Two shoulders squeezed together come in as one moment, in either order. | The button trace with the performance log on. | `music/controller.rs`: any two of them are the pocket combo. |
+| The lid watcher slot 1.8.0 runs beside it (`card/System/lid.sh`) powers off once the lid has been closed the Lid Off time and a minute, whatever slot is doing. | Music playing on in a pocket cut off four minutes after the lid closed. | `slot/src/app/music.rs`, `say_busy`: while music plays with the lid closed, slot writes the uptime to `/run/slot-busy` every 10 s, and `lid.sh` counts the lid as just closed while that is recent. |
 
 A device after this one gets its own row, and its own answer where the row says.
 

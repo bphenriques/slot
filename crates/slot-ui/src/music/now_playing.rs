@@ -34,13 +34,22 @@ pub(super) fn draw(
     let bar = NP_TOP + ART_BOX as f32 - SMALL_H as f32 - NP_BAR_GAP - PROGRESS_H;
     // Play or pause at the left, shuffle and repeat at the right.
     let icons = |h: u32| bar - NP_BAR_GAP - h as f32;
+    // The marks after the first centred on its middle, a word (a book's speed) as an icon is.
+    let mut middle = bar - NP_BAR_GAP;
     if let Some(&(tex, w, h)) = np.status.first() {
         push(out, tex, left, icons(h), w, h);
+        middle = icons(h) + h as f32 / 2.0;
     }
+    // A book's speed ends at the margin by its ink, its padding past it, as a line of text does.
     let mut x = right;
+    if let Some((tex, w, h)) = np.speed {
+        let at = right + pad - w as f32;
+        push(out, tex, at, (middle - h as f32 / 2.0).round(), w, h);
+        x = at + pad - STATUS_GAP;
+    }
     for &(tex, w, h) in np.status.iter().skip(1).rev() {
         x -= w as f32;
-        push(out, tex, x, icons(h), w, h);
+        push(out, tex, x, (middle - h as f32 / 2.0).round(), w, h);
         x -= STATUS_GAP;
     }
     let ink = MusicTint::bar_ink(np.tint.as_ref(), art_in, theme);
@@ -69,7 +78,13 @@ pub(super) fn draw(
         push(out, tex, left - pad, small, w, h);
     }
     if let Some((tex, w, h)) = np.place {
-        push(out, tex, right + pad - w as f32, small, w, h);
+        let x = right + pad - w as f32;
+        push(out, tex, x, small, w, h);
+        // Its mark a gap before its ink, centred on it.
+        if let Some((mtex, mw, mh)) = np.place_mark {
+            let y = (small + (h as f32 - mh as f32) / 2.0).round();
+            push(out, mtex, x + pad - STATUS_GAP - mw as f32, y, mw, mh);
+        }
     }
     // Up Next, midway between the picture and the hints.
     if let Some((tex, w, h)) = np.next {
@@ -120,6 +135,63 @@ fn draw_art(np: &NowPlayingFaces, art_in: f32, theme: &MusicTheme, out: &mut Vec
 mod tests {
     use super::*;
     use slot_gfx::TexId;
+
+    #[test]
+    fn a_book_s_speed_ends_at_the_margin_by_its_ink_and_the_heart_sits_a_gap_from_it() {
+        let (play, heart, speed) = (TexId::from_raw(1), TexId::from_raw(2), TexId::from_raw(3));
+        let np = NowPlayingFaces {
+            status: vec![(play, 20, 20), (heart, 20, 20)],
+            speed: Some((speed, 80, 30)),
+            ..NowPlayingFaces::default()
+        };
+        let mut out = Vec::new();
+        draw(&np, 0.0, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
+        let at = |id| {
+            out.iter()
+                .find_map(|d| match *d {
+                    Draw::Tex { tex, x, w, .. } if tex == id => Some((x, w)),
+                    _ => None,
+                })
+                .expect("drawn")
+        };
+        let pad = MENU_PAD as f32;
+        let right = Canvas::FRAMED.w - QUICK_EDGE;
+        let (sx, sw) = at(speed);
+        assert_eq!(sx + sw - pad, right, "its ink at the margin");
+        let (mx, mw) = at(heart);
+        assert_eq!(mx + mw, sx + pad - STATUS_GAP, "a gap from its ink");
+    }
+
+    #[test]
+    fn a_book_s_time_left_has_its_mark_just_before_it_and_clear_of_the_chapter_s_time() {
+        let (time, place, mark) = (TexId::from_raw(1), TexId::from_raw(2), TexId::from_raw(3));
+        let pad = MENU_PAD;
+        let np = NowPlayingFaces {
+            time: Some((time, 110 + 2 * pad, 20)),
+            place: Some((place, 150 + 2 * pad, 20)),
+            place_mark: Some((mark, 22, 22)),
+            ..NowPlayingFaces::default()
+        };
+        let mut out = Vec::new();
+        draw(&np, 0.0, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
+        let at = |id| {
+            out.iter()
+                .find_map(|d| match *d {
+                    Draw::Tex { tex, x, w, .. } if tex == id => Some((x, x + w)),
+                    _ => None,
+                })
+                .expect("drawn")
+        };
+        let pad = pad as f32;
+        let ((_, time_end), (place_start, _), (mark_start, mark_end)) =
+            (at(time), at(place), at(mark));
+        assert_eq!(
+            mark_end,
+            place_start + pad - STATUS_GAP,
+            "a gap before its ink"
+        );
+        assert!(mark_start > time_end - pad, "clear of the chapter's time");
+    }
 
     #[test]
     fn the_empty_square_shows_a_note_until_a_picture_fades_in_over_it() {

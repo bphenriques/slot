@@ -4,7 +4,7 @@
 use super::worker::{Done, Job};
 use super::{Effect, Music};
 use crate::browse::rows;
-use crate::browse::{per_page, View};
+use crate::browse::{page_of, page_rows, View};
 use crate::library::covers::{self, Art, Covers};
 use crate::library::AlbumId;
 
@@ -96,7 +96,7 @@ impl Music {
         let view = self.browser.view();
         let page = Page {
             view,
-            page: self.browser.at() / per_page(view),
+            page: page_of(view, self.browser.at()),
             queued: self.player.queue().tracks.len(),
         };
         if self.pictures.page == Some(page) {
@@ -105,11 +105,8 @@ impl Music {
         self.pictures.page = Some(page);
         let cx = self.context();
         let rows = rows::rows(&cx, view);
-        let per = per_page(view);
-        let wanted: Vec<AlbumId> = rows
+        let wanted: Vec<AlbumId> = rows[page_rows(view, page.page, rows.len())]
             .iter()
-            .skip(page.page * per)
-            .take(per)
             .filter_map(|&row| rows::album(&cx, view, row))
             .collect();
         self.pictures.thumbs.retain(|t| wanted.contains(&t.album));

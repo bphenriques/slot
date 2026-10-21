@@ -32,5 +32,7 @@ lz4_flex = { workspace = true }
 png = { workspace = true }
 
 [dev-dependencies]
+lofty.workspace = true
+slot-player = { path = "../slot-player" }
 slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
 tempfile = { workspace = true }

@@ -6,7 +6,7 @@ use crate::books;
 use crate::books::chapters::Chapter;
 use crate::browse::{BookList, Context, QueueView, View};
 use crate::library::Library;
-use crate::library::{AlbumId, ArtistId, BookId, GenreId, TrackId};
+use crate::library::{AlbumId, ArtistId, BookId, FolderId, GenreId, TrackId};
 use crate::settings::Setting;
 use crate::text;
 
@@ -18,10 +18,9 @@ pub enum Row {
     Open(View),
     /// A genre, and a decade.
     Genre(GenreId),
+    Folder(FolderId),
     Decade(u32),
     Playlist(usize),
-    /// Adds the track playing to Favorites, or takes it out.
-    Favorite,
     Rescan,
     Setting(Setting),
     PlayAll,
@@ -103,6 +102,8 @@ pub struct RowText {
     pub favorite: bool,
     /// The album whose thumbnail starts it, once read.
     pub album: Option<AlbumId>,
+    /// A sentence to read, set as written rather than in capitals: Help's tips.
+    pub cased: bool,
 }
 
 impl RowText {
@@ -121,7 +122,7 @@ impl PartialEq<&str> for RowText {
     }
 }
 
-/// The action rows at the top of a list.
+/// The action row at the top of a list: Play All, which held shuffles, as one row in every list.
 pub(crate) fn fixed(view: View) -> &'static [Row] {
     match view {
         View::Artists
@@ -130,10 +131,11 @@ pub(crate) fn fixed(view: View) -> &'static [Row] {
         | View::Artist(_)
         | View::Album(_)
         | View::Playlist(_)
+        | View::Folder(_)
         | View::Genre(_)
         | View::Decade(_)
         | View::RecentlyAdded
-        | View::RecentlyPlayed => &[Row::PlayAll, Row::Shuffle],
+        | View::RecentlyPlayed => &[Row::PlayAll],
         _ => &[],
     }
 }
@@ -152,7 +154,7 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
                 Row::Open(View::Settings),
             ]);
         }
-        // Genres and Years only once the tags fill them.
+        // Genres and Years only once the tags fill them, and Folders once there are songs.
         View::Library => {
             rows.extend([
                 Row::Open(View::Artists),
@@ -161,9 +163,17 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
             ]);
             rows.extend((!lib.genres.is_empty()).then_some(Row::Open(View::Genres)));
             rows.extend((!lib.albums_by_year.is_empty()).then_some(Row::Open(View::Years)));
+            let music = lib.folders.first();
+            let filled = music.is_some_and(|m| !m.folders.is_empty() || !m.tracks.is_empty());
+            rows.extend(filled.then_some(Row::Open(View::Folder(FolderId(0)))));
         }
         View::Genres => rows.extend((0..lib.genres.len()).map(|g| Row::Genre(GenreId(g)))),
         View::Genre(g) => rows.extend(lib.genres[g].albums.iter().map(|&a| Row::Album(a))),
+        View::Folder(f) => {
+            let folder = &lib.folders[f];
+            rows.extend(folder.folders.iter().map(|&f| Row::Folder(f)));
+            rows.extend(folder.tracks.iter().map(|&t| Row::Track(t)));
+        }
         View::Years => {
             let mut decades: Vec<u32> =
                 lib.albums_by_year.iter().map(|&a| decade(lib, a)).collect();
@@ -257,7 +267,6 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
         }
         // What to do with the song first, then where to go from it.
         View::PlayingMenu => rows.extend([
-            Row::Favorite,
             Row::Setting(Setting::SleepTimer),
             Row::Setting(Setting::Repeat),
             Row::ShuffleQueue,
@@ -295,8 +304,17 @@ fn book_chapters(cx: &Context, book: BookId) -> Vec<Row> {
     rows
 }
 
+/// Where a chapter comes in its book, from 1, through all its parts: as an album numbers its
+/// songs, so the play mark takes the number's place and the names stay in line.
+fn chapter_number(cx: &Context, book: BookId, part: usize, chapter: Option<usize>) -> usize {
+    let before: usize = (0..part)
+        .map(|p| part_chapters(cx, book, p).len().max(1))
+        .sum();
+    before + chapter.unwrap_or(0) + 1
+}
+
 /// The chapters of `book`'s `part` read from its file; none until they are, or if it has none.
-fn part_chapters<'a>(cx: &Context<'a>, book: BookId, part: usize) -> &'a [Chapter] {
+pub(crate) fn part_chapters<'a>(cx: &Context<'a>, book: BookId, part: usize) -> &'a [Chapter] {
     let parts = &cx.lib.albums[cx.lib.books[book].album].tracks;
     parts
         .get(part)
@@ -397,11 +415,6 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
         // Favorites is worded here; the rest are named by their files.
         Row::Playlist(0) => RowText::plain(text::FAVORITES),
         Row::Playlist(p) => RowText::plain(&lib.playlists[p].name),
-        Row::Favorite => RowText::plain(if subject.is_some_and(|t| lib.is_favorite(t)) {
-            text::UNFAVORITE
-        } else {
-            text::FAVORITE
-        }),
         // The menu names where it goes: "Go to" lit, as the other actions are, the name dim.
         Row::GoToAlbum | Row::GoToArtist => match (row, subject) {
             (_, None) => RowText::plain(text::row(row, view).unwrap_or_default()),
@@ -429,11 +442,11 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             ..RowText::plain(text::row(row, view).unwrap_or_default())
         },
         Row::Genre(g) => RowText::plain(&lib.genres[g].name),
+        Row::Folder(f) => RowText::plain(&lib.folders[f].name),
         Row::Decade(d) => RowText::plain(text::decade(d)),
-        // A decade's albums say their year, before, and their artist.
+        // A decade's albums say who made them and when, below, as an artist's say when.
         Row::Album(a) if matches!(view, View::Decade(_)) => RowText {
-            before: lib.albums[a].year.to_string(),
-            after: lib.artists[lib.albums[a].artist].name.clone(),
+            after: text::by_in(&lib.artists[lib.albums[a].artist].name, lib.albums[a].year),
             ..RowText::plain(&lib.albums[a].name)
         },
         // Albums from across the library name their artist; an artist's own need not.
@@ -478,6 +491,7 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             RowText {
                 playing: begun && (part, chapter) == left,
                 faint: begun && (part, chapter) < left,
+                before: format!("{:02}", chapter_number(cx, book, part, chapter)),
                 ..RowText::plain(title)
             }
         }
@@ -502,24 +516,38 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             let finished = book.is_some_and(|b| cx.shelf.place(lib, b).finished);
             RowText::plain(text::finished(finished))
         }
-        // Tracks show their number in their album, their artist elsewhere.
+        // Tracks show their number in their album, their artist elsewhere; in their album too
+        // where it is not the album's, as on a compilation or a song with a guest.
         Row::Track(t) if view == View::Album(lib.tracks[t].album) => RowText {
             before: lib.tracks[t].number.clone(),
-            after: String::new(),
+            after: Some(&lib.tracks[t].artist)
+                .filter(|&by| *by != lib.artist_of(t).name)
+                .cloned()
+                .unwrap_or_default(),
             ..track(t)
         },
+        // In a folder, a song goes by its file's name, as a file browser lists it.
+        Row::Track(t) if matches!(view, View::Folder(_)) => {
+            let path = &lib.tracks[t].path;
+            let stem = path.file_stem().unwrap_or(path.as_os_str());
+            RowText::plain(stem.to_string_lossy())
+        }
         Row::Track(t) => track(t),
         Row::Queued(i) => RowText {
             playing: i == queue.at,
             faint: i < queue.at,
             ..track(queue.tracks[i])
         },
-        // A tip lit; a place's name faint, as a heading; a key, then what it does, dim.
+        // A tip lit, as written; a place's name dim, as a heading, not faint as what cannot be
+        // picked is; a key, then what it does, dim.
         Row::HelpLine(i) => match text::help(i) {
-            Some(text::HelpLine::Tip(tip)) => RowText::plain(tip),
+            Some(text::HelpLine::Tip(tip)) => RowText {
+                cased: true,
+                ..RowText::plain(tip)
+            },
             Some(text::HelpLine::Place(place)) => RowText {
-                faint: true,
-                ..RowText::plain(place)
+                before: place.into(),
+                ..RowText::default()
             },
             Some(text::HelpLine::Key(key, does)) => RowText {
                 after: does.into(),
@@ -566,7 +594,6 @@ pub(crate) fn value(cx: &Context, row: Row) -> Option<String> {
         Row::Open(View::Genres) => count(cx.lib.genres.len()),
         Row::Genre(g) => count(cx.lib.genres[g].albums.len()),
         Row::Decade(d) => count(in_decade(cx.lib, d).len()),
-        Row::Open(View::Books) => count(cx.lib.books.len()),
         Row::Open(View::BookList(list)) => count(books::listed(cx.lib, cx.shelf, list).len()),
         Row::Open(View::Authors) => count(books::authors(cx.lib).len()),
         Row::Author(a) => count(books::by(cx.lib, a).len()),
@@ -621,10 +648,12 @@ pub(crate) fn tracks(cx: &Context, view: View, row: Row) -> Option<Vec<TrackId>>
         Row::Track(t) => vec![t],
         Row::Playlist(p) => lib.playlists[p].tracks.clone(),
         Row::Open(View::RecentlyPlayed) => cx.recent.to_vec(),
+        Row::Folder(f) => lib.folder_tracks(f),
         Row::Genre(g) => albums_tracks(lib, &lib.genres[g].albums),
         Row::Decade(d) => albums_tracks(lib, in_decade(lib, d)),
         Row::Open(View::RecentlyAdded) => albums_tracks(lib, &lib.albums_by_added),
         Row::PlayAll | Row::Shuffle => match view {
+            View::Folder(f) => lib.folder_tracks(f),
             View::Genre(g) => albums_tracks(lib, &lib.genres[g].albums),
             View::Decade(d) => albums_tracks(lib, in_decade(lib, d)),
             View::Artist(a) => lib.artist_tracks(a),
@@ -689,6 +718,8 @@ pub(crate) fn name(lib: &Library, row: Row) -> Option<&str> {
         Row::Track(t) => Some(&lib.tracks[t].title),
         Row::Author(a) => Some(&lib.artists[a].name),
         Row::Genre(g) => Some(&lib.genres[g].name),
+        Row::Folder(f) => Some(&lib.folders[f].name),
+        Row::Playlist(p) => Some(&lib.playlists[p].name),
         Row::Book(b) => Some(&lib.albums[lib.books[b].album].name),
         _ => None,
     }

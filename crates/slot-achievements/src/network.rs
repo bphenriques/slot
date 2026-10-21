@@ -249,7 +249,7 @@ fn prefetch(
         let patch = call(http, auth, "patch", &[("g", id.to_string())])?;
         let game: Game =
             serde_json::from_value(patch["PatchData"].clone()).map_err(|_| Failure::Invalid)?;
-        if game.console != 5 || u64::from(game.id) != id {
+        if !game.supported_console() || u64::from(game.id) != id {
             return Err(Failure::Invalid);
         }
         let unlocks = call(
@@ -298,7 +298,7 @@ pub(crate) fn run(
                     load = newer;
                 }
                 active = load.and_then(|load| {
-                    // GBA identification is the MD5 of the complete uncompressed ROM.
+                    // GB/GBC/GBA identification is the MD5 of the uncompressed ROM.
                     // File I/O and hashing happen here, never on the emulator/UI threads.
                     let hash = crate::library::hash(&dir, &load.path).ok()?;
                     let mut game = Active {
@@ -311,7 +311,7 @@ pub(crate) fn run(
                     if auth.is_some() {
                         let cache = dir.join(format!("{}.json", game.hash));
                         if let Ok((data, ids)) = storage::read::<(Game, BTreeSet<u32>)>(&cache) {
-                            if data.console == 5 {
+                            if data.supported_console() {
                                 badges.enqueue(&data);
                                 let _ = prepared.send(Prepared {
                                     generation: game.generation,
@@ -436,7 +436,7 @@ pub(crate) fn run(
                         let patch = call(&mut http, auth, "patch", &[("g", id.to_string())])?;
                         let data: Game = serde_json::from_value(patch["PatchData"].clone())
                             .map_err(|_| Failure::Invalid)?;
-                        if data.console != 5 || u64::from(data.id) != id {
+                        if !data.supported_console() || u64::from(data.id) != id {
                             return Err(Failure::Invalid);
                         }
                         let session = call(

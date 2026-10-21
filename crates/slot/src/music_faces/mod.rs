@@ -14,9 +14,10 @@ use slot_music::{text, AlbumId, Body, Legend, RowText};
 use slot_ui::music::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_half_w, music_header_title_w, music_heart_face, music_hint_face, music_letter_face,
-    music_line_face, music_moon_face, music_no_art_face, music_paragraph_face, music_ring_face,
-    music_row_face, music_row_heart_face, music_status_face, music_tint_ink, music_window,
-    BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme, MUSIC_RING_STEPS, MUSIC_STATUS,
+    music_line_face, music_no_art_face, music_paragraph_face, music_ring_face, music_row_face,
+    music_row_heart_face, music_second_face, music_status_face, music_thumb_blank_face,
+    music_tint_ink, music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme,
+    MUSIC_RING_STEPS, MUSIC_STATUS,
 };
 use slot_ui::UndoFace;
 
@@ -42,6 +43,8 @@ enum Spec {
         ink: Ink,
         px: u32,
     },
+    /// A two-line row's second line, `px` high.
+    Second(String, u32),
 }
 
 impl Spec {
@@ -56,6 +59,7 @@ impl Spec {
             Spec::Paragraph { text, ink, px } => {
                 music_paragraph_face(text, *ink, *px as f32, width, theme)
             }
+            Spec::Second(text, px) => music_second_face(text, *px as f32, width, theme),
             Spec::Row { text, ink, px } => {
                 let icon = text.playing.then_some(MUSIC_STATUS[0]);
                 music_row_face(
@@ -66,6 +70,7 @@ impl Spec {
                     *ink,
                     *px as f32,
                     width,
+                    text.cased,
                     theme,
                 )
             }
@@ -93,7 +98,7 @@ impl Line {
     /// The window `width` wide, scrolled along by `scroll` ms; drawn again only on a change.
     fn sync(
         &mut self,
-        compositor: &mut Compositor,
+        compositor: &mut dyn Textures,
         theme: MusicTheme,
         spec: Spec,
         width: u32,
@@ -129,8 +134,31 @@ impl Line {
     }
 }
 
+/// Where the music's faces go: textures on the GPU, through slot's compositor; or, in the tests,
+/// pixels kept to draw a screenshot from without a device.
+pub trait Textures {
+    fn create_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> TexId;
+    fn update_texture(&mut self, id: TexId, w: u32, h: u32, rgba: &[u8]);
+}
+
+impl Textures for Compositor {
+    fn create_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> TexId {
+        Compositor::create_texture(self, w, h, rgba)
+    }
+
+    fn update_texture(&mut self, id: TexId, w: u32, h: u32, rgba: &[u8]) {
+        Compositor::update_texture(self, id, w, h, rgba);
+    }
+}
+
 /// Uploads into `tex`, made on first use.
-fn put(compositor: &mut Compositor, tex: &mut Option<TexId>, w: u32, h: u32, rgba: &[u8]) -> TexId {
+fn put(
+    compositor: &mut dyn Textures,
+    tex: &mut Option<TexId>,
+    w: u32,
+    h: u32,
+    rgba: &[u8],
+) -> TexId {
     match *tex {
         Some(id) => {
             compositor.update_texture(id, w, h, rgba);
@@ -158,7 +186,7 @@ impl<K> Default for Styled<K> {
 impl<K: PartialEq> Styled<K> {
     fn sync(
         &mut self,
-        compositor: &mut Compositor,
+        compositor: &mut dyn Textures,
         key: K,
         theme: MusicTheme,
         draw: impl FnOnce(&K, &MusicTheme) -> Vec<UndoFace>,
@@ -184,29 +212,31 @@ impl<K: PartialEq> Styled<K> {
     }
 }
 
-/// Faces of a few symbols: carets for settings, the state symbols, the sleep timer's moon and
-/// the favorite's heart.
+/// Faces of a few symbols: carets for settings, the state symbols and the favorite's heart.
 #[derive(Copy, Clone)]
 struct Glyphs {
     carets: [MusicFace; 2],
     status: [MusicFace; 5],
     heart: MusicFace,
-    moon: MusicFace,
     /// Now Playing's square with no picture: a note, then a book.
     no_art: [MusicFace; 2],
+    /// A list's empty thumbnail: a note, then a book.
+    blank: [MusicFace; 2],
 }
 
 impl Glyphs {
     fn draw(theme: &MusicTheme) -> Vec<UndoFace> {
         let carets = [false, true].map(|right| music_caret_face(right, theme));
         let status = MUSIC_STATUS.map(|g| music_status_face(g, theme));
-        let rest = [music_heart_face(theme), music_moon_face(theme)];
+        let rest = [music_heart_face(theme)];
         let no_art = [false, true].map(|book| music_no_art_face(book, theme));
+        let blank = [false, true].map(|book| music_thumb_blank_face(book, theme));
         carets
             .into_iter()
             .chain(status)
             .chain(rest)
             .chain(no_art)
+            .chain(blank)
             .collect()
     }
 
@@ -216,8 +246,8 @@ impl Glyphs {
             carets: [at(0), at(1)],
             status: [2, 3, 4, 5, 6].map(at),
             heart: at(7),
-            moon: at(8),
-            no_art: [at(9), at(10)],
+            no_art: [at(8), at(9)],
+            blank: [at(10), at(11)],
         }
     }
 }
@@ -230,7 +260,7 @@ struct Lines(Vec<Line>, u64);
 impl Lines {
     fn sync(
         &mut self,
-        compositor: &mut Compositor,
+        compositor: &mut dyn Textures,
         theme: MusicTheme,
         i: usize,
         spec: Spec,
@@ -312,7 +342,12 @@ pub struct MusicText {
 
 impl MusicText {
     /// A list row's heart at this page's size.
-    fn row_heart(&mut self, compositor: &mut Compositor, menu: bool, per_page: usize) -> MusicFace {
+    fn row_heart(
+        &mut self,
+        compositor: &mut dyn Textures,
+        menu: bool,
+        per_page: usize,
+    ) -> MusicFace {
         let draw =
             |&(menu, per_page): &_, theme: &_| vec![music_row_heart_face(menu, per_page, theme)];
         self.row_heart
@@ -320,7 +355,7 @@ impl MusicText {
     }
 
     /// A legend's hints, each drawn once a theme.
-    fn legend(&mut self, compositor: &mut Compositor, legend: Legend) -> Vec<(TexId, u32)> {
+    fn legend(&mut self, compositor: &mut dyn Textures, legend: Legend) -> Vec<(TexId, u32)> {
         let i = match self.legends.iter().position(|(l, _)| *l == legend) {
             Some(i) => i,
             None => {
@@ -333,7 +368,7 @@ impl MusicText {
         faces.iter().map(|&(id, w, _)| (id, w)).collect()
     }
 
-    pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
+    pub fn sync(&mut self, app: &mut App, compositor: &mut dyn Textures) {
         let began = std::time::Instant::now();
         if self.draw(app, compositor) {
             app.note_music_draw(began.elapsed());
@@ -341,7 +376,7 @@ impl MusicText {
     }
 
     /// Draws the music screen, when it is shown: true when it was.
-    fn draw(&mut self, app: &mut App, compositor: &mut Compositor) -> bool {
+    fn draw(&mut self, app: &mut App, compositor: &mut dyn Textures) -> bool {
         let Some(screen) = app.music_screen() else {
             self.motion.hide();
             app.music_hidden();
@@ -363,11 +398,11 @@ impl MusicText {
             self.glyphs
                 .sync(compositor, (), theme, |_, t| Glyphs::draw(t)),
         );
-        // Menus are headless, as slot's are; only a notice or progress shows in the corner.
-        let menu = match &screen.body {
-            Body::List(list) => list.menu,
-            Body::Message(_) => true,
-            Body::NowPlaying(_) | Body::Text(_) => false,
+        // Every screen is titled but the Music menu, bare as slot's own; a notice or progress
+        // shows in its corner.
+        let titled = match &screen.body {
+            Body::List(list) => list.titled,
+            Body::Message(_) | Body::NowPlaying(_) | Body::Text(_) => true,
         };
         // The corner first, at most half the header: the title takes what it leaves.
         let corner = self.header.sync(
@@ -379,7 +414,7 @@ impl MusicText {
             None,
         );
         let title_w = music_header_title_w(corner.map_or(0, |(_, w, _)| w), canvas);
-        let title = if menu {
+        let title = if !titled {
             None
         } else {
             self.header.sync(
@@ -526,16 +561,44 @@ mod help_tests {
     #[test]
     fn every_line_of_help_fits_a_row() {
         let (theme, px) = (MusicTheme::dark(), music_row_px(false, 8));
-        let room = music_text_width(false, Canvas::FRAMED);
+        // The narrowest canvas a list is laid out on: a 4:3 panel's, 640 wide.
+        let room = music_text_width(false, Canvas::of((640, 480)));
         let wide: Vec<String> = (0..text::help_len())
             .filter_map(|i| {
-                let (name, after) = match text::help(i)? {
-                    text::HelpLine::Tip(tip) => (tip, ""),
-                    text::HelpLine::Place(place) => (place, ""),
-                    text::HelpLine::Key(key, does) => (key, does),
+                let (name, after, cased) = match text::help(i)? {
+                    text::HelpLine::Tip(tip) => (tip, "", true),
+                    text::HelpLine::Place(place) => (place, "", false),
+                    text::HelpLine::Key(key, does) => (key, does, false),
                 };
-                let face = music_row_face(None, "", name, after, Ink::Lit, px, u32::MAX, &theme)?;
+                let face =
+                    music_row_face(None, "", name, after, Ink::Lit, px, u32::MAX, cased, &theme)?;
                 (face.w > room).then(|| format!("{name} {after}: {} of {room} px", face.w))
+            })
+            .collect();
+        assert!(wide.is_empty(), "too wide: {wide:#?}");
+    }
+
+    /// A screen with nothing to list says why in one line, set as a menu row: it must fit.
+    #[test]
+    fn every_message_in_place_of_a_list_fits_the_screen() {
+        let (theme, px) = (MusicTheme::dark(), music_row_px(true, 1));
+        let room = music_text_width(false, Canvas::of((640, 480)));
+        let lines = [
+            text::NO_MUSIC.to_string(),
+            text::NO_BOOKS.to_string(),
+            text::NO_BOOKMARKS.to_string(),
+            text::NO_LYRICS.to_string(),
+            text::QUEUE_EMPTY.to_string(),
+            text::NOTHING_PLAYING.to_string(),
+            text::NO_PLAYER.to_string(),
+            text::reading(12_345, 12_345),
+        ];
+        let wide: Vec<String> = lines
+            .iter()
+            .filter_map(|line| {
+                let face =
+                    music_row_face(None, "", line, "", Ink::Lit, px, u32::MAX, false, &theme)?;
+                (face.w > room).then(|| format!("{line}: {} of {room} px", face.w))
             })
             .collect();
         assert!(wide.is_empty(), "too wide: {wide:#?}");

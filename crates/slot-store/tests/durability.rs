@@ -2,8 +2,8 @@ mod common;
 
 use common::tmp_root;
 use slot_store::{
-    atomic_write, read_slot_state, write_slot_state, Appearance, BezelPick, GbPalette, Platform,
-    Recent, Shader, SlotState, WallpaperPick, WallpaperTint, FF_SPEEDS, FF_SPEED_DEFAULT,
+    atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, GbPalette,
+    Platform, Recent, Shader, SlotState, WallpaperPick, WallpaperTint, FF_SPEEDS, FF_SPEED_DEFAULT,
 };
 use tempfile::tempdir;
 
@@ -20,6 +20,33 @@ fn atomic_write_leaves_no_partial_file_and_no_temp_behind() {
         .filter(|e| e.file_name() != "x.bin")
         .collect();
     assert!(strays.is_empty(), "temp files left behind: {strays:?}");
+}
+
+#[test]
+fn a_temp_left_by_an_interrupted_write_is_swept_and_nothing_else() {
+    let d = tempdir().unwrap();
+    let deep = d.path().join("States/GBA/mgba/Emerald");
+    std::fs::create_dir_all(&deep).unwrap();
+    let stray = deep.join(".resume.state.4242.7.tmp");
+    let mine = deep.join(format!(".resume.state.{}.0.tmp", std::process::id()));
+    let keep = [
+        deep.join("resume.state"),
+        deep.join(".hidden.tmp"),
+        deep.join("notes.4242.7.tmp"),
+        d.path().join(".x.y.tmp"),
+    ];
+    for p in keep.iter().chain([&stray, &mine]) {
+        std::fs::write(p, b"bytes").unwrap();
+    }
+    sweep_temps(d.path());
+    assert!(
+        !stray.exists(),
+        "a temp from an earlier run was left behind"
+    );
+    assert!(mine.exists(), "swept a temp this run may still be writing");
+    for p in &keep {
+        assert!(p.exists(), "swept {}", p.display());
+    }
 }
 
 #[test]
@@ -183,7 +210,6 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
-    assert_eq!(s.runahead, 0, "boots with run-ahead on");
     assert!(
         s.high_refresh,
         "defaults to high refresh on a supported panel"
@@ -224,7 +250,6 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             eject_save: true,
             turbo: true,
             rewind: true,
-            runahead: 0,
             high_refresh: true,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
@@ -233,6 +258,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             wallpaper_tint: WallpaperTint::Off,
             show_recents: false,
             show_titles: false,
+            left_stick_dpad: true,
+            lid_off_min: None,
             bezel_gba: BezelPick::Ags102,
             bezel_gb: BezelPick::Ags102,
             bezel_gbc: BezelPick::Ags102,
@@ -259,7 +286,6 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         eject_save: false,
         turbo: false,
         rewind: false,
-        runahead: 1,
         high_refresh: true,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
@@ -290,7 +316,6 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "eject_save=0",
         "turbo=0",
         "rewind=0",
-        "runahead=1",
         "high_refresh=1",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
@@ -309,62 +334,60 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
 }
 
 #[test]
-fn a_run_ahead_the_row_does_not_offer_reads_as_off() {
+fn a_card_that_still_carries_run_ahead_keeps_the_rest_of_its_values() {
     let d = tmp_root();
     let s = SlotState {
         clock_set: true,
-        runahead: 1,
+        rewind: false,
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
     let path = d.path().join("Config/slot.state");
     let text = std::fs::read_to_string(&path).unwrap();
-    std::fs::write(&path, text.replace("runahead=1", "runahead=9")).unwrap();
-    assert_eq!(read_slot_state(d.path()).runahead, 0);
-    assert!(
-        read_slot_state(d.path()).clock_set,
-        "the rest of the card was thrown away with it"
-    );
+    std::fs::write(&path, text.replace("rewind=0\n", "rewind=0\nrunahead=1\n")).unwrap();
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("runahead=1"));
+    assert_eq!(read_slot_state(d.path()), s);
 }
 
 #[test]
-fn a_legacy_run_ahead_setting_is_retained_with_the_new_refresh_default() {
+fn an_old_card_uses_the_new_refresh_default_and_ignores_run_ahead() {
     let d = tmp_root();
     let state = SlotState {
         brightness: 7,
         clock_set: true,
         rewind: false,
-        runahead: 1,
         ..SlotState::default()
     };
     write_slot_state(d.path(), &state).unwrap();
     let path = d.path().join("Config/slot.state");
     let old = std::fs::read_to_string(&path)
         .unwrap()
-        .replace("high_refresh=1\n", "");
+        .replace("high_refresh=1\n", "runahead=1\n");
     std::fs::write(&path, old).unwrap();
     let migrated = read_slot_state(d.path());
-    assert_eq!(migrated.runahead, 1);
     assert!(migrated.high_refresh);
     assert_eq!(migrated.brightness, 7);
     assert!(migrated.clock_set);
     assert!(!migrated.rewind);
     write_slot_state(d.path(), &migrated).unwrap();
-    assert_eq!(read_slot_state(d.path()).runahead, 1);
+    assert_eq!(read_slot_state(d.path()), migrated);
+    assert!(!std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("runahead="));
 }
 
 #[test]
-fn an_explicit_internal_run_ahead_setting_is_retained_with_the_new_refresh_setting() {
+fn an_explicit_refresh_setting_is_retained() {
     for high_refresh in [false, true] {
         let d = tmp_root();
         let state = SlotState {
-            runahead: 1,
             high_refresh,
             ..SlotState::default()
         };
         write_slot_state(d.path(), &state).unwrap();
         let read = read_slot_state(d.path());
-        assert_eq!(read.runahead, 1);
         assert_eq!(read.high_refresh, high_refresh);
     }
 }
@@ -639,4 +662,23 @@ fn a_card_from_before_the_gbc_split_starts_gbc_from_the_gb_c_settings() {
         (false, Shader::Off),
         "the GB settings overrode GBC's own"
     );
+}
+
+#[test]
+fn lid_power_off_minutes_round_trip_and_drop_a_value_the_menu_does_not_offer() {
+    let d = tmp_root();
+    for min in [1, 3, 5, 10, 15, 30] {
+        let s = SlotState {
+            lid_off_min: Some(min),
+            ..Default::default()
+        };
+        write_slot_state(d.path(), &s).unwrap();
+        assert_eq!(read_slot_state(d.path()).lid_off_min, Some(min));
+    }
+    let path = d.path().join("Config").join("slot.state");
+    let text = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("lid_off_min=30", "lid_off_min=7");
+    std::fs::write(&path, text).unwrap();
+    assert_eq!(read_slot_state(d.path()).lid_off_min, None);
 }

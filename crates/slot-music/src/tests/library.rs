@@ -175,7 +175,7 @@ fn recently_played_is_kept_by_path_and_listed_with_the_playlists() {
         b.press(&cx, key);
     }
     assert_eq!(b.view(), View::RecentlyPlayed);
-    assert_eq!(b.page(&cx).rows, ["Play All", "Shuffle Songs", "one"]);
+    assert_eq!(b.page(&cx).rows, ["Play All", "one"]);
     // A song there plays from it, as in any list of songs.
     b.press(&cx, Key::Down);
     b.press(&cx, Key::Down);
@@ -399,11 +399,7 @@ fn an_artist_lists_albums_by_year_and_discs_are_ruled_apart() {
     }
     press(&mut b, &lib, &[Key::A]);
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
-    assert_eq!(
-        page.rules,
-        [2, 3],
-        "under Play All and Shuffle, then disc 2"
-    );
+    assert_eq!(page.rules, [1, 2], "under Play All, then disc 2");
 }
 
 #[test]
@@ -607,20 +603,30 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
     let mut b = Browser::default();
     press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx(&lib, QueueView::default(), s));
-    assert_eq!(page.rows, ["Artists", "Albums", "Songs", "Genres", "Years"]);
+    assert_eq!(
+        page.rows,
+        ["Artists", "Albums", "Songs", "Genres", "Years", "Folders"]
+    );
     // Years: the decades, then a decade's albums by year, played as one.
-    press(&mut b, &lib, &[Key::Up, Key::A]);
+    press(&mut b, &lib, &[Key::Up, Key::Up, Key::A]);
     let page = b.page(&cx(&lib, QueueView::default(), s));
-    assert_eq!(page.rows, ["1990s", "2000s"]);
+    assert_eq!(page.rows, ["1990–99", "2000–09"]);
     assert_eq!(page.values, [Some("2".to_string()), Some("1".to_string())]);
     press(&mut b, &lib, &[Key::A]);
     let page = b.page(&cx(&lib, QueueView::default(), s));
-    assert_eq!(page.title, "1990s");
-    let albums: Vec<(&str, &str)> = page.rows[2..]
+    assert_eq!(page.title, "1990–99");
+    let albums: Vec<(&str, &str)> = page.rows[1..]
         .iter()
-        .map(|r| (r.before.as_str(), r.text.as_str()))
+        .map(|r| (r.text.as_str(), r.after.as_str()))
         .collect();
-    assert_eq!(albums, [("1993", "Debut"), ("1997", "OK Computer")]);
+    assert_eq!(
+        albums,
+        [
+            ("Debut", "Bjork · 1993"),
+            ("OK Computer", "Radiohead · 1997")
+        ],
+        "who made each and when, below, as an artist's albums say when"
+    );
     let Outcome::Play { tracks, .. } = press(&mut b, &lib, &[Key::A]) else {
         panic!("Play All plays the decade");
     };
@@ -630,7 +636,15 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
     press(
         &mut b,
         &lib,
-        &[Key::Down, Key::Down, Key::A, Key::Up, Key::Up, Key::A],
+        &[
+            Key::Down,
+            Key::Down,
+            Key::A,
+            Key::Up,
+            Key::Up,
+            Key::Up,
+            Key::A,
+        ],
     );
     assert_eq!(
         b.page(&cx(&lib, QueueView::default(), s)).rows,
@@ -640,12 +654,12 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
         panic!("X adds the genre");
     };
     assert_eq!(tracks.len(), 2);
-    // Untagged, neither is offered.
+    // Untagged, neither is offered; the folders always are.
     let (_d, plain) = library(&["X/A/01 one.mp3"]);
     let mut b = Browser::default();
     press(&mut b, &plain, &[Key::Down, Key::Down, Key::A]);
     let page = b.page(&cx(&plain, QueueView::default(), s));
-    assert_eq!(page.rows, ["Artists", "Albums", "Songs"]);
+    assert_eq!(page.rows, ["Artists", "Albums", "Songs", "Folders"]);
 }
 
 #[test]
@@ -678,5 +692,86 @@ fn a_cache_from_before_genres_keeps_when_songs_came_in_and_has_their_tags_read_a
     assert!(
         text.starts_with("#SLOT-LIBRARY 5\n"),
         "written in the new layout"
+    );
+}
+
+#[test]
+fn a_compilation_s_songs_say_who_sings_each_and_an_artist_s_own_album_does_not() {
+    let root = std::path::Path::new("/card");
+    let lib = Library::build(
+        root,
+        vec![
+            tagged("Hits", "Hits", "Ann", 1),
+            tagged("Hits", "Hits", "Bob", 2),
+            tagged("Hits", "Hits", "Cat", 3),
+            tagged("Dee/Solo", "Solo", "Dee", 1),
+            tagged("Dee/Solo", "Solo", "Dee feat. Ann", 2),
+            tagged("Dee/Solo", "Solo", "Dee", 3),
+        ],
+    );
+    let album = |name: &str| AlbumId(lib.albums.iter().position(|a| a.name == name).unwrap());
+    let after = |name: &str| -> Vec<String> {
+        let mut b = Browser::default();
+        b.push(View::Album(album(name)), 0);
+        let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
+        page.rows[1..].iter().map(|r| r.after.clone()).collect()
+    };
+    assert_eq!(after("Hits"), ["Ann", "Bob", "Cat"]);
+    assert_eq!(
+        after("Solo"),
+        ["", "Dee feat. Ann", ""],
+        "only the song with a guest"
+    );
+}
+
+#[test]
+fn the_shoulders_jump_a_letter_among_the_playlists_after_those_pinned() {
+    let (d, _) = library(&["X/A/01 one.mp3"]);
+    let lists = d.path().join("Music/Playlists");
+    std::fs::create_dir_all(&lists).unwrap();
+    for name in ["Bike Ride", "Cooking", "Road Trip"] {
+        std::fs::write(lists.join(format!("{name}.m3u")), "X/A/01 one.mp3\n").unwrap();
+    }
+    let lib = Library::scan(d.path());
+    let cx = cx(&lib, QueueView::default(), Settings::default());
+    let mut b = Browser::default();
+    b.push(View::Playlists, 3);
+    assert_eq!(b.page(&cx).rows[3], "Bike Ride");
+    b.press(&cx, Key::R1);
+    assert_eq!(b.page(&cx).rows[b.at()], "Cooking", "the next letter");
+}
+
+#[test]
+fn folders_list_their_folders_by_name_then_their_songs_by_file_name_as_on_the_card() {
+    use crate::library::FolderId;
+    let (_d, lib) = library(&[
+        "b.mp3",
+        "Zed/2 two.mp3",
+        "Zed/1 one.mp3",
+        "abba/Gold/01 x.mp3",
+        "../Audiobooks/Book/01 a.mp3",
+    ]);
+    let file = |t: &TrackId| lib.tracks[*t].path.file_name().unwrap().to_string_lossy();
+    let files = |ts: &[TrackId]| ts.iter().map(file).collect::<Vec<_>>();
+    let root = &lib.folders[FolderId(0)];
+    let names: Vec<&str> = root
+        .folders
+        .iter()
+        .map(|&f| lib.folders[f].name.as_str())
+        .collect();
+    assert_eq!(names, ["abba", "Zed"], "by name, in any case");
+    assert_eq!(
+        files(&root.tracks),
+        ["b.mp3"],
+        "a song in Music itself; no book"
+    );
+    assert_eq!(
+        files(&lib.folders[root.folders[1]].tracks),
+        ["1 one.mp3", "2 two.mp3"]
+    );
+    assert_eq!(
+        files(&lib.folder_tracks(FolderId(0))),
+        ["01 x.mp3", "1 one.mp3", "2 two.mp3", "b.mp3"],
+        "under a folder: its folders' songs, then its own"
     );
 }

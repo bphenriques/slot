@@ -448,11 +448,22 @@ fn a_book_s_now_playing_shows_its_part_place_and_time_left() {
     let np = rig.now_playing();
     assert_eq!(np.title, "whale", "the part, a chapter of its own");
     assert_eq!((np.by.as_str(), np.from.as_str()), ("Kipling", "Just So"));
-    assert_eq!(np.place, text::of(1, 2));
     assert_eq!(np.time, text::elapsed(30.0, 60.0));
     assert_eq!(np.progress, Some(0.5));
-    // The parts' lengths not known, the time left is this part's.
-    assert_eq!(np.next, Some(text::book_left(1.0, None, 30.0)));
+    // Where music says its place, the time left, here this part's, its parts' lengths not known.
+    assert_eq!(np.place, text::book_left(30.0));
+    // Up Next names the next chapter, as it names the next song; at 1×, no speed mark.
+    assert_eq!(np.next, Some(text::up_next_chapter("camel")));
+    assert_eq!(np.speed, None);
+    rig.keys(&[Button::X]);
+    assert_eq!(
+        rig.now_playing().speed,
+        Some(text::speed(1.25)),
+        "faster: marked"
+    );
+    assert!(rig.screen().corner.is_empty(), "said once, by the mark");
+    rig.keys(&[Button::X, Button::X, Button::X, Button::X, Button::X]);
+    assert_eq!(rig.now_playing().speed, None, "back round to 1×");
     // A bookmark, ticked on the bar where it is.
     rig.keys(&[Button::Y]);
     assert_eq!(rig.screen().corner, text::notice(&Notice::Bookmarked));
@@ -492,6 +503,24 @@ fn the_corner_says_a_notice_first_then_locked_then_the_sleep_timer() {
         text::notice(&Notice::Locked(true)),
         "over the timer"
     );
+}
+
+#[test]
+fn a_list_of_books_says_so_for_its_empty_thumbnails_and_a_list_of_albums_does_not() {
+    let mut rig = Rig::new(&BOOK);
+    let books = |rig: &Rig| match rig.screen().body {
+        Body::List(list) => list.thumbs && list.books,
+        _ => false,
+    };
+    rig.to(text::BOOKS);
+    rig.keys(&[Button::A]);
+    rig.to("All Books");
+    rig.keys(&[Button::A]);
+    assert!(books(&rig), "a book, not a note");
+    rig.hold(Button::B, 600);
+    rig.library("Albums");
+    rig.keys(&[Button::A]);
+    assert!(!books(&rig), "a note");
 }
 
 #[test]
@@ -1344,7 +1373,7 @@ fn the_lyrics_are_headed_by_the_song_and_who_sings_it() {
 }
 
 #[test]
-fn the_sleep_timer_counts_down_in_every_screen_s_corner_over_a_list_s_count() {
+fn the_sleep_timer_counts_down_on_now_playing_and_a_list_keeps_its_count() {
     let mut rig = Rig::new(&BOOK[2..]);
     rig.keys(&[Button::A]);
     rig.menu("Sleep Timer");
@@ -1352,8 +1381,15 @@ fn the_sleep_timer_counts_down_in_every_screen_s_corner_over_a_list_s_count() {
     rig.hold(Button::B, 600);
     rig.library("Artists");
     rig.keys(&[Button::A]);
+    assert_eq!(rig.screen().corner, "1", "its count, as without the timer");
+    assert_eq!(
+        rig.music.due_in(),
+        None,
+        "not woken for a countdown it hides"
+    );
+    rig.keys(&[Button::Select]);
     let corner = rig.screen().corner;
-    assert!(corner.starts_with("Sleep"), "over the count: {corner}");
+    assert!(corner.starts_with("Sleep"), "on Now Playing: {corner}");
     let due = rig.music.due_in().expect("woken for the countdown");
     assert!(due <= Duration::from_millis(1001), "{due:?}");
 }
@@ -1373,10 +1409,21 @@ fn help_is_one_page_of_tips_then_the_keys_the_hints_leave_out() {
     assert_eq!(rig.screen().title, text::HELP);
     assert!(page.readonly, "read, not picked from");
     assert_eq!(page.rows[0], text::TIPS[0], "the tips first");
-    // Then each place by name, faint as a heading, and its keys with what they do beside.
+    assert!(page.rows[0].cased, "a tip a sentence, as written");
+    let key = page
+        .rows
+        .iter()
+        .find(|r| !r.after.is_empty())
+        .expect("a key");
+    assert!(!key.cased, "a key's name in capitals, as on the device");
+    // Then each place by name, dim as a heading, and its keys with what they do beside.
     let (place, keys) = text::KEYS[0];
     let at = text::TIPS.len();
-    assert!(page.rows[at] == place && page.rows[at].faint);
+    assert_eq!(page.rows[at].before, place);
+    assert!(
+        !page.rows[at].faint,
+        "dim, not faint as what cannot be picked"
+    );
     let key = &page.rows[at + 1];
     assert_eq!((key.text.as_str(), key.after.as_str()), keys[0]);
     rig.hold(Button::Down, 8000);
@@ -1493,7 +1540,7 @@ fn the_shoulders_jump_a_letter_in_a_list_by_name_turn_a_page_in_another_and_do_n
     // An album's songs go by number: a page on.
     rig.hold(Button::B, 600);
     rig.library("Albums");
-    rig.keys(&[Button::A, Button::Down, Button::Down, Button::A, Button::R1]);
+    rig.keys(&[Button::A, Button::Down, Button::A, Button::R1]);
     assert!(!skipped(&mut rig));
     assert_eq!(
         rig.music.browser.at(),
@@ -1807,11 +1854,7 @@ fn an_album_played_in_order_stays_gapless_and_a_change_of_album_crossfades() {
         "one into two, on its album: no fade"
     );
     rig.ends();
-    assert_eq!(
-        fades(&mut rig),
-        [6.0],
-        "two into another album\x27s: the fade"
-    );
+    assert_eq!(fades(&mut rig), [6.0], "two into another album's: the fade");
     rig.ends();
     assert_eq!(
         fades(&mut rig),
@@ -1868,15 +1911,15 @@ fn a_list_s_rows_start_with_their_album_s_thumbnail_asked_for_by_page_as_it_chan
         });
         jobs.collect()
     };
-    // The first page: Play All and Shuffle, then six albums. Its pictures from afresh, to
-    // see them asked for.
+    // The first page: Play All, then a page of albums. Its pictures from afresh, to see them
+    // asked for.
     rig.music.pictures = Default::default();
     rig.music.frame(Status::default(), Vec::new(), false);
     let asked = thumbs(&rig.music);
     assert_eq!(
         asked.len(),
-        crate::browse::RICH_ROWS - 2,
-        "the page\x27s albums, once"
+        crate::browse::RICH_ROWS,
+        "the page's albums, once"
     );
     rig.music.out.clear();
     rig.music.frame(Status::default(), Vec::new(), false);
@@ -1885,7 +1928,7 @@ fn a_list_s_rows_start_with_their_album_s_thumbnail_asked_for_by_page_as_it_chan
         panic!("a list");
     };
     assert!(
-        list.thumbs && list.rows[2].album.is_none(),
+        list.thumbs && list.rows[1].album.is_none(),
         "room kept, none read yet"
     );
     // One read: its row names its album, so the screen changes and is drawn.
@@ -1901,13 +1944,13 @@ fn a_list_s_rows_start_with_their_album_s_thumbnail_asked_for_by_page_as_it_chan
     let Body::List(list) = rig.screen().body else {
         panic!("a list");
     };
-    assert_eq!(list.rows[2].album, Some(asked[0]));
+    assert_eq!(list.rows[1].album, Some(asked[0]));
     assert_eq!(rig.music.thumbs().len(), 1);
-    // The next page lets the first page\x27s go, and asks for its own.
+    // The next page lets the first page's go, and asks for its own.
     rig.music.out.clear();
     rig.keys(&[Button::Right]);
     assert!(rig.music.thumbs().is_empty(), "let go");
-    // An album\x27s own list numbers its songs: no thumbnails there.
+    // An album's own list numbers its songs: no thumbnails there.
     rig.keys(&[Button::A]);
     let Body::List(list) = rig.screen().body else {
         panic!("a list");
@@ -2060,4 +2103,21 @@ fn the_queue_on_the_music_menu_opens_on_the_song_playing() {
     assert_eq!(rig.music.browser.at(), 1, "on b, playing");
     rig.keys(&[Button::B]);
     assert_eq!(rig.music.browser.view(), View::Main);
+}
+
+#[test]
+fn a_start_menu_hints_a_change_only_on_a_row_that_changes() {
+    let mut rig = Rig::new(&["Music/X/A/01 a.mp3", "Music/X/A/02 b.mp3"]);
+    rig.library("Songs");
+    rig.keys(&[Button::A, Button::Down, Button::Down, Button::A]);
+    rig.keys(&[Button::Start]);
+    let changes = |rig: &Rig| {
+        text::legend(rig.screen().legend)
+            .iter()
+            .any(|h| h.key == text::ARROWS)
+    };
+    rig.to("Song Info");
+    assert!(!changes(&rig), "Song Info opens; nothing to change");
+    rig.to("Sleep Timer");
+    assert!(changes(&rig), "the sleep timer changes");
 }

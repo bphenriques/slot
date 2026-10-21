@@ -1,7 +1,7 @@
 //! The text view's faces: each paragraph wrapped to the room, the lit one lit and the rest faint
 //! as the body says, and the focus moving smoothly from line to line.
 
-use slot_gfx::Compositor;
+use super::Textures;
 use slot_input::Millis;
 use slot_music::TextBody;
 use slot_ui::music::{music_row_px, music_text_width, Ink, TextFaces};
@@ -11,7 +11,7 @@ use super::{MusicText, Spec};
 
 pub(super) fn faces(
     text: &mut MusicText,
-    compositor: &mut Compositor,
+    compositor: &mut dyn Textures,
     canvas: Canvas,
     body: TextBody,
     now: Millis,

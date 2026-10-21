@@ -77,16 +77,14 @@ pub(crate) fn press_row(b: &mut Browser, row: Row, key: Key) -> Option<Outcome> 
 }
 
 /// What a book's Now Playing shows of its time: where in the part it plays, the chapter's
-/// start and end there, how fast; and the whole book's time left and how far through it is, when
-/// its parts' lengths are known, else the part's.
+/// start and end there, how fast; and the whole book's time left, when its parts' lengths are
+/// known, else the part's.
 struct Timing {
     pos: f64,
     start: f64,
     end: f64,
     speed: f32,
     left: f64,
-    done: Option<f64>,
-    secs: f64,
 }
 
 fn timing(music: &Music, book: BookId) -> Timing {
@@ -97,11 +95,10 @@ fn timing(music: &Music, book: BookId) -> Timing {
         .map_or((0.0, len), |c| (c.chapter.start, c.end));
     let b = &lib.books[book];
     let (_, part) = music.book().unwrap_or_default();
-    let (left, done) = if b.secs > 0.0 {
-        let into = books::into_book(lib, book, part, pos);
-        (b.secs - into, Some((into / b.secs).clamp(0.0, 1.0)))
+    let left = if b.secs > 0.0 {
+        b.secs - books::into_book(lib, book, part, pos)
     } else {
-        (len - pos, None)
+        len - pos
     };
     let speed = player.speed();
     Timing {
@@ -110,8 +107,6 @@ fn timing(music: &Music, book: BookId) -> Timing {
         end,
         speed,
         left,
-        done,
-        secs: b.secs,
     }
 }
 
@@ -126,14 +121,12 @@ pub(crate) fn steps_in(music: &Music, book: BookId) -> Option<f64> {
     let (into, chapter) = (t.pos - t.start, t.end - t.start);
     let bar = (chapter > 0.0)
         .then(|| super::whole_in(into / chapter * 1000.0 + 0.5, rate * 1000.0 / chapter));
-    let done = t
-        .done
-        .map(|d| super::whole_in(d * 100.0 + 0.5, rate * 100.0 / t.secs));
+    // The book's time left is shown in whole minutes, counting down at the speed it plays.
+    let minutes_left = t.left.max(0.0) / rate / 60.0;
     let steps = [
         super::whole_in(into, rate),
         bar.flatten(),
-        done.flatten(),
-        super::whole_in(t.left.max(0.0) / rate, -1.0),
+        super::whole_in(minutes_left, -1.0 / 60.0),
         Some((t.end - t.pos).max(0.0) / rate),
     ];
     steps.into_iter().flatten().reduce(f64::min)
@@ -148,20 +141,12 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
         end,
         speed,
         left,
-        done,
         ..
     } = timing(music, book);
-    let (title, (n, of)) = match player.chapter() {
-        // A chapter with no title of its own is named as its part is.
-        Some(c) => (
-            if c.chapter.title.is_empty() {
-                lib.tracks[track].title.clone()
-            } else {
-                c.chapter.title.clone()
-            },
-            (c.index + 1, player.chapters()),
-        ),
-        None => (lib.tracks[track].title.clone(), player.place()),
+    // A chapter with no title of its own is named as its part is.
+    let title = match player.chapter() {
+        Some(c) if !c.chapter.title.is_empty() => c.chapter.title.clone(),
+        _ => lib.tracks[track].title.clone(),
     };
     let (_, part) = music.book().unwrap_or_default();
     let b = &lib.books[book];
@@ -181,18 +166,15 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
             repeat: Repeat::Off,
             shuffled: false,
             favorite: false,
-            sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
         progress: super::fraction(pos - start, end - start),
         marks,
-        place: text::of(n, of),
+        // Where music says its place in the queue, a book says how long it has left, at its speed.
+        place: text::book_left(left.max(0.0) / f64::from(speed)),
         time: text::elapsed(pos - start, end - start),
-        next: Some(text::book_left(
-            speed,
-            done,
-            left.max(0.0) / f64::from(speed),
-        )),
+        next: next_chapter(music, book, part).map(|t| text::up_next_chapter(&t)),
         book: true,
+        speed: (speed != 1.0).then(|| text::speed(speed)),
     };
     Screen::new(
         text::NOW_PLAYING,
@@ -209,4 +191,26 @@ pub(crate) fn list(music: &Music) -> Screen {
         }
     }
     list::rows_screen(music)
+}
+
+/// The chapter after the one playing: the next in its part, else the next part's first, named as
+/// the chapters list names it; none at the book's end, as a queue has none after its last.
+fn next_chapter(music: &Music, book: BookId, part: usize) -> Option<String> {
+    let (lib, cx) = (&music.library, music.context());
+    let parts = &lib.albums[lib.books[book].album].tracks;
+    let named = |part: usize, i: usize| {
+        let titled = rows::part_chapters(&cx, book, part)
+            .get(i)
+            .map(|c| c.title.clone());
+        titled
+            .filter(|t| !t.is_empty())
+            .or_else(|| parts.get(part).map(|&t| lib.tracks[t].title.clone()))
+    };
+    match music.player.chapter() {
+        Some(c) if c.index + 1 < rows::part_chapters(&cx, book, part).len() => {
+            named(part, c.index + 1)
+        }
+        _ if part + 1 < parts.len() => named(part + 1, 0),
+        _ => None,
+    }
 }

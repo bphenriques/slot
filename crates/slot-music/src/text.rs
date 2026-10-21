@@ -24,6 +24,7 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
     (
         "Everywhere",
         &[
+            ("START", "Menu for what is shown"),
             ("START held", "Play or pause"),
             ("SELECT", "Now Playing, then the queue"),
             ("SELECT + L1 / R1", "Previous / next song"),
@@ -34,7 +35,7 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
     (
         "Lists",
         &[
-            ("L1 / R1", "Previous / next letter, or page"),
+            ("L1 / R1", "Letter, or page"),
             ("Left / Right", "Previous / next page"),
         ],
     ),
@@ -69,11 +70,12 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
 ];
 
 /// Help's first lines: what the screens do not say, a line each.
-pub const TIPS: [&str; 4] = [
-    "A hint is a tap, then a hold: Play (Next).",
-    "Songs go in Music, books in Audiobooks.",
+pub const TIPS: [&str; 5] = [
+    "Tap, or hold for what is in brackets.",
+    "Songs go in Music.",
+    "Books go in Audiobooks.",
     "Playlists go in Music/Playlists.",
-    "B closes this page; it is in Settings.",
+    "Find this page in Settings, Help.",
 ];
 
 /// Help's line `i`: a tip; a place's name, as a heading; or one of its keys and what it does.
@@ -119,8 +121,8 @@ pub const UNKNOWN_ALBUM: &str = "Unknown Album";
 /// Who an album of songs by several artists, its tags naming none for it, is filed under.
 pub const VARIOUS_ARTISTS: &str = "Various Artists";
 /// What a library or audiobooks screen says with nothing to list: where to put it.
-pub const NO_MUSIC: &str = "Put songs in the card's Music folder";
-pub const NO_BOOKS: &str = "Put books in the card's Audiobooks folder";
+pub const NO_MUSIC: &str = "Add songs to Music";
+pub const NO_BOOKS: &str = "Add books to Audiobooks";
 /// The Music menu's corner on a card with neither.
 pub const NOTHING_YET: &str = "No music or books";
 pub const QUEUE_EMPTY: &str = "Nothing up next";
@@ -132,13 +134,12 @@ pub const LYRICS: &str = "Lyrics";
 /// Settings' page of how music plays, beside its Audiobooks page.
 pub const MUSIC_SETTINGS: &str = "Music";
 pub const NO_LYRICS: &str = "No lyrics for this song";
-pub const FAVORITE: &str = "Add to Favorites";
-pub const UNFAVORITE: &str = "Remove from Favorites";
 pub const BOOKS: &str = "Audiobooks";
 pub const FINISHED: &str = "Finished";
 pub const CHAPTERS: &str = "Chapters";
 pub const BOOKMARKS: &str = "Bookmarks";
-pub const NO_BOOKMARKS: &str = "No bookmarks: Y marks the moment";
+pub const FOLDERS: &str = "Folders";
+pub const NO_BOOKMARKS: &str = "No bookmarks yet";
 
 /// A screen's title, or `None` where the library names it (an artist, an album).
 pub fn title(view: View) -> Option<&'static str> {
@@ -147,6 +148,7 @@ pub fn title(view: View) -> Option<&'static str> {
         View::Library => LIBRARY,
         View::Genres => GENRES,
         View::Years => YEARS,
+        View::Folder(_) => FOLDERS,
         View::Lyrics => LYRICS,
         View::Queue => QUEUE,
         View::Settings => "Settings",
@@ -222,6 +224,7 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         },
         // Named by the library, or by whether the song playing is a favorite.
         Row::Genre(_)
+        | Row::Folder(_)
         | Row::Decade(_)
         | Row::Artist(_)
         | Row::Album(_)
@@ -235,8 +238,7 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         | Row::BookChapter { .. }
         | Row::Bookmark(_)
         | Row::Back
-        | Row::Finished
-        | Row::Favorite => return None,
+        | Row::Finished => return None,
     })
 }
 
@@ -325,8 +327,6 @@ pub enum Notice {
     },
     /// The music's keys locked, or unlocked, by the pocket combo.
     Locked(bool),
-    /// The speed X changed to, in hundredths.
-    Speed(u16),
     /// Y marked the moment in a book.
     Bookmarked,
     /// The sound device stopped working; the music paused where it was.
@@ -340,11 +340,13 @@ pub enum Notice {
     Shuffle(bool),
 }
 
-/// Short, as the corner is: where songs went, and how many.
+/// Short, as the corner is: where songs went, and how many, as players say it.
 pub fn notice(notice: &Notice) -> String {
     match notice {
-        Notice::Added(n) => format!("{QUEUE} +{n}"),
-        Notice::Next(n) => format!("Play Next +{n}"),
+        Notice::Added(1) => "Added to Queue".into(),
+        Notice::Added(n) => format!("Added {n} to Queue"),
+        Notice::Next(1) => "Playing Next".into(),
+        Notice::Next(n) => format!("Playing {n} Next"),
         Notice::Unplayable => "Can't play".into(),
         Notice::Paused => "Paused".into(),
         Notice::Playing => "Playing".into(),
@@ -360,17 +362,24 @@ pub fn notice(notice: &Notice) -> String {
         Notice::Repeat(Repeat::All) => "Repeat All".into(),
         Notice::Repeat(Repeat::One) => "Repeat One".into(),
         Notice::Shuffle(on) => format!("Shuffle {}", on_off(*on)),
-        Notice::Speed(x) => format!("Speed {}", speed(f32::from(*x) / 100.0)),
     }
 }
 
-/// Under a book's picture: its speed, how far through it is, and the time it has left at
-/// that speed.
-pub fn book_left(x: f32, done: Option<f64>, left: f64) -> String {
-    match done {
-        Some(done) => format!("{} · {} · {} left", speed(x), percent(done), clock(left)),
-        None => format!("{} · {} left", speed(x), clock(left)),
+/// How long the whole book has left to play, in the words the sleep timer uses: 2 h 59 min left,
+/// 12 min left, marked as the book's beside the chapter's time; a minute started counts whole, so
+/// it never says none while some is left.
+pub fn book_left(secs: f64) -> String {
+    let minutes = (secs.max(0.0) / 60.0).ceil() as u64;
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min left"),
+        (h, 0) => format!("{h} h left"),
+        (h, m) => format!("{h} h {m} min left"),
     }
+}
+
+/// The chapter after this one, under a book's picture, as Up Next names the next song.
+pub fn up_next_chapter(title: &str) -> String {
+    format!("{UP_NEXT}: {title}")
 }
 
 /// How many songs the library holds: "1,234 songs".
@@ -446,9 +455,14 @@ pub fn back_to(pos: f64) -> String {
     format!("Back to {}", clock(pos))
 }
 
-/// A decade, as Years lists them: 1990s.
+/// A decade, as Years lists them: 1990–99, which reads as well in capitals as not.
 pub fn decade(start: u32) -> String {
-    format!("{start}s")
+    format!("{start}–{:02}", (start + 9) % 100)
+}
+
+/// Who made an album and when, on its second line where both are wanted: Aurora Lane · 2019.
+pub fn by_in(artist: &str, year: u32) -> String {
+    format!("{artist} · {year}")
 }
 
 /// A place among others: 3/12.
@@ -478,8 +492,8 @@ const ALL_BOOKS: &str = "All Books";
 /// The library being read, and how far, once the songs are counted.
 pub fn reading(done: usize, of: usize) -> String {
     match of {
-        0 => "Reading the library".into(),
-        of => format!("Reading the library {done}/{of}"),
+        0 => "Reading songs".into(),
+        of => format!("Reading songs {done}/{of}"),
     }
 }
 
@@ -492,8 +506,9 @@ pub fn scanning(shown: bool, done: usize, of: usize) -> String {
     }
 }
 
-pub fn optimizing(done: usize, of: usize) -> String {
-    format!("Optimizing {done}/{of}")
+/// The corner while album pictures are made after a scan, as players say it: artwork.
+pub fn artwork(done: usize, of: usize) -> String {
+    format!("Artwork {done}/{of}")
 }
 
 /// Marks the hint drawn as Left and Right arrows rather than a button name.
@@ -558,8 +573,8 @@ pub(crate) enum Word {
     Update,
     Bookmarks,
     Bookmark,
+    Speed,
     List,
-    Menu,
     AddToQueue,
     Favorite,
     Restart,
@@ -568,11 +583,9 @@ pub(crate) enum Word {
     Cancel,
     Drop,
     Lyrics,
-    Queue,
     Close,
     /// How far an audiobook jumps, in seconds.
     Jump(u32),
-    Speed,
     Change,
     Rebuild,
 }
@@ -593,8 +606,8 @@ fn word(word: Word) -> &'static str {
         Word::Update => "Update",
         Word::Bookmarks => BOOKMARKS,
         Word::Bookmark => "Bookmark",
+        Word::Speed => "Speed",
         Word::List => "List",
-        Word::Menu => "Menu",
         Word::AddToQueue => "Add to Queue",
         Word::Favorite => "Favorite",
         Word::Restart => "Restart",
@@ -603,12 +616,10 @@ fn word(word: Word) -> &'static str {
         Word::Cancel => "Cancel",
         Word::Drop => "Drop",
         Word::Lyrics => LYRICS,
-        Word::Queue => QUEUE,
         Word::Close => "Close",
         Word::Jump(10) => "10 s",
         Word::Jump(15) => "15 s",
         Word::Jump(_) => "30 s",
-        Word::Speed => "Speed",
         Word::Change => "Change",
         Word::Rebuild => "Rebuild",
     }

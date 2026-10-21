@@ -480,7 +480,7 @@ mod tests {
             }));
             draws.clear();
             app.draw(&mut draws);
-            compositor.begin_frame(app.layout());
+            compositor.begin_frame();
             compositor.draw_list(&draws);
             save(name, &compositor.read_frame());
         }
@@ -499,7 +499,7 @@ mod tests {
         notifications.shown = Some(Instant::now() - Duration::from_millis(500));
         draws.clear();
         if let Some(path) = std::env::var_os("SLOT_RA_PREVIEW_FRAME") {
-            let rgba = slot_ui::wallpaper_face(std::path::Path::new(&path)).unwrap();
+            let rgba = slot_ui::wallpaper_face(std::path::Path::new(&path), OUT_W, OUT_H).unwrap();
             let tex = compositor.create_texture(OUT_W, OUT_H, &rgba);
             draws.push(Draw::Tex {
                 x: 0.0,
@@ -511,7 +511,7 @@ mod tests {
             });
         }
         notifications.draw(&Session::boot(root.path().into()), &mut draws);
-        compositor.begin_frame(app.layout());
+        compositor.begin_frame();
         compositor.draw_list(&draws);
         save("earned", &compositor.read_frame());
         if std::env::var_os("SLOT_RA_PREVIEW_ANIMATE").is_some() {
@@ -526,7 +526,7 @@ mod tests {
                     frame as f32 / 30.0,
                     &mut animated,
                 );
-                compositor.begin_frame(app.layout());
+                compositor.begin_frame();
                 compositor.draw_list(&animated);
                 save(&format!("animation-{frame:03}"), &compositor.read_frame());
             }

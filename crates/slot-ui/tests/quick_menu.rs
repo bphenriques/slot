@@ -76,41 +76,39 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 }
 
 #[test]
-fn the_run_ahead_row_offers_off_and_one_frame() {
-    assert_eq!(
-        [0, 1].map(QuickValue::frames),
-        [Some(QuickValue::Off), Some(QuickValue::Frames1)]
-    );
-    for other in [2, 3, 255] {
-        assert_eq!(
-            QuickValue::frames(other),
-            None,
-            "{other} frames is not a value the row has"
-        );
-    }
-}
-
-#[test]
 fn the_rows_run_in_the_order_the_user_chose() {
     assert_eq!(
         QuickRow::MAIN.map(QuickRow::label),
-        ["General", "Screen", "Gameplay", "Music", "About"]
+        ["General", "Screen", "Gameplay", "Controls", "Music", "About"]
     );
     assert_eq!(
         QuickRow::GENERAL.map(QuickRow::label),
         [
+            "Theme",
             "Wallpaper",
             "Wallpaper Tint",
-            "Theme",
             "Recents",
             "Game Titles",
+            "Lid Power Off",
             "Home Wi-Fi",
             "Date & Time"
         ]
     );
     assert_eq!(
+        QuickRow::CONTROL_PAGES.map(QuickRow::label),
+        ["Shelf", "Shortcuts", "In-Game"]
+    );
+    assert_eq!(
+        QuickRow::SHELF_KEYS.map(QuickRow::label),
+        ["Previous Shelf", "Next Shelf", "Favorite"]
+    );
+    assert_eq!(
         QuickRow::SCREEN.map(QuickRow::label),
-        ["Game Boy Advance", "Game Boy Color", "Game Boy"]
+        ["General", "Game Boy Advance", "Game Boy Color", "Game Boy"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN_GENERAL.map(QuickRow::label),
+        ["Brightness", "Blue Light"]
     );
     assert_eq!(
         QuickRow::SCREEN_GBA.map(QuickRow::label),
@@ -122,7 +120,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
     );
     assert_eq!(
         QuickRow::SCREEN_GB.map(QuickRow::label),
-        ["Shader", "Color Correction", "Palettes", "Bezel"]
+        ["Shader", "Color Correction", "Palette", "Bezel"]
     );
     assert_eq!(
         QuickRow::GAME.map(QuickRow::label),
@@ -130,9 +128,9 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Fast Forward",
             "Fast Forward Sound",
             "Rewind",
-            "Run-Ahead",
             "Turbo Buttons",
             "Rumble",
+            "Left Stick as D-Pad",
             "Auto Save on Eject"
         ]
     );
@@ -145,7 +143,6 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::About,
             QuickRow::Game,
             QuickRow::Music,
-            QuickRow::General,
             QuickRow::Resume,
             QuickRow::States,
             QuickRow::Settings,
@@ -154,12 +151,20 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::PlayGameplay,
             QuickRow::ScreenGba,
             QuickRow::ScreenGbc,
-            QuickRow::ScreenGb
+            QuickRow::ScreenGb,
+            QuickRow::General,
+            QuickRow::PlayControls,
+            QuickRow::Shortcuts,
+            QuickRow::Controls,
+            QuickRow::ControlsShelf,
+            QuickRow::ControlsInGame,
+            QuickRow::ScreenGeneral
         ]
     );
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
+        &QuickRow::SCREEN_GENERAL[..],
         &QuickRow::GAME[..],
         &QuickRow::GENERAL[..],
         &QuickRow::PLAY[..],
@@ -178,14 +183,14 @@ fn the_rows_run_in_the_order_the_user_chose() {
 #[test]
 fn a_hidden_row_is_stepped_over_and_takes_no_place() {
     let hidden = [QuickRow::WallpaperTint];
-    assert_eq!(QuickRow::Wallpaper.down(&hidden), QuickRow::Theme);
-    assert_eq!(QuickRow::Theme.up(&hidden), QuickRow::Wallpaper);
-    assert_eq!(QuickRow::Wallpaper.up(&hidden), QuickRow::DateTime);
-    assert_eq!(QuickRow::Theme.position(&hidden), 1);
+    assert_eq!(QuickRow::Wallpaper.down(&hidden), QuickRow::Recents);
+    assert_eq!(QuickRow::Recents.up(&hidden), QuickRow::Wallpaper);
+    assert_eq!(QuickRow::Theme.up(&hidden), QuickRow::DateTime);
+    assert_eq!(QuickRow::Recents.position(&hidden), 2);
     assert_eq!(QuickRow::Wallpaper.down(&[]), QuickRow::WallpaperTint);
-    assert_eq!(QuickRow::Theme.position(&[]), 2);
+    assert_eq!(QuickRow::Recents.position(&[]), 3);
     assert_eq!(
-        slot_ui::quick_row_top(QuickRow::Theme, &hidden)
+        slot_ui::quick_row_top(QuickRow::Recents, &hidden)
             - slot_ui::quick_row_top(QuickRow::Wallpaper, &hidden),
         slot_ui::QUICK_PITCH
     );
@@ -206,7 +211,6 @@ fn the_values_read_as_the_menu_prints_them() {
             "Grid",
             "Dot",
             "Simpletex",
-            "1 Frame",
             "Dark",
             "Light",
             "Show",
@@ -214,6 +218,22 @@ fn the_values_read_as_the_menu_prints_them() {
             "25%",
             "45%",
             "65%",
+            "1 min",
+            "3 min",
+            "5 min",
+            "10 min",
+            "15 min",
+            "30 min",
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
         ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);
@@ -317,16 +337,25 @@ fn the_in_game_pages_hold_their_rows_in_order() {
         ]
     );
     assert_eq!(
-        QuickRow::SETTINGS,
-        [QuickRow::PlayScreen, QuickRow::PlayGameplay]
+        QuickRow::SETTINGS.map(QuickRow::label),
+        ["Screen", "Gameplay", "Controls"]
+    );
+    assert_eq!(
+        QuickRow::CONTROLS.map(QuickRow::label),
+        [
+            "Up", "Down", "Left", "Right", "A Button", "B Button", "Select", "Start", "L Button",
+            "R Button", "Turbo A", "Turbo B"
+        ]
     );
     assert_eq!(
         QuickRow::PLAY_SCREEN,
         [
             QuickRow::Shader,
-            QuickRow::ColourCorrection,
+            QuickRow::Bezel,
             QuickRow::Palette,
-            QuickRow::Bezel
+            QuickRow::ColourCorrection,
+            QuickRow::PlayBrightness,
+            QuickRow::PlayBlueLight
         ]
     );
     for row in QuickRow::PLAY {
@@ -338,6 +367,10 @@ fn the_in_game_pages_hold_their_rows_in_order() {
 fn in_game_pages_climb_back_through_settings() {
     assert_eq!(QuickRow::Settings.child(), Some(QuickRow::PlayScreen));
     assert_eq!(QuickRow::PlayScreen.child(), Some(QuickRow::Shader));
+    assert_eq!(
+        QuickRow::PlayBrightness.parent_in_game(),
+        Some(QuickRow::PlayScreen)
+    );
     assert_eq!(QuickRow::PlayGameplay.child(), Some(QuickRow::FastForward));
     assert_eq!(
         QuickRow::Shader.parent_in_game(),
@@ -366,6 +399,8 @@ fn in_game_rows_read_as_the_menu_shows_them() {
         (QuickRow::Shader, "Shader"),
         (QuickRow::ColourCorrection, "Color Correction"),
         (QuickRow::Palette, "Palette"),
+        (QuickRow::PlayBrightness, "Brightness"),
+        (QuickRow::PlayBlueLight, "Blue Light"),
     ];
     for (row, label) in labels {
         assert_eq!(row.label(), label);
@@ -382,19 +417,83 @@ fn in_game_rows_read_as_the_menu_shows_them() {
 }
 
 #[test]
-fn a_hidden_palette_and_bezel_leave_two_screen_rows() {
+fn a_hidden_palette_and_bezel_leave_four_screen_rows() {
     let hidden = [QuickRow::Palette, QuickRow::Bezel];
     assert_eq!(
         QuickRow::Shader.shown(&hidden),
-        vec![QuickRow::Shader, QuickRow::ColourCorrection]
+        vec![
+            QuickRow::Shader,
+            QuickRow::ColourCorrection,
+            QuickRow::PlayBrightness,
+            QuickRow::PlayBlueLight
+        ]
     );
-    assert_eq!(QuickRow::ColourCorrection.down(&hidden), QuickRow::Shader);
+    assert_eq!(QuickRow::PlayBlueLight.down(&hidden), QuickRow::Shader);
+}
+
+#[test]
+fn the_in_game_screen_panel_shows_three_rows_and_scrolls_the_rest() {
+    assert_eq!(slot_ui::quick_window(QuickRow::Shader, &[]), (0, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::Palette, &[]), (1, 3));
+    assert_eq!(
+        slot_ui::quick_window(QuickRow::ColourCorrection, &[]),
+        (2, 3)
+    );
+    assert_eq!(slot_ui::quick_window(QuickRow::PlayBlueLight, &[]), (3, 3));
+    let hidden = [QuickRow::Palette, QuickRow::Bezel];
+    assert_eq!(
+        slot_ui::quick_window(QuickRow::PlayBlueLight, &hidden),
+        (1, 3)
+    );
+}
+
+#[test]
+fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
+    let top = slot_ui::quick_scroll(QuickRow::Shader, &[]).expect("six rows in three");
+    assert!(
+        (top.thumb_y - top.y).abs() < 0.5,
+        "the thumb is not at the top"
+    );
+    assert!(
+        (top.thumb_h - top.h / 6.0).abs() < 0.5,
+        "the thumb is not one row of six"
+    );
+    let end = slot_ui::quick_scroll(QuickRow::PlayBlueLight, &[]).expect("six rows in three");
+    assert!(
+        (end.thumb_y + end.thumb_h - (end.y + end.h)).abs() < 0.5,
+        "the thumb is not at the bottom"
+    );
+    assert!(
+        slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
+        "four rows in three still scroll"
+    );
+    assert_eq!(slot_ui::quick_scroll(QuickRow::Rumble, &[]), None);
+    assert!(slot_ui::quick_scroll(QuickRow::GameUp, &[]).is_some());
+}
+
+#[test]
+fn the_thumb_reaches_the_bottom_only_on_the_last_row() {
+    let rows = QuickRow::CONTROLS;
+    let mut last_y = f32::MIN;
+    for (i, row) in rows.iter().enumerate() {
+        let bar = slot_ui::quick_scroll(*row, &[]).expect("the controls page scrolls");
+        let at_bottom = (bar.thumb_y + bar.thumb_h - (bar.y + bar.h)).abs() < 0.5;
+        assert_eq!(at_bottom, i == rows.len() - 1, "{row:?} at {i}");
+        assert!(bar.thumb_y > last_y, "{row:?}: the thumb did not move down");
+        last_y = bar.thumb_y;
+    }
 }
 
 #[test]
 fn screen_opens_a_page_per_console_and_each_backs_out_to_its_console() {
-    assert_eq!(QuickRow::Screen.child(), Some(QuickRow::ScreenGba));
+    assert_eq!(QuickRow::Screen.child(), Some(QuickRow::ScreenGeneral));
+    assert_eq!(QuickRow::ScreenGeneral.child(), Some(QuickRow::Brightness));
+    assert!(QuickRow::ScreenGeneral.opens());
+    assert!(QuickRow::ScreenGeneral.centred());
+    assert!(!QuickRow::Brightness.centred());
+    assert!(!QuickRow::Brightness.opens());
     for (console, page) in [
+        (QuickRow::ScreenGeneral, &QuickRow::SCREEN_GENERAL[..]),
         (QuickRow::ScreenGba, &QuickRow::SCREEN_GBA[..]),
         (QuickRow::ScreenGbc, &QuickRow::SCREEN_GBC[..]),
         (QuickRow::ScreenGb, &QuickRow::SCREEN_GB[..]),
@@ -413,11 +512,11 @@ fn screen_opens_a_page_per_console_and_each_backs_out_to_its_console() {
 fn screen_rows_in_game_sit_in_a_panel_at_the_bottom() {
     let hidden = [QuickRow::Palette];
     let shader = slot_ui::quick_row_top(QuickRow::Shader, &hidden);
-    let colour = slot_ui::quick_row_top(QuickRow::ColourCorrection, &hidden);
-    assert_eq!(colour - shader, slot_ui::QUICK_PITCH);
+    let bezel = slot_ui::quick_row_top(QuickRow::Bezel, &hidden);
+    assert_eq!(bezel - shader, slot_ui::QUICK_PITCH);
     assert!(
         shader > slot_ui::OUT_H as f32 / 2.0,
-        "the panel starts at {shader}"
+        "the panel starts at {shader}, covering more than three rows of the game"
     );
     assert!(slot_ui::quick_row_top(QuickRow::FastForward, &[]) < shader);
 }

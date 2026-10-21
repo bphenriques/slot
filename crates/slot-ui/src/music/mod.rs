@@ -32,9 +32,9 @@ use slot::{
 
 pub use face::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
-    music_heart_face, music_hint_face, music_letter_face, music_line_face, music_moon_face,
-    music_no_art_face, music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face,
-    music_status_face, music_window, Ink, LineInk, MUSIC_STATUS,
+    music_heart_face, music_hint_face, music_letter_face, music_line_face, music_no_art_face,
+    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_second_face,
+    music_status_face, music_thumb_blank_face, music_window, Ink, LineInk, MUSIC_STATUS,
 };
 pub use list::{music_rich_px, music_row_ink, music_row_px, music_row_text_w};
 pub use text_view::TextFaces;
@@ -183,11 +183,19 @@ pub struct ListFaces {
     /// The rows that are favorites, and the heart drawn at their right.
     pub hearts: Vec<bool>,
     pub heart: Option<MusicFace>,
+    /// Whether a title sits above it: a titled menu starts below it rather than centred.
+    pub titled: bool,
     /// Whether the rows are two lines beside their album's thumbnail; each one's thumbnail,
     /// once read, and its second line: who made it.
     pub thumbed: bool,
     pub thumbs: Vec<Option<MusicFace>>,
     pub seconds: Vec<Option<MusicFace>>,
+    /// What an empty thumbnail shows, dim: a note, or a book.
+    pub blank: Option<MusicFace>,
+    /// The row playing, in a list with thumbnails, and the play mark drawn on its thumbnail
+    /// there rather than before its name, as players mark what plays on its artwork.
+    pub playing: Option<usize>,
+    pub play: Option<MusicFace>,
 }
 
 /// The track playing: its three lines, picture, state symbols, bar, place and time.
@@ -200,10 +208,15 @@ pub struct NowPlayingFaces {
     /// What the square shows until a picture comes, or with none: a note, or a book.
     pub no_art: Option<MusicFace>,
     pub status: Vec<MusicFace>,
+    /// A book's speed when not as recorded: a word, padded as text is, after the state symbols.
+    pub speed: Option<MusicFace>,
     pub progress: Option<f32>,
     /// Bookmarks along the bar, 0 to 1.
     pub marks: Vec<f32>,
     pub place: Option<MusicFace>,
+    /// A mark before the place saying whose it is: a book's, where it is the time the book has
+    /// left beside the chapter's.
+    pub place_mark: Option<MusicFace>,
     pub time: Option<MusicFace>,
     /// The track after this one, under the picture.
     pub next: Option<MusicFace>,
@@ -355,7 +368,8 @@ fn draw_progress(
     });
 }
 
-/// The letter a list jumped to, in a box in the middle of the rows, as players show it.
+/// The letter a list jumped to, in a box in the middle of the rows, as players show it: lit, the
+/// letter in the ground's colour, so it never reads as the highlight it may sit beside.
 fn draw_letter(faces: &MusicFaces, out: &mut Vec<Draw>) {
     let Some((tex, w, h)) = faces.letter else {
         return;
@@ -367,7 +381,7 @@ fn draw_letter(faces: &MusicFaces, out: &mut Vec<Draw>) {
         y,
         w: LETTER_BOX,
         h: LETTER_BOX,
-        colour: theme::rgba(faces.theme.bar, 0.95),
+        colour: theme::rgba(faces.theme.lit, 0.95),
     });
     let mid = |side: u32| ((LETTER_BOX - side as f32) / 2.0).round();
     push(out, tex, x + mid(w), y + mid(h), w, h);
@@ -376,6 +390,23 @@ fn draw_letter(faces: &MusicFaces, out: &mut Vec<Draw>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_letter_s_box_is_never_the_highlight_s_colour() {
+        for theme in [MusicTheme::dark(), MusicTheme::light()] {
+            let faces = MusicFaces {
+                letter: Some((slot_gfx::TexId::from_raw(1), 40, 40)),
+                theme,
+                ..MusicFaces::default()
+            };
+            let mut out = Vec::new();
+            draw_letter(&faces, &mut out);
+            let Some(Draw::Rect { colour, .. }) = out.first().copied() else {
+                panic!("a box");
+            };
+            assert_ne!(colour, theme::rgba(theme.bar, colour[3]));
+        }
+    }
 
     #[test]
     fn the_title_takes_what_the_corner_leaves() {

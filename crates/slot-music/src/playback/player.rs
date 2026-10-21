@@ -301,7 +301,8 @@ impl Player {
         }
     }
 
-    /// How many chapters the open file has.
+    /// How many chapters the open file has: for the tests, the screens list them by the book.
+    #[cfg(test)]
     pub fn chapters(&self) -> usize {
         self.file_chapters().len()
     }

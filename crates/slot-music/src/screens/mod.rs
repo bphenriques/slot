@@ -204,9 +204,13 @@ pub struct ListBody {
     pub lifted: bool,
     /// Rows that only tell, like Song Info's: no highlight, and every long one scrolls.
     pub readonly: bool,
+    /// Its title is shown above it: every list and menu but the Music menu, bare as slot's own.
+    pub titled: bool,
     /// Its rows are two lines, the name over who made it (`after`), beside their album's
     /// thumbnail, or room for it until it is read.
     pub thumbs: bool,
+    /// Its rows are books: a thumbnail not read, or with no picture, shows a book, not a note.
+    pub books: bool,
 }
 
 /// The track playing. Room is kept for its album picture whether or not it has loaded.
@@ -228,6 +232,9 @@ pub struct NowPlayingBody {
     pub marks: Vec<f32>,
     /// A book's: with no picture, the square shows a book rather than a note.
     pub book: bool,
+    /// A book's speed, worded, when it is not as recorded: shown beside the state symbols, as
+    /// repeat and shuffle are for music.
+    pub speed: Option<String>,
 }
 
 /// Whether music plays, how it repeats, whether the queue is shuffled, and whether the song is
@@ -237,9 +244,8 @@ pub struct Status {
     pub playing: bool,
     pub repeat: Repeat,
     pub shuffled: bool,
-    /// The song is in Favorites, and the sleep timer counts down.
+    /// The song is in Favorites.
     pub favorite: bool,
-    pub sleeping: bool,
 }
 
 impl Screen {
@@ -295,6 +301,7 @@ impl Music {
             | View::Genre(_)
             | View::Years
             | View::Decade(_)
+            | View::Folder(_)
             | View::Playlists
             | View::Playlist(_)
             | View::RecentlyAdded
@@ -306,13 +313,14 @@ impl Music {
             View::Bookmarks(_) | View::BookChapters(_) => book::list(self),
         };
         let now = self.now.at;
-        // The corner says, first, a notice; then that the keys are locked, until unlocked; then
-        // the sleep timer counting down, on every screen; and else what the screen has there,
-        // as a list its count.
+        // The corner says, first, a notice; then that the keys are locked, until unlocked; then,
+        // on Now Playing, the sleep timer counting down; and else what the screen has there, as
+        // a list its count.
         let sleeping = self
             .transport
             .sleep
             .left(now)
+            .filter(|_| self.browser.view() == View::NowPlaying)
             .map(|_| text::sleeping(self.transport.sleep.remaining(now)));
         let locked = self
             .buttons
@@ -413,7 +421,15 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             _ => Legend::Settings,
         },
         View::SongInfo(_) | View::Help => Legend::Back,
-        View::PlayingMenu | View::QueueMenu | View::SongMenu(_) | View::BookMenu(_) => Legend::Menu,
+        // A START menu's row that changes (the sleep timer, repeat, shuffle, speed) says so; the
+        // rest open or act, with nothing to change.
+        View::PlayingMenu | View::QueueMenu | View::SongMenu(_) | View::BookMenu(_) => match row {
+            Some(Row::Setting(_) | Row::ShuffleQueue | Row::Speed) => Legend::Menu,
+            _ => Legend::Main {
+                playing: something,
+                hold: None,
+            },
+        },
         View::BookChapters(_) => Legend::Chapters,
         View::Bookmarks(_) => Legend::Bookmarks,
         View::Artists
@@ -425,6 +441,7 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
         | View::Genre(_)
         | View::Years
         | View::Decade(_)
+        | View::Folder(_)
         | View::Playlists
         | View::Playlist(_)
         | View::RecentlyAdded
@@ -440,6 +457,7 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
                 | Row::Open(View::RecentlyAdded)
                 | Row::Open(View::RecentlyPlayed)
                 | Row::Genre(_)
+                | Row::Folder(_)
                 | Row::Decade(_),
             ) => Target::Playlist,
             Some(Row::Book(_)) => Target::Book,
@@ -478,8 +496,12 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
         (View::Lyrics, _) => lyrics::steps_in(music),
         _ => None,
     };
-    // The countdown in the corner, on every screen, in seconds rounded up.
-    let left = music.transport.sleep.remaining(music.now.at);
+    // The countdown in Now Playing's corner, in seconds rounded up.
+    let left = music
+        .transport
+        .sleep
+        .remaining(music.now.at)
+        .filter(|_| view == View::NowPlaying);
     let sleep = left.and_then(|left| whole_in(-left.as_secs_f64(), 1.0));
     [song, sleep].into_iter().flatten().reduce(f64::min)
 }

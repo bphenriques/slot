@@ -206,11 +206,10 @@ impl Music {
     }
 
     /// The speed `by` steps to, as a setting steps: Left and Right stop at the ends, X and A go
-    /// round from 0.75, and from 0.5 on to 1.
+    /// round from 0.75, and from 0.5 on to 1. Unannounced: where it is stepped, it is shown.
     pub(crate) fn step_speed(&mut self, by: i32) -> Option<Command> {
         let order = if by == 0 { &SPEEDS[1..] } else { &SPEEDS[..] };
         let speed = cycle(order, self.player.speed(), by);
-        self.tell(Notice::Speed((speed * 100.0).round() as u16));
         self.player.set_speed(speed)
     }
 

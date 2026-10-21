@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::Thread;
 use std::time::{Duration, Instant};
@@ -20,10 +21,10 @@ const LID_POLL_MS: Millis = 150;
 
 pub struct DeviceInput {
     pending: Arc<Mutex<Vec<RawEvent>>>,
+    stick: Arc<AtomicBool>,
     hall: Option<PathBuf>,
     lid_shut: Option<bool>,
     next_lid_poll: Millis,
-    menu_dpad_display: bool,
 }
 
 impl DeviceInput {
@@ -33,18 +34,13 @@ impl DeviceInput {
 
     pub fn open_in(dev: &Path, sys: &Path, root: &Path, trace: bool) -> Self {
         let trace = trace.then(|| Trace::start(root, dev, sys)).flatten();
-        let target = std::env::var("BASEOS_TARGET").ok();
-        DeviceInput::open_traced(dev, sys, menu_dpad_display(target.as_deref()), trace)
+        DeviceInput::open_traced(dev, sys, trace)
     }
 
-    fn open_traced(
-        dev: &Path,
-        sys: &Path,
-        menu_dpad_display: bool,
-        trace: Option<Arc<Trace>>,
-    ) -> Self {
+    fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let main = std::thread::current();
+        let stick = Arc::new(AtomicBool::new(false));
         for node in pick_devices(dev, sys) {
             eprintln!(
                 "slot: input {} ({})",
@@ -53,21 +49,22 @@ impl DeviceInput {
             );
             quicken_poll(sys, &node);
             let queue = pending.clone();
+            let steers = stick.clone();
             let name = node.display().to_string();
             let (trace, main) = (trace.clone(), main.clone());
             let spawned = std::thread::Builder::new()
                 .name(format!("slot-input-{name}"))
-                .spawn(move || read_node(&node, &queue, trace.as_deref(), &main));
+                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref(), &main));
             if let Err(e) = spawned {
                 eprintln!("slot: input {name}: {e}");
             }
         }
         DeviceInput {
             pending,
+            stick,
             hall: find_hall(Path::new(PSY)),
             lid_shut: None,
             next_lid_poll: 0,
-            menu_dpad_display,
         }
     }
 }
@@ -97,7 +94,13 @@ fn quicken_poll(sys: &Path, node: &Path) {
 }
 
 /// Reads `node` into `queue`, waking `main` from a rest for what it read.
-fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, main: &Thread) {
+fn read_node(
+    node: &Path,
+    queue: &Mutex<Vec<RawEvent>>,
+    steers: &AtomicBool,
+    trace: Option<&Trace>,
+    main: &Thread,
+) {
     let label = node
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -130,7 +133,10 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, m
                 crate::latency::read();
             }
             match ev.kind {
-                EV_ABS => events.extend(hat.feed(ev)),
+                EV_ABS => {
+                    hat.steer_with_stick(steers.load(Ordering::Relaxed));
+                    events.extend(hat.feed(ev));
+                }
                 _ => events.extend(to_raw(ev)),
             }
         }
@@ -191,6 +197,10 @@ impl DeviceInput {
         std::thread::park_timeout(most.min(Duration::from_millis(LID_POLL_MS)));
     }
 
+    pub fn steer_with_stick(&self, on: bool) {
+        self.stick.store(on, Ordering::Relaxed);
+    }
+
     fn read_lid(&self) -> Option<bool> {
         let raw = std::fs::read_to_string(self.hall.as_ref()?).ok()?;
         match raw.trim() {
@@ -219,10 +229,6 @@ impl InputSource for DeviceInput {
         }
         out
     }
-
-    fn menu_dpad_display(&self) -> bool {
-        self.menu_dpad_display
-    }
 }
 
 fn find_hall(psy: &Path) -> Option<PathBuf> {
@@ -236,27 +242,4 @@ fn find_hall(psy: &Path) -> Option<PathBuf> {
         .into_iter()
         .map(|d| d.join("hallkey"))
         .find(|p| p.is_file())
-}
-
-fn menu_dpad_display(target: Option<&str>) -> bool {
-    target.map(str::trim) == Some("rg34xx")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_the_rg34xx_baseos_target_enables_the_menu_dpad_display_gesture() {
-        for (target, want) in [
-            (Some("rg34xx"), true),
-            (Some("rg34xxsp"), false),
-            (Some("rg35xxsp"), false),
-            (Some("rg35xxh"), false),
-            (Some(""), false),
-            (None, false),
-        ] {
-            assert_eq!(menu_dpad_display(target), want, "{target:?}");
-        }
-    }
 }

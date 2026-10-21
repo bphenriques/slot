@@ -93,7 +93,6 @@ pub(crate) fn screen(music: &Music) -> Screen {
             repeat: player.repeat(),
             shuffled: player.shuffled(),
             favorite: lib.is_favorite(track),
-            sleeping: music.transport.sleep.left(music.now.at).is_some(),
         },
         progress: super::fraction(at, len),
         marks: Vec::new(),
@@ -103,6 +102,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
             .up_next()
             .map(|t| text::up_next(&lib.tracks[t].title, &lib.tracks[t].artist)),
         book: false,
+        speed: None,
     };
     Screen::new(
         text::NOW_PLAYING,

@@ -164,12 +164,27 @@ fn a_power_off_draws_a_shutdown_screen_over_everything() {
 }
 
 #[test]
+fn a_hold_flushes_and_powers_off() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let mut a = app_playing_in(d.path(), "Emerald");
+    a.apply(Action::PowerHold);
+    assert!(a.powering_off() && !a.restarting());
+    assert!(
+        StateRing::new(d.path(), Platform::Gba, Core::Mgba, "Emerald")
+            .read_resume()
+            .unwrap()
+            .is_some(),
+        "the resume was not on the card before the shutdown began"
+    );
+}
+
+#[test]
 fn the_shutdown_screen_is_up_before_the_machine_may_stop() {
     let d = tmp_root_with_carts(&["Emerald"]);
     let mut a = app_playing_in(d.path(), "Emerald");
     a.apply(Action::PowerHold);
 
-    assert!(a.powering_off(), "the hold starts shutdown immediately");
+    assert!(a.powering_off(), "the hold decides immediately");
     assert!(
         !a.ready_to_power_off(),
         "but the binary may not act until the screen has been presented"
@@ -205,7 +220,6 @@ fn a_dozing_device_powers_off_by_itself_rather_than_waiting_for_the_lid() {
     );
 }
 
-/// A device with five seconds of rcK ahead of it is
 #[test]
 fn a_committed_shutdown_holds_the_core_still() {
     let d = tmp_root_with_real_carts(&["Advance Wars", "Emerald"]);
@@ -214,13 +228,13 @@ fn a_committed_shutdown_holds_the_core_still() {
     play(&mut s, &mut now);
 
     hold_power(&mut s, &mut now);
-    assert!(s.app().powering_off(), "the hold starts shutdown");
+    assert!(s.app().powering_off(), "the hold did not power off");
     s.update(DT);
     await_paused(&mut s);
 }
 
 #[test]
-fn power_pressed_while_dozing_lights_the_panel_before_shutdown() {
+fn power_pressed_while_dozing_lights_the_panel_before_the_shutdown_screen() {
     let d = tmp_root_with_carts(&["Emerald"]);
     clocked(d.path());
     let mut s = Session::boot(d.path().to_path_buf());
@@ -256,16 +270,15 @@ fn power_pressed_while_dozing_lights_the_panel_before_shutdown() {
         "the panel came on over a device still dozing behind it"
     );
 
-    // turns the device off — and now its message is on a panel the user can read.
     let pressed = now;
     while now < pressed + POWER_HOLD_MS + FRAME_MS {
         step(&mut s, &mut now);
     }
-    assert!(s.app().powering_off(), "the hold no longer starts shutdown");
+    assert!(s.app().powering_off(), "the hold did not power off");
     assert_eq!(
         backlight.load(Ordering::Relaxed),
         lit,
-        "the shutdown message is on a panel nobody can see"
+        "the shutdown screen is up on a panel nobody can see"
     );
 }
 
@@ -395,6 +408,31 @@ fn a_shut_lid_over_a_session_takes_its_network_down_too() {
         "the session's own network must come down before the driver does: {jobs:?}"
     );
     assert!(jobs.contains(&RadioJob::Cool));
+}
+
+#[test]
+fn a_shut_lid_powers_off_after_the_minutes_set_in_the_menu() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            lid_off_min: Some(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut a = boot(d.path());
+    a.set_power(panel(d.path(), Duration::from_secs(300)).0);
+    a.apply(Action::LidClose);
+    for _ in 0..59 * 60 {
+        a.update(1.0 / 60.0);
+    }
+    assert!(!a.powering_off(), "59 s is short of the minute");
+    for _ in 0..120 {
+        a.update(1.0 / 60.0);
+    }
+    assert!(a.powering_off());
 }
 
 /// Releasing POWER and pressing a former menu button cannot cancel or delay shutdown.

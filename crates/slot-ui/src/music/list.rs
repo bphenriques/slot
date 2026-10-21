@@ -26,8 +26,15 @@ pub fn music_rich_px() -> (u32, u32) {
     (title as u32, (title * 0.8).round() as u32)
 }
 
+/// Rows on a page of a one-line list, whose height an action row keeps in every list.
+const ONE_LINE_ROWS: f32 = 8.0;
+
 /// The gap between a two-line row's lines, their type to type.
-const LINE_GAP: f32 = 6.0;
+const LINE_GAP: f32 = 2.0;
+
+/// How far a two-line row's lines are lifted, of the name's type: a name in capitals leaves
+/// its room below the baseline blank, so the pair, centred by type, would look low.
+const CAPS_LIFT: f32 = 0.125;
 
 /// Room left between a row's text and its value.
 const VALUE_GAP: u32 = 20;
@@ -54,12 +61,15 @@ pub fn music_row_text_w(width: u32, heart: bool, value_w: u32, thumbed: bool) ->
 /// album with no picture.
 const THUMB_BLANK: f32 = 0.15;
 
-/// Where a page's rows go: the first one's top, the spacing, and how far rows are from their
-/// places as they slide there.
+/// Where a page's rows go: the first one's top, the spacing, how many action rows lead it
+/// (Play All) and their spacing, a one-line row's in every list so they look the same in each,
+/// and how far rows are from their places as they slide there.
 #[derive(Copy, Clone)]
 struct Grid<'a> {
     top: f32,
     pitch: f32,
+    head: usize,
+    head_pitch: f32,
     offsets: &'a [f32],
 }
 
@@ -72,43 +82,83 @@ impl<'a> Grid<'a> {
             Grid {
                 top: ((LEGEND_Y - QUICK_PITCH * rows) / 2.0).round(),
                 pitch: QUICK_PITCH,
+                head: 0,
+                head_pitch: QUICK_PITCH,
                 offsets: &[],
             }
         } else {
             Grid {
                 top: ROWS_Y,
                 pitch: ((LEGEND_Y - 8.0 - ROWS_Y) / rows).floor(),
+                head: 0,
+                head_pitch: ((LEGEND_Y - 8.0 - ROWS_Y) / ONE_LINE_ROWS).floor(),
                 offsets: &[],
             }
         }
     }
 
+    /// The spacing of `per_page` two-line rows under a one-line action row.
+    fn rich_pitch(per_page: usize) -> f32 {
+        let page = Grid::new(false, ONE_LINE_ROWS as usize);
+        ((LEGEND_Y - 8.0 - ROWS_Y - page.head_pitch) / per_page.max(1) as f32).floor()
+    }
+
+    /// Where a full page of a list ends.
+    fn list_end() -> f32 {
+        let page = Grid::new(false, ONE_LINE_ROWS as usize);
+        page.top + ONE_LINE_ROWS * page.pitch
+    }
+
     /// The page `list` lays out.
     fn of(list: &'a ListFaces) -> Grid<'a> {
+        let grid = Grid::new(list.menu, list.per_page);
+        // Two-line rows leave the first page room for its action row (Play All), and are as tall
+        // on every page, so the rows look alike on each.
+        let pitch = if list.thumbed {
+            Grid::rich_pitch(list.per_page)
+        } else {
+            grid.pitch
+        };
         Grid {
+            // A titled menu starts at the top, as a list does, however short; a long one higher,
+            // so it ends no nearer the hints than a list's page.
+            top: if list.menu && list.titled {
+                ROWS_Y.min(Grid::list_end() - grid.pitch * list.per_page.max(1) as f32)
+            } else {
+                grid.top
+            },
+            pitch,
+            head: list.head,
             offsets: &list.offsets,
-            ..Grid::new(list.menu, list.per_page)
+            ..grid
+        }
+    }
+
+    /// How tall row `i` is: an action row a one-line row's height, the rest the page's.
+    fn height(self, i: usize) -> f32 {
+        if i < self.head {
+            self.head_pitch
+        } else {
+            self.pitch
         }
     }
 
     /// The top of row `i`, or between two rows while the highlight glides.
     fn row_top(self, i: f32) -> f32 {
-        self.top + i * self.pitch
+        let head = self.head as f32;
+        let past = (i - head).max(0.0);
+        self.top + i.min(head) * self.head_pitch + past * self.pitch
     }
 
     /// The top of a face `h` tall, centred in row `i`, or on its way there.
     fn row_mid(self, i: usize, h: u32) -> f32 {
         let sliding = self.offsets.get(i).copied().unwrap_or(0.0) * self.pitch;
-        self.row_top(i as f32) + (self.pitch - h as f32) / 2.0 + sliding
+        self.row_top(i as f32) + (self.height(i) - h as f32) / 2.0 + sliding
     }
 
-    /// A rule above row `i`: midway between it and the end of the row before.
+    /// A rule above row `i`: where its line starts, the line before ending there.
     fn rule_y(self, i: usize) -> f32 {
-        let top = self.row_top(i as f32);
-        match i.checked_sub(1) {
-            Some(above) => (self.row_top(above as f32) + self.pitch + top) / 2.0,
-            None => top,
-        }
+        self.row_top(i as f32)
     }
 }
 
@@ -130,6 +180,7 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
         if list.thumbed && i >= list.head {
             draw_thumb(list, grid, i, theme, out);
         }
+        // Past the thumbnail, if any; an action row has none.
         let x = QUICK_EDGE - pad + if i >= list.head { shift } else { 0.0 };
         let second = list.seconds.get(i).copied().flatten();
         match (list.rows[i], second) {
@@ -140,7 +191,8 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
                     h as f32 - 2.0 * ROW_FACE_PAD,
                     sh as f32 - 2.0 * ROW_FACE_PAD,
                 );
-                let top = grid.row_mid(i, (name + LINE_GAP + by).round() as u32);
+                let top = grid.row_mid(i, (name + LINE_GAP + by).round() as u32)
+                    - (name * CAPS_LIFT).round();
                 push(out, tex, x, top - ROW_FACE_PAD, w, h);
                 push(out, stex, x, top + name + LINE_GAP - ROW_FACE_PAD, sw, sh);
             }
@@ -161,33 +213,57 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
     draw_marks(list, &list.hearts, list.heart, grid, right, theme, out);
 }
 
-/// Row `i`'s album thumbnail at its start, centred in its box; an empty square until it is read.
+/// Row `i`'s album thumbnail at its start, centred in its box; until it is read, or with no
+/// picture, an empty square with a note or a book on it, as Now Playing's square has.
 fn draw_thumb(list: &ListFaces, grid: Grid, i: usize, theme: &MusicTheme, out: &mut Vec<Draw>) {
-    match list.thumbs.get(i).copied().flatten() {
-        Some((tex, w, h)) => {
-            let x = QUICK_EDGE + (THUMB_PX - w) as f32 / 2.0;
-            push(out, tex, x, grid.row_mid(i, h), w, h);
-        }
-        None => out.push(Draw::Rect {
+    let face = list.thumbs.get(i).copied().flatten();
+    if face.is_none() {
+        out.push(Draw::Rect {
             x: QUICK_EDGE,
             y: grid.row_mid(i, THUMB_PX),
             w: THUMB_PX as f32,
             h: THUMB_PX as f32,
             colour: rgba(theme.dim, THUMB_BLANK),
-        }),
+        });
+    }
+    if let Some((tex, w, h)) = face.or(list.blank) {
+        let x = QUICK_EDGE + (THUMB_PX - w) as f32 / 2.0;
+        push(out, tex, x, grid.row_mid(i, h), w, h);
+    }
+    // What plays: its thumbnail shaded, and the play mark on it.
+    if let (Some((tex, w, h)), true) = (list.play, list.playing == Some(i)) {
+        let top = grid.row_mid(i, THUMB_PX);
+        out.push(Draw::Rect {
+            x: QUICK_EDGE,
+            y: top,
+            w: THUMB_PX as f32,
+            h: THUMB_PX as f32,
+            colour: rgba(theme.ground, THUMB_SHADE),
+        });
+        let (x, y) = (
+            QUICK_EDGE + (THUMB_PX - w) as f32 / 2.0,
+            top + (THUMB_PX - h) as f32 / 2.0,
+        );
+        push(out, tex, x, y, w, h);
     }
 }
+
+/// How strongly the playing row's thumbnail is shaded under its play mark, of the ground.
+const THUMB_SHADE: f32 = 0.55;
 
 /// The highlight, where it is gliding to; lighter when its row is lifted.
 fn draw_bar(list: &ListFaces, grid: Grid, canvas: Canvas, theme: &MusicTheme, out: &mut Vec<Draw>) {
     let Some(at) = list.bar else {
         return;
     };
+    // From its row's top to the next one's: between a one-line and a two-line row, as tall as
+    // the way it has come, so it grows as it glides rather than at once.
+    let (top, bottom) = (grid.row_top(at).round(), grid.row_top(at + 1.0).round());
     out.push(Draw::Rect {
         x: 0.0,
-        y: grid.row_top(at).round() + BAR_INSET,
+        y: top + BAR_INSET,
         w: canvas.w,
-        h: grid.pitch - 2.0 * BAR_INSET,
+        h: bottom - top - 2.0 * BAR_INSET,
         colour: if list.lifted {
             lifted(theme)
         } else {
@@ -268,6 +344,7 @@ fn draw_marks(
 mod tests {
     use super::*;
     use crate::quick_menu::{quick_row_top, QuickRow};
+    use slot_gfx::TexId;
 
     #[test]
     fn a_row_is_inked_by_its_state_and_its_text_stops_short_of_its_heart_and_value() {
@@ -294,15 +371,84 @@ mod tests {
     }
 
     #[test]
-    fn a_thumbnail_and_two_lines_fit_inside_a_two_line_row_s_highlight_with_room_round_them() {
-        let row = Grid::new(false, 5).pitch - 2.0 * BAR_INSET;
+    fn a_thumbnail_and_two_lines_fit_inside_a_two_line_row_s_highlight() {
+        let row = Grid::rich_pitch(5) - 2.0 * BAR_INSET;
         let (title, second) = music_rich_px();
-        // Room above the first line and below the second, as much as between them.
+        // The room round their ink is held on the pixels, in the screenshots' tests.
         assert!(
-            (title + second) as f32 + 3.0 * LINE_GAP <= row,
+            (title + second) as f32 + LINE_GAP <= row,
             "two lines in {row}"
         );
         assert!(THUMB_PX as f32 <= row, "{THUMB_PX} in {row}");
+    }
+
+    #[test]
+    fn an_empty_thumbnail_shows_its_note_or_book_and_a_read_one_its_picture() {
+        let (blank, picture) = (TexId::from_raw(1), TexId::from_raw(2));
+        let list = ListFaces {
+            thumbed: true,
+            thumbs: vec![None, Some((picture, THUMB_PX, THUMB_PX))],
+            blank: Some((blank, 22, 22)),
+            ..ListFaces::default()
+        };
+        let drawn = |i| {
+            let mut out = Vec::new();
+            draw_thumb(&list, Grid::new(false, 5), i, &MusicTheme::dark(), &mut out);
+            out.iter()
+                .filter_map(|d| match d {
+                    Draw::Tex { tex, .. } => Some(*tex),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(drawn(0), [blank], "on its empty square");
+        assert_eq!(drawn(1), [picture], "the picture alone");
+    }
+
+    #[test]
+    fn play_all_is_as_tall_in_a_two_line_list_as_in_a_one_line_list_and_a_full_page_under_it() {
+        let list = |head| ListFaces {
+            thumbed: true,
+            head,
+            per_page: 5,
+            ..ListFaces::default()
+        };
+        let (first, next) = (list(1), list(0));
+        let (one, two, later) = (Grid::new(false, 8), Grid::of(&first), Grid::of(&next));
+        assert_eq!(two.pitch, later.pitch, "two-line rows alike on every page");
+        assert!(
+            two.row_top(6.0) <= LEGEND_Y - 8.0,
+            "Play All and five albums above the hints"
+        );
+        assert_eq!(two.height(0), one.pitch, "Play All, a one-line row");
+        assert_eq!(two.height(1), two.pitch, "the albums, two lines");
+        assert_eq!(
+            two.row_top(1.0),
+            two.top + one.pitch,
+            "the first album right below"
+        );
+    }
+
+    #[test]
+    fn the_highlight_grows_as_it_glides_from_play_all_to_a_two_line_row() {
+        let list = ListFaces {
+            thumbed: true,
+            head: 1,
+            per_page: 5,
+            bar: Some(0.5),
+            ..ListFaces::default()
+        };
+        let grid = Grid::of(&list);
+        let mut out = Vec::new();
+        draw_bar(&list, grid, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
+        let Some(Draw::Rect { h, .. }) = out.first().copied() else {
+            panic!("a bar");
+        };
+        let (one, two) = (grid.height(0), grid.height(1));
+        assert!(
+            h + 2.0 * BAR_INSET > one && h + 2.0 * BAR_INSET < two,
+            "{h} between"
+        );
     }
 
     #[test]
@@ -311,6 +457,25 @@ mod tests {
         assert_eq!(music_row_px(false, 8), 24.0, "Normal");
         assert!(music_row_px(false, 10) < 24.0 && music_row_px(false, 7) > 24.0);
         assert_eq!(Grid::new(true, 6).pitch, QUICK_PITCH);
+    }
+
+    #[test]
+    fn a_titled_menu_starts_where_a_list_does_and_ends_no_nearer_the_hints() {
+        let menu = |rows| ListFaces {
+            menu: true,
+            titled: true,
+            per_page: rows,
+            ..ListFaces::default()
+        };
+        let short = menu(3);
+        assert_eq!(Grid::of(&short).top, ROWS_Y, "at the top, not centred");
+        let long = menu(7);
+        let grid = Grid::of(&long);
+        assert!(
+            grid.top + 7.0 * grid.pitch <= Grid::list_end(),
+            "above the hints"
+        );
+        assert!(Grid::list_end() <= LEGEND_Y - 8.0);
     }
 
     #[test]

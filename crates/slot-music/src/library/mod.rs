@@ -29,7 +29,7 @@ const RECENT_ALBUMS: usize = 25;
 /// which a rescan renumbers. Each kind is its own type, so one is never taken for another, and
 /// indexes only its own list.
 macro_rules! ids {
-    ($($id:ident => $item:ty),*) => {$(
+    ($($id:ident => $item:ty),* $(,)?) => {$(
         #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
         pub struct $id(pub usize);
 
@@ -55,7 +55,14 @@ macro_rules! ids {
     )*};
 }
 
-ids!(TrackId => Track, AlbumId => Album, ArtistId => Artist, BookId => Book, GenreId => Genre);
+ids!(
+    TrackId => Track,
+    AlbumId => Album,
+    ArtistId => Artist,
+    BookId => Book,
+    GenreId => Genre,
+    FolderId => Folder,
+);
 
 /// The files listed, those slot-player decodes: MP3; AAC or Apple Lossless in MP4 (.m4a, an
 /// .m4b book) or alone; FLAC; Vorbis or FLAC in Ogg; WAV. Not Opus, which it has no decoder for.
@@ -99,6 +106,15 @@ pub struct Genre {
     pub albums: Vec<AlbumId>,
 }
 
+/// A folder of Music as it is on the card: its name, and the folders and songs in it, each by
+/// name.
+#[derive(Default)]
+pub struct Folder {
+    pub name: String,
+    pub folders: Vec<FolderId>,
+    pub tracks: Vec<TrackId>,
+}
+
 /// An audiobook: its title, author, parts and picture are kept as an album's are.
 pub struct Book {
     pub album: AlbumId,
@@ -139,6 +155,8 @@ pub struct Library {
     pub genres: Vec<Genre>,
     /// The albums that say when they came out, oldest first: Years, by decade.
     pub albums_by_year: Vec<AlbumId>,
+    /// Music's folders as the songs lie in them, the first Music itself: Folders.
+    pub folders: Vec<Folder>,
 }
 
 /// A song's fields once its tags and folders are put together.
@@ -288,6 +306,7 @@ impl Library {
         lib.albums_by_year
             .sort_by_cached_key(|&a| (lib.albums[a].year, sort_key(&lib.albums[a].name)));
         lib.genres = genres(&lib, &album_genres);
+        lib.folders = folders(&lib, &music);
         lib.add_books(&books, book_records);
         lib.playlists = crate::store::playlists::read(root, &lib);
         lib
@@ -395,6 +414,19 @@ impl Library {
     }
 
     /// Every song, artist by artist, as Artists plays them; a book's parts are not songs.
+    /// The songs in `folder` and the folders in it, in the order it lists them: its folders',
+    /// then its own.
+    pub fn folder_tracks(&self, folder: FolderId) -> Vec<TrackId> {
+        let folder = &self.folders[folder];
+        let mut tracks: Vec<TrackId> = folder
+            .folders
+            .iter()
+            .flat_map(|&f| self.folder_tracks(f))
+            .collect();
+        tracks.extend(&folder.tracks);
+        tracks
+    }
+
     pub fn music_tracks(&self) -> Vec<TrackId> {
         let artists = self.music_artists.iter();
         artists.flat_map(|&a| self.artist_tracks(a)).collect()
@@ -416,6 +448,50 @@ impl Library {
     pub fn album_of(&self, track: TrackId) -> &Album {
         &self.albums[self.tracks[track].album]
     }
+}
+
+/// Music's folders, from where its songs lie: each folder's folders by name, then its songs by
+/// file name, as a file browser lists them.
+fn folders(lib: &Library, music: &Path) -> Vec<Folder> {
+    let mut folders = vec![Folder::default()];
+    let mut known: HashMap<PathBuf, FolderId> = HashMap::new();
+    for (i, track) in lib.tracks.iter().enumerate() {
+        let Ok(rel) = track.path.strip_prefix(music) else {
+            continue;
+        };
+        let mut here = FolderId(0);
+        let mut path = PathBuf::new();
+        for part in rel.parent().into_iter().flat_map(Path::components) {
+            path.push(part);
+            here = match known.get(&path) {
+                Some(&folder) => folder,
+                None => {
+                    let folder = FolderId(folders.len());
+                    let name = part.as_os_str().to_string_lossy().into_owned();
+                    folders.push(Folder {
+                        name,
+                        ..Folder::default()
+                    });
+                    folders[here].folders.push(folder);
+                    known.insert(path.clone(), folder);
+                    folder
+                }
+            };
+        }
+        folders[here].tracks.push(TrackId(i));
+    }
+    let names: Vec<String> = folders.iter().map(|f| f.name.to_lowercase()).collect();
+    let file = |t: &TrackId| {
+        lib.tracks[*t]
+            .path
+            .file_name()
+            .map(|n| n.to_ascii_lowercase())
+    };
+    for folder in &mut folders {
+        folder.folders.sort_by(|a, b| names[a.0].cmp(&names[b.0]));
+        folder.tracks.sort_by_cached_key(file);
+    }
+    folders
 }
 
 /// The genres `tags` name, each once in any case, in the order first named: a tag may name

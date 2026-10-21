@@ -2,7 +2,7 @@
 //! long; the album picture and its colour; the state symbols; the queue place, time and the
 //! next track.
 
-use slot_gfx::Compositor;
+use super::Textures;
 use slot_input::Millis;
 use slot_music::{NowPlayingBody, Repeat, Status};
 use slot_ui::music::{
@@ -24,7 +24,7 @@ pub(super) struct Picture {
 pub(super) fn faces(
     text: &mut MusicText,
     app: &App,
-    compositor: &mut Compositor,
+    compositor: &mut dyn Textures,
     canvas: Canvas,
     body: NowPlayingBody,
     glyphs: Glyphs,
@@ -72,6 +72,12 @@ pub(super) fn faces(
         text.lines
             .sync(compositor, text.theme, 5, Spec::small(next), wide, scroll)
     });
+    // A book's speed, when not as recorded: a word at the end of the state symbols.
+    let status = shown(body.status, glyphs);
+    let speed = body.speed.and_then(|speed| {
+        text.lines
+            .sync(compositor, text.theme, 6, Spec::small(speed), half, None)
+    });
     let art = art(text, app, compositor, now);
     let tint = art.map(|p| MusicTint {
         now: p.tint,
@@ -82,10 +88,12 @@ pub(super) fn faces(
         art: art.map(|p| p.face),
         art_was: text.art_was.map(|p| p.face),
         no_art: Some(glyphs.no_art[usize::from(body.book)]),
-        status: shown(body.status, glyphs),
+        status,
+        speed,
         progress: body.progress,
         marks: body.marks,
         place,
+        place_mark: body.book.then_some(glyphs.blank[1]),
         time,
         next,
         tint,
@@ -97,7 +105,7 @@ pub(super) fn faces(
 fn art(
     text: &mut MusicText,
     app: &App,
-    compositor: &mut Compositor,
+    compositor: &mut dyn Textures,
     now: Millis,
 ) -> Option<Picture> {
     // None, the last is let go, so the next does not fade in over it.
@@ -128,14 +136,11 @@ fn art(
     }
 }
 
-/// The state symbols: play or pause, then the sleep timer's moon, the heart, shuffle and repeat
-/// when on.
+/// The state symbols: play or pause, then the heart, shuffle and repeat when on. The sleep
+/// timer says itself in the corner.
 fn shown(s: Status, glyphs: Glyphs) -> Vec<MusicFace> {
     let [play, pause, repeat, repeat_one, shuffle] = glyphs.status;
     let mut out = vec![if s.playing { play } else { pause }];
-    if s.sleeping {
-        out.push(glyphs.moon);
-    }
     if s.favorite {
         out.push(glyphs.heart);
     }

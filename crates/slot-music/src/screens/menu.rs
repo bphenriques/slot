@@ -111,7 +111,6 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, row: Row, key: Key) -> Option
             Outcome::None
         }
         // The menu stays: its row now offers the other way.
-        (Row::Favorite, Some(t)) => Outcome::Favorite(t),
         (Row::SongInfo, Some(t)) => {
             b.push(View::SongInfo(t), 0);
             Outcome::None

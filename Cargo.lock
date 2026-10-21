@@ -2804,6 +2804,7 @@ dependencies = [
  "gilrs",
  "libc",
  "libloading",
+ "lofty",
  "log",
  "lz4_flex",
  "png 0.17.16",
@@ -2812,6 +2813,7 @@ dependencies = [
  "slot-input",
  "slot-labels",
  "slot-music",
+ "slot-player",
  "slot-power",
  "slot-retro",
  "slot-store",
@@ -2856,7 +2858,9 @@ version = "0.1.0"
 name = "slot-labels"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "image",
+ "quick-xml",
  "scraper",
  "slot-store",
  "tempfile",

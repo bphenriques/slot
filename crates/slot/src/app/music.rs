@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use slot_gfx::{Draw, Layout};
+use slot_gfx::Draw;
 use slot_input::{Action, Btn, Millis, RawEvent};
 use slot_music::{AlbumId, Art, Button, Input, Music, Screen};
 use slot_store::Shader;
@@ -63,9 +63,14 @@ impl App {
         if let Some(strength) = rumble {
             self.set_rumble(strength);
         }
-        // Music playing in the dark postpones the screen-off power-off until it stops.
+        // Music playing in the dark postpones the screen-off power-off until it stops, and tells
+        // the lid watcher (`card/System/lid.sh`) slot is busy, not hung, so it waits too.
         if matches!(self.phase, Phase::Doze { .. }) && self.music_audible() {
             self.dozed_at = self.now();
+            if busy_due(self.music_frames.busy_at, self.now()) {
+                self.music_frames.busy_at = Some(self.now());
+                say_busy();
+            }
         }
     }
 
@@ -215,7 +220,7 @@ impl App {
             theme: self.music_theme(),
             draws,
             look: (
-                self.layout(),
+                self.shows_game(),
                 self.blue_light(),
                 self.screen_shader(),
                 [
@@ -316,7 +321,7 @@ pub(super) struct Shown {
     art: Option<AlbumId>,
     theme: MusicTheme,
     draws: Vec<Draw>,
-    look: (Layout, u8, Shader, [f32; 3]),
+    look: (bool, u8, Shader, [f32; 3]),
 }
 
 /// What the next frame needs, as `App::next_frame` says: whether it holds still, and for how
@@ -333,6 +338,27 @@ pub struct NextFrame {
 pub(super) struct Frames {
     drawn: Option<Drawn>,
     down: Vec<Btn>,
+    /// When the lid watcher was last told slot is busy with music.
+    busy_at: Option<Millis>,
+}
+
+/// How often the lid watcher is told slot is busy with music: well inside the time it trusts
+/// that for (`BUSY_FOR` in `card/System/lid.sh`, 30 s).
+const BUSY_EVERY: Millis = 10_000;
+/// Where the lid watcher reads it: the seconds since boot, as it counts them.
+const BUSY_FILE: &str = "/run/slot-busy";
+
+/// Whether the lid watcher is due to be told again, last told at `at`.
+fn busy_due(at: Option<Millis>, now: Millis) -> bool {
+    at.is_none_or(|at| now.saturating_sub(at) >= BUSY_EVERY)
+}
+
+/// Tells the lid watcher slot is busy now; where there is no watcher, nothing is lost.
+fn say_busy() {
+    let up = std::fs::read_to_string("/proc/uptime").unwrap_or_default();
+    if let Some(secs) = up.split(['.', ' ']).next().filter(|s| !s.is_empty()) {
+        let _ = std::fs::write(BUSY_FILE, secs);
+    }
 }
 
 /// What was last drawn, where it can stay up: the music screen, and when it next moves of
@@ -352,8 +378,21 @@ fn still<T: PartialEq>(then: &T, wake: Option<Millis>, shown: &T, now: Millis) -
 }
 
 #[cfg(test)]
+mod shots;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lid_watcher_is_told_slot_is_busy_now_and_then_never_every_frame() {
+        assert!(busy_due(None, 5), "the first time at once");
+        assert!(
+            !busy_due(Some(1_000), 10_999),
+            "not again within ten seconds"
+        );
+        assert!(busy_due(Some(1_000), 11_000), "then again");
+    }
 
     #[test]
     fn with_the_screen_off_over_a_game_the_music_leaves_the_keys_alone() {

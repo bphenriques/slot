@@ -70,7 +70,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
         (&mut screen.body, music.pictures.covers.progress())
     {
         list.progress = Some(done as f32 / of as f32);
-        screen.corner = text::optimizing(done, of);
+        screen.corner = text::artwork(done, of);
     }
     screen
 }

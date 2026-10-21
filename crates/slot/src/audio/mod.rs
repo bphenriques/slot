@@ -21,11 +21,11 @@ pub use silence::Silence;
 pub use sink::{AudioError, AudioSink};
 pub use stub::StubSink;
 
-pub const GBA_HZ: u32 = 32_768;
+pub const OUTPUT_HZ: u32 = 48_000;
 
 pub fn opened_sink() -> Box<dyn AudioSink> {
     let mut sink = open_sink();
-    if let Err(e) = sink.open(GBA_HZ) {
+    if let Err(e) = sink.open(OUTPUT_HZ) {
         eprintln!("slot: audio: {e}");
     }
     sink
@@ -33,7 +33,7 @@ pub fn opened_sink() -> Box<dyn AudioSink> {
 
 #[cfg(feature = "host")]
 pub fn open_sink() -> Box<dyn AudioSink> {
-    if std::env::var_os("SLOT_SILENT").is_some() {
+    if std::env::var("SLOT_SILENT").as_deref() == Ok("1") {
         return Box::new(StubSink::draining());
     }
     Box::new(HostAudio::new())

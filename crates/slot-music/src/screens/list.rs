@@ -6,7 +6,7 @@ use crate::library::sort::initial;
 use super::{Body, Legend, ListBody, Screen};
 use crate::books;
 use crate::browse::rows::{self, Row};
-use crate::browse::{per_page, Browser, Context, Key, Outcome, Shuffle, View};
+use crate::browse::{page_of, page_rows, Browser, Context, Key, Outcome, Shuffle, View};
 use crate::text;
 use crate::Music;
 
@@ -33,8 +33,8 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, rows: &[Row], at: usize, key:
     let to = match key {
         Key::Up => (at + n - 1) % n,
         Key::Down => (at + 1) % n,
-        Key::Left => at.saturating_sub(per_page(view)),
-        Key::Right => (at + per_page(view)).min(n - 1),
+        Key::Left => turn(view, at, n, false),
+        Key::Right => turn(view, at, n, true),
         Key::L1 => rows::letter(cx.lib, rows, at, false),
         Key::R1 => rows::letter(cx.lib, rows, at, true),
         Key::X => {
@@ -70,7 +70,7 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, rows: &[Row], at: usize, key:
 }
 
 /// A on a row: open its screen, or play.
-fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
+pub(crate) fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
     let view = b.view();
     let fixed = rows::fixed(view).len();
     let (to, outcome) = match row {
@@ -96,6 +96,7 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         }
         Row::Open(view) => (view, Outcome::None),
         Row::Genre(g) => (View::Genre(g), Outcome::None),
+        Row::Folder(f) => (View::Folder(f), Outcome::None),
         Row::Decade(d) => (View::Decade(d), Outcome::None),
         Row::Playlist(p) => (View::Playlist(p), Outcome::None),
         Row::Author(a) => (View::Author(a), Outcome::None),
@@ -119,7 +120,6 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
         | Row::Bookmark(_)
         | Row::Speed
         | Row::Back
-        | Row::Favorite
         | Row::GoToAlbum
         | Row::GoToArtist
         | Row::SongInfo
@@ -151,14 +151,23 @@ fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcome {
             };
             (View::NowPlaying, play)
         }
-        // From this song, the list it is in: the songs Play All plays.
-        Row::Track(_) => {
-            let Some(tracks) = rows::tracks(cx, view, Row::PlayAll) else {
-                return Outcome::None;
+        // From this song, the list it is in: the songs Play All plays; in a folder, its own songs,
+        // as a file browser plays a folder.
+        Row::Track(t) => {
+            let (tracks, start) = match view {
+                View::Folder(f) => {
+                    let own = cx.lib.folders[f].tracks.clone();
+                    let start = own.iter().position(|&o| o == t).unwrap_or(0);
+                    (own, start)
+                }
+                _ => match rows::tracks(cx, view, Row::PlayAll) {
+                    Some(tracks) => (tracks, at - fixed),
+                    None => return Outcome::None,
+                },
             };
             let play = Outcome::Play {
                 tracks,
-                start: at - fixed,
+                start,
                 shuffle: Shuffle::Off,
             };
             (View::NowPlaying, play)
@@ -217,9 +226,27 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         lifted: false,
         readonly: false,
         thumbs: page.thumbs,
+        books: matches!(view, View::BookList(_) | View::Author(_)),
+        titled: view != View::Main,
     };
     Screen {
         corner: count,
         ..Screen::new(page.title, legend, Body::List(list))
     }
+}
+
+/// Where Left or Right (`on`) turns to from row `at` of `n`: the same place on the page before
+/// or after, or the first or last row from the first or last page.
+fn turn(view: View, at: usize, n: usize, on: bool) -> usize {
+    let page = page_of(view, at);
+    let place = at - page_rows(view, page, n).start;
+    let to = match (on, page) {
+        (false, 0) => return 0,
+        (false, page) => page_rows(view, page - 1, n),
+        (true, page) => page_rows(view, page + 1, n),
+    };
+    if to.is_empty() {
+        return n - 1;
+    }
+    (to.start + place).min(to.end - 1)
 }

@@ -30,6 +30,9 @@ notes are in the [changelog](CHANGELOG.md).
 
 - **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
   panels. Other panel revisions keep their existing refresh rate.
+- **Better battery life and less heat.** slot switches the CPU to the `schedutil` governor, so
+  the clock follows the game's load. Measured on an RG SP: Game Boy and Game Boy Color games run
+  at about 600 MHz, and GBA at 550–1,000 MHz, out of a 1,512 MHz maximum.
 - **LCD ghosting / interframe blending** is enabled by default. It's subtle.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
@@ -41,9 +44,10 @@ notes are in the [changelog](CHANGELOG.md).
   automatically from then onwards. Most of the features below depend on this.
 - **Hassle-free cart label scraping.** Just throw your ROMs on the SD card, and slot downloads
   missing labels in the background. It will not replace a label you added yourself, though.
-  No config is needed for this feature.
-- **RetroAchievements.** You can earn softcore GBA achievements, online or offline. Put your
-  account in `Config/retroachievements.toml` for this to work. All your games' achievements
+  No config is needed for this feature. No Wi-Fi? Put `Artwork.pack` from the release page in
+  your card's `Labels` folder and slot labels your carts from that instead.
+- **RetroAchievements.** You can earn softcore GB, GBC, and GBA achievements, online or offline.
+  Put your account in `Config/retroachievements.toml` for this to work. All your games' achievements
   will be cached if Wi-Fi is on, so once the sync is done, you can go out and play without
   losing your achievements. They'll sync automatically when you're back home. When you're
   playing at home with Wi-Fi on, your achievements will sync in real time with rich presence.
@@ -69,7 +73,7 @@ This fork adds a music player to [pvaibhav's fork](https://github.com/pvaibhav/s
 uses upstream's version with a `-bphenriques` suffix: `v1.7.0-bphenriques.1` is the first
 built on upstream 1.7.0, and `v1.7.0-bphenriques.2` would be the second.
 
-The current release is [v1.7.0-bphenriques.1](https://github.com/bphenriques/slot/releases/tag/v1.7.0-bphenriques.1).
+The current release is [v1.8.0-bphenriques.1](https://github.com/bphenriques/slot/releases/tag/v1.8.0-bphenriques.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---
@@ -89,14 +93,15 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 
 # Supported Devices
 
-| Device             | Supported                  | Since Version |
-|--------------------|----------------------------|---------------|
-| Anbernic RG SP     | Yes                        | Always        |
-| Anbernic RG34XX    | Yes                        | 1.4.0         |
-| Anbernic RG34XXSP  | Yes (No Stick Support Yet) | 1.4.0         |
-| Anbernic RG35XXSP  | Yes                        | 1.5.0         |
-| Anbernic 35XX Plus | Yes                        | 1.5.0         |
-| Anbernic RG28XX    | Yes                        | 1.6.0         |
+| Device             | Supported                                    | Since Version |
+|--------------------|----------------------------------------------|---------------|
+| Anbernic RG SP     | Yes                                          | Always        |
+| Anbernic RG34XX    | Yes                                          | 1.4.0         |
+| Anbernic RG34XXSP  | Yes (Needs Left Stick as D-Pad Verification) | 1.4.0         |
+| Anbernic RG35XXSP  | Yes                                          | 1.5.0         |
+| Anbernic 35XX Plus | Yes                                          | 1.5.0         |
+| Anbernic RG28XX    | Yes                                          | 1.6.0         |
+| Anbernic RG35XX-H  | Yes                                          | 1.7.0         |
 
 If you have one of the untested devices, or have tried slot on a device not listed,
 please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues) and let me know how it went.
@@ -122,3 +127,13 @@ I understand if my use of AI is a dealbreaker for you. Just know it's the least 
 what's here.
 
 This fork's additions were written with AI assistance too.
+
+Figured I should share the end result of all the wasted water. ✌🏻
+
+---
+
+# Spread Joy!
+
+I've spent a lot of time building slot.
+
+If you enjoy using it and feel inclined to pay it forward, go do something nice for someone! ❤️

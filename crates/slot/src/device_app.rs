@@ -43,16 +43,16 @@ pub fn run() {
     let env = |key| std::env::var(key).ok();
     let turn = panel_turn(
         panel,
-        env("BASEOS_PANEL_ROTATION_CCW").as_deref(),
+        slot::baseos::var("BASEOS_PANEL_ROTATION_CCW").as_deref(),
         env("SLOT_ROTATE").as_deref(),
     );
     let turned = turn != PanelTurn::None;
     let window = if turned { (panel.1, panel.0) } else { panel };
     eprintln!(
         "slot: baseos target {}, model {}, rotation ccw {}",
-        env("BASEOS_TARGET").unwrap_or_default(),
-        env("BASEOS_MODEL").unwrap_or_default(),
-        env("BASEOS_PANEL_ROTATION_CCW").unwrap_or_default()
+        slot::baseos::var("BASEOS_TARGET").unwrap_or_default(),
+        slot::baseos::var("BASEOS_MODEL").unwrap_or_default(),
+        slot::baseos::var("BASEOS_PANEL_ROTATION_CCW").unwrap_or_default()
     );
     eprintln!(
         "slot: panel {}x{}, canvas {}x{}, turn {turn:?}",
@@ -75,6 +75,8 @@ pub fn run() {
     slot::boot_time::mark("audio");
     let mut frontend = Frontend::boot_with(Box::new(platform), sink);
     slot::boot_time::mark("frontend");
+    let target = slot::baseos::var("BASEOS_TARGET").unwrap_or_default();
+    frontend.set_left_stick(slot::input::evdev::has_left_stick(&target));
     frontend.upload_boot_faces(&mut compositor);
     slot::boot_time::mark("faces");
     frontend.upload_bezel(&mut compositor, window);
@@ -84,7 +86,10 @@ pub fn run() {
     let card = root.clone();
     let _ = std::thread::Builder::new()
         .name("slot-bootlogo".into())
-        .spawn(move || slot::bootlogo::refresh(&card));
+        .spawn(move || {
+            slot::bootlogo::refresh(&card);
+            slot::root::sweep_temps(&card);
+        });
     let mut drawn = false;
     frontend.drive_emulator();
     let mut pacer = FramePacer::new(Instant::now());
@@ -100,9 +105,21 @@ pub fn run() {
         } else if let Some(left) = deadline.checked_duration_since(Instant::now()) {
             std::thread::sleep(left);
         }
+        input.steer_with_stick(frontend.app().left_stick_dpad());
         frontend.advance(&mut input);
+        if frontend.restarting() {
+            frontend.restart();
+        }
+        if frontend.repairing() {
+            frontend.repair();
+        }
         if frontend.powering_off() {
             frontend.poweroff();
+            return;
+        }
+        if slot::crash::stopping() {
+            eprintln!("slot: told to stop, saving first");
+            frontend.stop();
             return;
         }
         let due = pacer.due(frontend.frame_clock(), Instant::now());
@@ -127,6 +144,7 @@ pub fn run() {
         let swap = Instant::now();
         if let Err(e) = surface.swap() {
             eprintln!("slot: {e}");
+            frontend.stop();
             return;
         }
         let swap_took = swap.elapsed();

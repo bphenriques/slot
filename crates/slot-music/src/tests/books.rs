@@ -54,16 +54,24 @@ fn a_book_s_chapters_skip_within_it_and_its_speed_goes_to_the_player_but_not_mus
 }
 
 #[test]
-fn a_book_says_its_speed_how_far_through_it_is_and_its_time_left() {
+fn a_book_s_time_left_is_said_in_hours_and_minutes_as_the_sleep_timer_says_them() {
     use crate::text::book_left;
     assert_eq!(
-        book_left(1.25, Some(0.374), 3723.0),
-        "1.25× · 37% · 1:02:03 left"
+        book_left(10_740.0),
+        "2 h 59 min left",
+        "not 2:59, which reads as minutes"
     );
     assert_eq!(
-        book_left(1.0, None, 90.0),
-        "1× · 1:30 left",
-        "parts of unknown length"
+        book_left(3723.0),
+        "1 h 3 min left",
+        "a minute begun counts whole"
+    );
+    assert_eq!(book_left(7200.0), "2 h left");
+    assert_eq!(book_left(90.0), "2 min left");
+    assert_eq!(
+        book_left(1.0),
+        "1 min left",
+        "never none while some is left"
     );
 }
 
@@ -411,4 +419,19 @@ fn a_book_s_chapters_list_from_the_books_across_its_parts_on_the_one_it_was_left
     assert_eq!(b.view(), View::BookMenu(book));
     assert_eq!(b.press(&cx, Key::A), Outcome::None);
     assert_eq!(b.view(), View::BookChapters(book));
+}
+
+#[test]
+fn a_book_s_chapters_are_numbered_through_the_book_as_an_album_s_songs_are() {
+    let (_d, lib) = library(&[
+        "../Audiobooks/Wilde - Tales/01 one.mp3",
+        "../Audiobooks/Wilde - Tales/02 two.mp3",
+        "../Audiobooks/Wilde - Tales/03 three.mp3",
+    ]);
+    let mut b = Browser::default();
+    let cx = Context::new(&lib, at(0));
+    b.push(View::BookChapters(BookId(0)), 0);
+    let page = b.page(&cx);
+    let numbers: Vec<&str> = page.rows.iter().map(|r| r.before.as_str()).collect();
+    assert_eq!(numbers, ["01", "02", "03"]);
 }

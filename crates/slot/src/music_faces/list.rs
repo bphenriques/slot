@@ -1,7 +1,7 @@
 //! A list page's faces: the rows, their values, favorites' hearts, and the highlight. A message
 //! is a lone row.
 
-use slot_gfx::Compositor;
+use super::Textures;
 use slot_input::Millis;
 use slot_music::{AlbumId, Art, ListBody, RowText};
 use slot_ui::music::{
@@ -14,7 +14,7 @@ use super::{Glyphs, MusicText, Spec};
 
 pub(super) fn faces(
     text: &mut MusicText,
-    compositor: &mut Compositor,
+    compositor: &mut dyn Textures,
     canvas: Canvas,
     body: ListBody,
     glyphs: Glyphs,
@@ -37,6 +37,11 @@ pub(super) fn faces(
     let width = music_text_width(false, canvas);
     let hearts: Vec<bool> = body.rows.iter().map(|r| r.favorite).collect();
     let thumbs = thumbs(text, compositor, &body.rows, arts);
+    // In a list with thumbnails, what plays is marked on its thumbnail, its name kept in line.
+    let playing = body
+        .thumbs
+        .then(|| body.rows.iter().position(|r| r.playing))
+        .flatten();
     let head = body.rows.iter().take_while(|r| r.action).count();
     let value_w = music_half_w(canvas);
     let mut values = Vec::with_capacity(body.values.len());
@@ -55,13 +60,10 @@ pub(super) fn faces(
     let mut seconds = Vec::with_capacity(body.rows.len());
     let mut rows = Vec::with_capacity(body.rows.len());
     for (i, mut row) in body.rows.into_iter().enumerate() {
+        row.playing &= !body.thumbs;
         let second = (body.thumbs && !row.after.is_empty()).then(|| std::mem::take(&mut row.after));
         seconds.push(second.and_then(|after| {
-            let spec = Spec::Row {
-                text: RowText::plain(after),
-                ink: Ink::Dim,
-                px: second_px,
-            };
+            let spec = Spec::Second(after, second_px);
             let width = music_row_text_w(width, false, 0, true);
             text.seconds
                 .sync(compositor, text.theme, i, spec, width, None)
@@ -70,7 +72,7 @@ pub(super) fn faces(
         // tells.
         let ink = music_row_ink(row.faint, i == selected);
         let value = values.get(i).copied().flatten().map_or(0, |(_, w, _)| w);
-        let width = music_row_text_w(width, row.favorite, value, body.thumbs);
+        let width = music_row_text_w(width, row.favorite, value, body.thumbs && i >= head);
         let spec = Spec::Row {
             text: row,
             ink,
@@ -92,6 +94,7 @@ pub(super) fn faces(
         selected: (!body.readonly).then_some(selected),
         bar: (!body.readonly).then_some(bar),
         menu: body.menu,
+        titled: body.titled,
         per_page: body.per_page,
         head,
         offsets: text.motion.offsets(now),
@@ -103,6 +106,9 @@ pub(super) fn faces(
         thumbed: body.thumbs,
         thumbs,
         seconds,
+        blank: body.thumbs.then_some(glyphs.blank[usize::from(body.books)]),
+        playing,
+        play: body.thumbs.then_some(glyphs.status[0]),
     }
 }
 
@@ -110,7 +116,7 @@ pub(super) fn faces(
 /// their textures kept for the next.
 fn thumbs(
     text: &mut MusicText,
-    compositor: &mut Compositor,
+    compositor: &mut dyn Textures,
     rows: &[RowText],
     arts: &[Art],
 ) -> Vec<Option<MusicFace>> {
@@ -144,7 +150,7 @@ fn thumbs(
 /// A line in place of a list, set as a menu row in the middle, scrolling if it is long.
 pub(super) fn message(
     text: &mut MusicText,
-    compositor: &mut Compositor,
+    compositor: &mut dyn Textures,
     canvas: Canvas,
     line: String,
     now: Millis,

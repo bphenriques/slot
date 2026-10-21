@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::link::Link;
 use crate::rumble::Rumble;
+use crate::AchievementMemory;
 
 pub const GBA_W: u32 = 240;
 pub const GBA_H: u32 = 160;
@@ -76,11 +77,11 @@ impl From<std::io::Error> for CoreError {
 }
 
 pub trait RetroCore: Send {
-    /// Copies RA's GBA address space (IWRAM, EWRAM, SRAM) into a 0x58000-byte buffer.
-    /// Returns the valid length of each region; absent memory is never treated as zero RAM.
+    /// Copies memory into a buffer of ACHIEVEMENT_RAM_SIZE, indexed by RA addresses.
+    /// Returns valid spans; absent memory is never treated as zero RAM.
     /// Called only on the emulator thread, between frames. No core pointers leave that thread.
-    fn achievement_memory(&self, _ram: &mut [u8]) -> [usize; 3] {
-        [0; 3]
+    fn achievement_memory(&self, _ram: &mut [u8]) -> AchievementMemory {
+        AchievementMemory::default()
     }
     fn load(&mut self, rom: &Path) -> Result<(), CoreError>;
     fn run_frame(&mut self, input: ButtonMask);

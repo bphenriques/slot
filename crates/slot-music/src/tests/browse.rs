@@ -55,12 +55,8 @@ fn a_track_in_an_album_plays_from_there_to_the_end_of_the_album() {
     let (_d, lib) = library(&["X/A/01 one.mp3", "X/A/02 two.mp3", "X/A/03 three.mp3"]);
     let mut b = Browser::default();
     press(&mut b, &lib, &TO_ALBUMS);
-    // A -> (Play All, Shuffle, one, two) two
-    let out = press(
-        &mut b,
-        &lib,
-        &[Key::A, Key::Down, Key::Down, Key::Down, Key::A],
-    );
+    // A -> (Play All, one, two) two
+    let out = press(&mut b, &lib, &[Key::A, Key::Down, Key::Down, Key::A]);
     assert_eq!(
         out,
         Outcome::Play {
@@ -123,8 +119,8 @@ fn x_adds_what_a_row_stands_for_to_the_queue_and_a_held_plays_it_next() {
         press(&mut b, &lib, &[Key::X]),
         Outcome::Enqueue(ids(&[0, 1, 2]))
     );
-    // X -> (Play All, Shuffle, A, B): album B
-    press(&mut b, &lib, &[Key::A, Key::Down, Key::Down, Key::Down]);
+    // X -> (Play All, A, B): album B
+    press(&mut b, &lib, &[Key::A, Key::Down, Key::Down]);
     let out = press(&mut b, &lib, &[Key::X]);
     assert_eq!(out, Outcome::Enqueue(lib.albums[1].tracks.clone()));
     assert_eq!(b.view(), View::Artist(ArtistId(0)), "adding is not opening");
@@ -172,15 +168,17 @@ fn tracks_play_or_shuffle_everything_from_their_top_rows() {
     let mut b = Browser::default();
     press(&mut b, &lib, &TO_TRACKS);
     assert_eq!(b.view(), View::Tracks);
-    let out = press(&mut b, &lib, &[Key::Down, Key::A]);
-    assert_eq!(
-        out,
-        Outcome::Play {
-            tracks: lib.tracks_by_title.clone(),
-            start: 0,
-            shuffle: crate::Shuffle::Tracks
-        }
-    );
+    // Play All: tapped it plays, held it shuffles.
+    let cx = cx(&lib, QueueView::default(), Settings::default());
+    let play = |shuffle| Outcome::Play {
+        tracks: lib.tracks_by_title.clone(),
+        start: 0,
+        shuffle,
+    };
+    assert_eq!(b.held(&cx, Key::A), play(crate::Shuffle::Tracks));
+    let mut b = Browser::default();
+    press(&mut b, &lib, &TO_TRACKS);
+    assert_eq!(press(&mut b, &lib, &[Key::A]), play(crate::Shuffle::Off));
 }
 
 #[test]
@@ -202,7 +200,7 @@ fn lists_count_their_items_and_not_the_rows_above_them() {
     press(&mut b, &lib, &TO_TRACKS);
     let page = |b: &Browser| b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!((page(&b).item, page(&b).items), (None, 3), "on Play All");
-    press(&mut b, &lib, &[Key::Down, Key::Down, Key::Down]);
+    press(&mut b, &lib, &[Key::Down, Key::Down]);
     assert_eq!((page(&b).item, page(&b).items), (Some(2), 3));
 }
 
@@ -226,13 +224,13 @@ fn rows_name_their_context_dim_and_mark_what_plays() {
     press(&mut b, &lib, &TO_ALBUMS);
     let page = b.page(&cx(&lib, queue, settings));
     assert_eq!(
-        (page.rows[2].text.as_str(), page.rows[2].after.as_str()),
+        (page.rows[1].text.as_str(), page.rows[1].after.as_str()),
         ("Get a Grip", "Aerosmith")
     );
     // An album's own tracks go by their numbers, and what plays is marked.
     b.press(&cx(&lib, queue, settings), Key::A);
     let page = b.page(&cx(&lib, queue, settings));
-    let row = &page.rows[2];
+    let row = &page.rows[1];
     assert_eq!((row.before.as_str(), row.text.as_str()), ("", "Cryin"));
     assert!(row.playing && row.after.is_empty());
     assert!(page.rows[0].action && !row.action && !page.rows[0].playing);
@@ -247,8 +245,8 @@ fn the_main_screen_counts_what_its_rows_lead_to() {
     let values: Vec<Option<&str>> = page.values.iter().map(Option::as_deref).collect();
     assert_eq!(
         values,
-        [Some("1"), Some("2"), Some("2")],
-        "Library: Artists, Albums, Songs; no Genres or Years with none tagged"
+        [Some("1"), Some("2"), Some("2"), None],
+        "Library: Artists, Albums, Songs, Folders; no Genres or Years with none tagged"
     );
 }
 
@@ -281,7 +279,6 @@ fn the_menu_goes_to_the_album_on_the_track_and_a_held_in_a_list_plays_next() {
     assert_eq!(
         page.rows,
         [
-            "Add to Favorites",
             "Sleep Timer",
             "Repeat",
             "Shuffle",
@@ -289,15 +286,11 @@ fn the_menu_goes_to_the_album_on_the_track_and_a_held_in_a_list_plays_next() {
             "Go to",
             "Song Info",
         ],
-        "what to do first, then where to go"
+        "what to set first, then where to go; Y favorites, so the menu does not"
     );
-    assert_eq!(page.values[3].as_deref(), Some("Off"), "shuffle says which");
-    assert_eq!(page.rows[4].after, "A", "the name set dim after");
-    assert_eq!(
-        b.press(&cx(&lib, queue, s), Key::A),
-        Outcome::Favorite(TrackId(1))
-    );
-    for _ in 0..3 {
+    assert_eq!(page.values[2].as_deref(), Some("Off"), "shuffle says which");
+    assert_eq!(page.rows[3].after, "A", "the name set dim after");
+    for _ in 0..2 {
         b.press(&cx(&lib, queue, s), Key::Down);
     }
     assert_eq!(b.press(&cx(&lib, queue, s), Key::A), Outcome::ShuffleQueue);
@@ -315,6 +308,48 @@ fn the_menu_goes_to_the_album_on_the_track_and_a_held_in_a_list_plays_next() {
 }
 
 #[test]
+fn a_two_line_list_s_first_page_holds_play_all_over_a_full_page_and_the_rest_a_page() {
+    use crate::browse::RICH_ROWS;
+    let files: Vec<String> = (0..12).map(|i| format!("X/A{i:02}/01 t.mp3")).collect();
+    let (_d, lib) = library(&files.iter().map(String::as_str).collect::<Vec<_>>());
+    let mut b = Browser::default();
+    press(&mut b, &lib, &TO_ALBUMS);
+    let page = |b: &Browser| b.page(&cx(&lib, QueueView::default(), Settings::default()));
+    let first = page(&b);
+    assert_eq!(
+        first.rows.len(),
+        1 + RICH_ROWS,
+        "Play All, and a page under it"
+    );
+    assert_eq!(first.pages, 3, "12 albums: 5, 5 and 2");
+    // Down to the sixth album, past Play All.
+    for _ in first.selected..=RICH_ROWS {
+        press(&mut b, &lib, &[Key::Down]);
+    }
+    let next = page(&b);
+    assert_eq!(
+        (next.rows.len(), next.selected),
+        (RICH_ROWS, 0),
+        "a page, from its top"
+    );
+    assert_eq!(next.rows[0], "A05");
+    press(&mut b, &lib, &[Key::Up]);
+    assert_eq!(page(&b).selected, RICH_ROWS, "back on the first, its last");
+    press(&mut b, &lib, &[Key::Left]);
+    assert_eq!(
+        page(&b).selected,
+        0,
+        "Left on the first page: its top, Play All"
+    );
+    press(&mut b, &lib, &[Key::Right]);
+    let turned = page(&b);
+    assert_eq!(
+        turned.rows[turned.selected], "A05",
+        "Right turns the page, from Play All too"
+    );
+}
+
+#[test]
 fn every_list_of_tracks_starts_with_play_all_and_shuffle() {
     let (_d, lib) = library(&["X/A/01 one.mp3", "Y/B/01 two.mp3"]);
     for view in [
@@ -325,11 +360,7 @@ fn every_list_of_tracks_starts_with_play_all_and_shuffle() {
         View::Album(AlbumId(0)),
     ] {
         let rows = crate::rows(&Context::new(&lib, at(0)), view);
-        assert_eq!(
-            &rows[..2],
-            &[crate::Row::PlayAll, crate::Row::Shuffle],
-            "{view:?}"
-        );
+        assert_eq!(&rows[..1], &[crate::Row::PlayAll], "{view:?}");
     }
 }
 
@@ -338,17 +369,16 @@ fn shuffle_deals_what_the_list_shows() {
     let (_d, lib) = library(&["X/A/01 a1.mp3", "X/A/02 a2.mp3", "X/B/01 b1.mp3"]);
     let s = Settings::default();
     let mut b = Browser::default();
-    // Albums: Play All, Shuffle Albums, ...
+    // Albums, on Play All: held, it shuffles the albums, each kept whole.
     press(
         &mut b,
         &lib,
-        &[Key::Down, Key::Down, Key::A, Key::Down, Key::A, Key::Down],
+        &[Key::Down, Key::Down, Key::A, Key::Down, Key::A],
     );
-    assert_eq!(
-        b.page(&cx(&lib, QueueView::default(), s)).rows[1],
-        "Shuffle Albums"
-    );
-    let out = press(&mut b, &lib, &[Key::A]);
+    let cx = cx(&lib, QueueView::default(), s);
+    assert_eq!(b.page(&cx).rows[0], "Play All");
+    assert_eq!(b.mode(&cx, Key::A), crate::Mode::Hold);
+    let out = b.held(&cx, Key::A);
     let Outcome::Play {
         tracks, shuffle, ..
     } = out
@@ -473,10 +503,12 @@ fn song_info_tells_the_track_from_its_file_and_start_closes_the_menu() {
 }
 
 #[test]
-fn notices_say_where_songs_went_in_one_short_pattern() {
+fn notices_say_where_songs_went_as_players_say_it() {
     use crate::text::{notice, Notice};
-    assert_eq!(notice(&Notice::Added(1)), "Queue +1");
-    assert_eq!(notice(&Notice::Next(12)), "Play Next +12");
+    assert_eq!(notice(&Notice::Added(1)), "Added to Queue");
+    assert_eq!(notice(&Notice::Added(3)), "Added 3 to Queue");
+    assert_eq!(notice(&Notice::Next(1)), "Playing Next");
+    assert_eq!(notice(&Notice::Next(12)), "Playing 12 Next");
 }
 
 #[test]
@@ -505,11 +537,7 @@ fn start_opens_a_menu_only_for_what_no_key_does() {
     press(&mut b, &lib, &[Key::Start]);
     assert_eq!(b.view(), View::Albums);
     // A song's goes to its album or artist, or tells of it, for that song.
-    press(
-        &mut b,
-        &lib,
-        &[Key::A, Key::Down, Key::Down, Key::Down, Key::Start],
-    );
+    press(&mut b, &lib, &[Key::A, Key::Down, Key::Down, Key::Start]);
     assert_eq!(b.view(), View::SongMenu(TrackId(1)));
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!(page.rows, ["Go to", "Go to", "Song Info"]);
@@ -533,9 +561,10 @@ fn list_hints_follow_the_row_and_its_state() {
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
     assert_eq!(page.highlighted, Some(crate::Row::Album(AlbumId(0))));
     let song = said(Legend::List(Target::Song));
-    assert_eq!(song[0], ("A", "Play (Next)".into()));
-    assert_eq!(song[1], ("X", "Add to Queue".into()));
-    assert_eq!(song[2], ("Y", "Favorite".into()), "the heart says which");
+    assert_eq!(song[0], ("B", "Back".into()));
+    assert_eq!(song[1], ("A", "Play (Next)".into()));
+    assert_eq!(song[2], ("X", "Add to Queue".into()));
+    assert_eq!(song[3], ("Y", "Favorite".into()), "the heart says which");
     let np = |playing| {
         said(Legend::NowPlaying {
             playing,
@@ -573,10 +602,10 @@ fn list_hints_follow_the_row_and_its_state() {
     .iter()
     .any(|h| h.key == "SELECT"));
     let queued = said(Legend::Queue { restart: true });
-    assert_eq!(queued[0], ("A", "Restart".into()));
+    assert_eq!(queued[1], ("A", "Restart".into()));
     let queue = said(Legend::Queue { restart: false });
-    assert_eq!(queue[1], ("X", "Remove".into()), "held, it goes on");
-    assert_eq!(queue[2], ("Y", "Favorite (Move)".into()));
+    assert_eq!(queue[2], ("X", "Remove".into()), "held, it goes on");
+    assert_eq!(queue[3], ("Y", "Favorite (Move)".into()));
 }
 
 #[test]
@@ -593,7 +622,7 @@ fn x_adds_to_the_queue_and_y_favorites_a_song() {
         press(&mut b, &lib, &[Key::X]),
         Outcome::Enqueue(ids(&[0, 1]))
     );
-    press(&mut b, &lib, &[Key::A, Key::Down, Key::Down]);
+    press(&mut b, &lib, &[Key::A, Key::Down]);
     assert_eq!(
         press(&mut b, &lib, &[Key::Y]),
         Outcome::Favorite(TrackId(0))
@@ -614,15 +643,7 @@ fn a_favorite_song_is_marked_in_every_list_it_shows_in() {
         .iter()
         .map(|r| (r.text.as_str(), r.favorite))
         .collect();
-    assert_eq!(
-        marked,
-        [
-            ("Play All", false),
-            ("Shuffle Songs", false),
-            ("one", false),
-            ("two", true)
-        ]
-    );
+    assert_eq!(marked, [("Play All", false), ("one", false), ("two", true)]);
 }
 
 #[test]
@@ -702,5 +723,50 @@ fn x_on_the_music_menu_does_nothing_as_phones_have_no_stop() {
         b.press(&cx, Key::X),
         Outcome::None,
         "pause is enough; the queue stays"
+    );
+}
+
+#[test]
+fn folders_open_from_the_library_play_all_under_them_and_a_song_plays_its_own_folder() {
+    let (_d, lib) = library(&["Rock/A/01 a.mp3", "Rock/A/02 b.mp3", "Rock/c.mp3"]);
+    let mut b = Browser::default();
+    let page = |b: &Browser| b.page(&cx(&lib, QueueView::default(), Settings::default()));
+    let files = |outcome: Outcome| match outcome {
+        Outcome::Play { tracks, start, .. } => {
+            let name = |t: &TrackId| lib.tracks[*t].path.file_stem().unwrap().to_string_lossy();
+            (tracks.iter().map(name).collect::<Vec<_>>(), start)
+        }
+        other => panic!("{other:?}"),
+    };
+    press(&mut b, &lib, &[Key::Down, Key::Down, Key::A]);
+    let library = page(&b);
+    let at = library.rows.iter().position(|r| *r == "Folders");
+    let at = at.unwrap_or_else(|| panic!("Folders, in {}: {:?}", library.title, library.rows));
+    for _ in library.selected..at {
+        press(&mut b, &lib, &[Key::Down]);
+    }
+    press(&mut b, &lib, &[Key::A]);
+    assert_eq!(page(&b).rows, ["Play All", "Rock"], "Music itself");
+    press(&mut b, &lib, &[Key::Down, Key::A]);
+    let rock = page(&b);
+    assert_eq!(rock.title, "Rock");
+    assert_eq!(
+        rock.rows,
+        ["Play All", "A", "c"],
+        "its folders, then its songs by file"
+    );
+    assert_eq!(rock.selected, 0, "on Play All");
+    let all = files(press(&mut b, &lib, &[Key::A]));
+    assert_eq!(
+        all,
+        (vec!["01 a".into(), "02 b".into(), "c".into()], 0),
+        "all under it"
+    );
+    press(&mut b, &lib, &[Key::B, Key::Down, Key::Down]);
+    let own = files(press(&mut b, &lib, &[Key::A]));
+    assert_eq!(
+        own,
+        (vec!["c".into()], 0),
+        "a song: its own folder's songs, from it"
     );
 }

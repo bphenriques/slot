@@ -76,38 +76,24 @@ fn a_power_tap_dozes_and_a_second_one_wakes() {
 }
 
 #[test]
-fn holding_power_flushes_and_powers_off() {
+fn a_hold_flushes_and_powers_off_without_ejecting() {
     let d = tmp_root_with_carts(&["Emerald"]);
     let mut a = app_playing_in(d.path(), "Emerald");
 
     a.apply(Action::PowerHold);
-    assert!(
-        a.powering_off(),
-        "the hold begins shutdown without another button"
-    );
+    assert!(a.powering_off(), "the hold did not power off");
     assert!(
         StateRing::new(d.path(), Platform::Gba, Core::Mgba, "Emerald")
             .read_resume()
             .unwrap()
             .is_some(),
-        "durable before shutdown"
+        "the resume was not on the card before the shutdown began"
     );
-
     assert_eq!(
         read_slot_state(d.path()).cart,
         Some("Emerald".into()),
         "power off is not an eject"
     );
-}
-
-/// Releasing a held button leaves the shutdown already in progress.
-#[test]
-fn a_release_after_the_hold_does_nothing_on_its_own() {
-    let d = tmp_root_with_carts(&["Emerald"]);
-    let mut a = app_playing_in(d.path(), "Emerald");
-    a.apply(Action::PowerHold);
-    a.apply(Action::PowerOff);
-    assert!(a.powering_off());
 }
 
 #[test]
@@ -214,11 +200,15 @@ fn one_stem_on_two_platforms_writes_two_saves() {
     persist::write_sav(d.path(), Platform::Gb, "Tetris", &[2u8; 8]).unwrap();
 
     assert_eq!(
-        persist::read_sav(d.path(), Platform::Gba, "Tetris").unwrap(),
+        persist::read_sav(d.path(), Platform::Gba, "Tetris")
+            .unwrap()
+            .unwrap(),
         vec![1u8; 32]
     );
     assert_eq!(
-        persist::read_sav(d.path(), Platform::Gb, "Tetris").unwrap(),
+        persist::read_sav(d.path(), Platform::Gb, "Tetris")
+            .unwrap()
+            .unwrap(),
         vec![2u8; 8]
     );
     assert!(d.path().join("Saves/GBA/Tetris.sav").is_file());
@@ -424,4 +414,13 @@ fn a_card_the_kernel_made_read_only_raises_the_alarm_without_a_save() {
         !a.card_alarm(),
         "the alarm stayed once the card was writable"
     );
+}
+
+#[test]
+fn a_release_after_the_hold_does_nothing_on_its_own() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let mut a = app_playing_in(d.path(), "Emerald");
+    a.apply(Action::PowerHold);
+    a.apply(Action::PowerOff);
+    assert!(a.powering_off());
 }
