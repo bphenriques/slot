@@ -4,15 +4,28 @@
 
 use std::fs::File;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{self, DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{self, CodecRegistry, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
+
+/// The codecs it decodes: symphonia's own, and Opus through libopus, which symphonia reads in Ogg
+/// but has no decoder for.
+pub(crate) fn codecs() -> &'static CodecRegistry {
+    static CODECS: OnceLock<CodecRegistry> = OnceLock::new();
+    CODECS.get_or_init(|| {
+        let mut codecs = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut codecs);
+        codecs.register_all::<symphonia_adapter_libopus::OpusDecoder>();
+        codecs
+    })
+}
 
 pub struct Decoder {
     format: Box<dyn FormatReader>,
@@ -49,7 +62,7 @@ impl Decoder {
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
             .ok_or("no track it can play")?;
         let params = &track.codec_params;
-        let decoder = symphonia::default::get_codecs()
+        let decoder = codecs()
             .make(params, &DecoderOptions::default())
             .map_err(|e| e.to_string())?;
         let len = params
@@ -273,19 +286,38 @@ mod tests {
     }
 
     #[test]
+    fn an_opus_file_plays_at_48_khz_a_second_of_sound_and_seeks() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.opus");
+        let mut d = Decoder::open(&path).unwrap();
+        assert_eq!(d.rate(), 48_000, "as Opus always decodes");
+        let mut out = Vec::new();
+        while d.read_stereo(4096, &mut out) > 0 {}
+        let secs = out.len() as f64 / 2.0 / 48_000.0;
+        assert!((0.95..1.1).contains(&secs), "a second long, not {secs}");
+        let loud = out.iter().fold(0f32, |m, s| m.max(s.abs()));
+        assert!(loud > 0.3, "the tone, not silence: {loud}");
+        d.seek(0.5).unwrap();
+        let mut rest = Vec::new();
+        while d.read_stereo(4096, &mut rest) > 0 {}
+        let left = rest.len() as f64 / 2.0 / 48_000.0;
+        assert!((0.4..0.6).contains(&left), "half of it left, not {left}");
+    }
+
+    #[test]
     fn every_codec_the_library_s_files_may_hold_decodes() {
         use symphonia::core::codecs::{
-            CODEC_TYPE_AAC, CODEC_TYPE_ALAC, CODEC_TYPE_FLAC, CODEC_TYPE_MP3, CODEC_TYPE_PCM_S16LE,
-            CODEC_TYPE_VORBIS,
+            CODEC_TYPE_AAC, CODEC_TYPE_ALAC, CODEC_TYPE_FLAC, CODEC_TYPE_MP3, CODEC_TYPE_OPUS,
+            CODEC_TYPE_PCM_S16LE, CODEC_TYPE_VORBIS,
         };
-        let codecs = symphonia::default::get_codecs();
-        // An .m4a holds AAC or Apple Lossless; an .ogg Vorbis or FLAC.
+        let codecs = codecs();
+        // An .m4a holds AAC or Apple Lossless; an .ogg Vorbis or FLAC; an .opus Opus.
         for codec in [
             CODEC_TYPE_MP3,
             CODEC_TYPE_AAC,
             CODEC_TYPE_ALAC,
             CODEC_TYPE_FLAC,
             CODEC_TYPE_VORBIS,
+            CODEC_TYPE_OPUS,
             CODEC_TYPE_PCM_S16LE,
         ] {
             assert!(codecs.get_codec(codec).is_some(), "{codec}");

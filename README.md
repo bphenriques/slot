@@ -56,10 +56,11 @@ notes are in the [changelog](CHANGELOG.md).
   using slot's normal method. This works seamlessly, no config needed.
 - **ROMs in subfolders.** Slot also finds games one folder down, like `Games/GBA/Homebrew/`, so
   a library sorted into folders still shows on the shelf.
-- **Music player.** QUICK MENU > MUSIC plays the music in `Music/Artist/Album/` through slot's
-  own player. Browse artists, albums and tracks; queue, shuffle and repeat; see album
-  art on Now Playing. The queue is kept across reboots. Starting a game pauses the music, and
-  it can play on with the screen off. Settings are in `Config/music.txt` (see the example).
+- **Music and audiobook player.** QUICK MENU > MUSIC plays what is in `Music/` and
+  `Audiobooks/`, offline. Browse by artist, album, song, genre, year or folder, with album art
+  and `.m3u` playlists; play gapless, with Volume Leveling, an equalizer and synced lyrics. Books
+  keep their place, speed, chapters and bookmarks. Close the lid and it plays on, the shoulders
+  still skipping and pausing. MP3, AAC, ALAC, FLAC, Ogg Vorbis, Opus and WAV.
 
 ## How to configure
 
@@ -87,6 +88,23 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 
 <p align="center">
 <img src=".github/resources/screenshots/link.gif" width="96.5%" alt="Two SPs racing in Mario Kart over the emulated link">
+</p>
+
+The music player:
+
+<p align="center">
+<img src=".github/resources/screenshots/music-01-music.png" width="48%" alt="The Music menu: Shuffle Library, Queue, Library, Playlists, Audiobooks and Settings">
+<img src=".github/resources/screenshots/music-05-albums.png" width="48%" alt="Albums, each with its cover, under Play All">
+</p>
+
+<p align="center">
+<img src=".github/resources/screenshots/music-12-now-playing.png" width="48%" alt="Now Playing: the album cover, the song, its artist and album, and Up Next">
+<img src=".github/resources/screenshots/music-19-lyrics.png" width="48%" alt="Synced lyrics, the line being sung lit">
+</p>
+
+<p align="center">
+<img src=".github/resources/screenshots/music-15-queue.png" width="48%" alt="The queue, the song playing marked on its cover">
+<img src=".github/resources/screenshots/music-26-book.png" width="48%" alt="An audiobook playing: the chapter, the next one, and the time the book has left">
 </p>
 
 ---

@@ -1,10 +1,10 @@
 //! Now Playing: the track, its picture, the state symbols and the bar. A pauses, X shows the
-//! lyrics, Y favorites, Up steps the repeat, Down shuffles, SELECT opens the queue; Left, Right,
-//! L1 and R1 change track, held they seek; L2 and R2 seek. A book's is in `book`.
+//! lyrics, Y favorites, SELECT opens the queue; Left, Right, L1 and R1 change track, held they
+//! seek; L2 and R2 seek. Up and Down do nothing, as on other players: repeat and shuffle are in
+//! START's menu. A book's is in `book`.
 
 use super::{Body, NowPlayingBody, Screen, Status};
 use crate::browse::{Browser, Context, Key, Outcome, View};
-use crate::settings::Setting;
 use crate::{text, Music};
 use slot_player::PlayState;
 
@@ -20,8 +20,7 @@ pub(crate) fn held(key: Key) -> Outcome {
     }
 }
 
-/// X opens the lyrics; Up and Down, side by side, step the repeat round, as START's menu row
-/// does, and shuffle the queue or put it back in order.
+/// X opens the lyrics.
 pub(crate) fn press(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
     match key {
         Key::A => Outcome::Toggle,
@@ -29,8 +28,6 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, key: Key) -> Outcome {
             b.push(View::Lyrics, 0);
             Outcome::None
         }
-        Key::Up => Outcome::Change(Setting::Repeat, 0),
-        Key::Down => Outcome::ShuffleQueue,
         Key::Y => match cx.queue.tracks.get(cx.queue.at) {
             Some(&t) => Outcome::Favorite(t),
             None => Outcome::None,

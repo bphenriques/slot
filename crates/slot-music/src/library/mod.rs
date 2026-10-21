@@ -65,8 +65,10 @@ ids!(
 );
 
 /// The files listed, those slot-player decodes: MP3; AAC or Apple Lossless in MP4 (.m4a, an
-/// .m4b book) or alone; FLAC; Vorbis or FLAC in Ogg; WAV. Not Opus, which it has no decoder for.
-const AUDIO: [&str; 8] = ["mp3", "m4a", "m4b", "aac", "flac", "ogg", "wav", "wave"];
+/// .m4b book) or alone; FLAC; Vorbis, Opus or FLAC in Ogg (.ogg, .opus); WAV.
+const AUDIO: [&str; 9] = [
+    "mp3", "m4a", "m4b", "aac", "flac", "ogg", "opus", "wav", "wave",
+];
 
 pub struct Artist {
     pub name: String,

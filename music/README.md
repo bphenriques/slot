@@ -19,7 +19,7 @@ say: where things go on the card, and how the player behaves.
 - `.scrobbler.log`: songs listened to, for a Last.fm uploader, with Settings › Advanced › Scrobbler Log on.
 - `Logs/slot.log`: what went wrong, and with Settings › Advanced › Detailed Log, what happened.
 
-Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis and WAV.
+Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis, Opus (`.opus`) and WAV.
 
 ## Library
 

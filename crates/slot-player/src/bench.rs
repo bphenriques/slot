@@ -69,7 +69,7 @@ fn symphonia_blocks(path: &Path) -> usize {
     let mut format = probed.format;
     let track = format.default_track().unwrap();
     let id = track.id;
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = crate::decode::codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .unwrap();
     let mut buf: Option<SampleBuffer<f32>> = None;

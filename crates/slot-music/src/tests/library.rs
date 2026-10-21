@@ -470,8 +470,8 @@ fn only_files_the_player_can_play_are_listed() {
         "X/A/07 seven.wma",
     ]);
     let names: Vec<_> = lib.tracks.iter().map(|t| t.title.as_str()).collect();
-    assert_eq!(names.len(), 5, "not Opus, nor WMA: {names:?}");
-    assert!(!names.contains(&"six") && !names.contains(&"seven"));
+    assert_eq!(names.len(), 6, "Opus too, not WMA: {names:?}");
+    assert!(names.contains(&"six") && !names.contains(&"seven"));
 }
 
 /// A song in `folder` of `album`, by `artist`, numbered `n`, as its tags have it.
@@ -774,4 +774,22 @@ fn folders_list_their_folders_by_name_then_their_songs_by_file_name_as_on_the_ca
         ["01 x.mp3", "1 one.mp3", "2 two.mp3", "b.mp3"],
         "under a folder: its folders' songs, then its own"
     );
+}
+
+#[test]
+fn an_opus_file_is_filed_by_its_own_tags() {
+    let opus =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../slot-player/tests/fixtures/tone.opus");
+    let d = tempfile::tempdir().unwrap();
+    let to = d.path().join("Music/any/where.opus");
+    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+    std::fs::copy(opus, &to).unwrap();
+    let lib = Library::scan(d.path());
+    let t = &lib.tracks[TrackId(0)];
+    let album = &lib.albums[t.album];
+    assert_eq!(
+        (t.title.as_str(), album.name.as_str()),
+        ("Tone", "Fixtures")
+    );
+    assert_eq!(t.artist, "Slot");
 }

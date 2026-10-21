@@ -485,11 +485,8 @@ fn the_corner_says_a_notice_first_then_locked_then_the_sleep_timer() {
         "the timer, counting down: {}",
         rig.screen().corner
     );
-    rig.keys(&[Button::Up]);
-    assert_eq!(
-        rig.screen().corner,
-        text::notice(&Notice::Repeat(Repeat::All))
-    );
+    rig.music.tell(Notice::Saved);
+    assert_eq!(rig.screen().corner, text::notice(&Notice::Saved));
     rig.wait(2000);
     assert!(sleeping(&rig), "the notice gone, the timer again");
     rig.down(Button::L1);
@@ -778,33 +775,18 @@ fn moving_fast_through_a_list_by_name_shows_its_letter_and_it_follows_each_move(
 }
 
 #[test]
-fn up_on_now_playing_steps_the_repeat_round_and_the_corner_says_so() {
+fn up_and_down_on_now_playing_do_nothing_and_start_s_menu_sets_the_repeat() {
     let mut rig = Rig::new(&BOOK[2..]);
     rig.keys(&[Button::A]);
-    let mut said = Vec::new();
-    for key in [
-        Button::Up,
-        Button::Up,
-        Button::Up,
-        Button::Down,
-        Button::Down,
-    ] {
-        rig.keys(&[key]);
-        said.push(rig.screen().corner);
-    }
-    let shuffle = |on| text::notice(&Notice::Shuffle(on));
-    let repeat = |r| text::notice(&Notice::Repeat(r));
-    assert_eq!(
-        said,
-        [
-            repeat(Repeat::All),
-            repeat(Repeat::One),
-            repeat(Repeat::Off),
-            // Shuffle Library played it shuffled: the first Down puts it in order.
-            shuffle(false),
-            shuffle(true)
-        ]
-    );
+    let status = |rig: &Rig| rig.now_playing().status;
+    let before = status(&rig);
+    rig.keys(&[Button::Up, Button::Down]);
+    assert_eq!(status(&rig), before, "as on other players");
+    assert!(rig.screen().corner.is_empty(), "and nothing said");
+    rig.menu("Repeat");
+    rig.keys(&[Button::Right]);
+    rig.keys(&[Button::B]);
+    assert_eq!(status(&rig).repeat, Repeat::All, "the menu's row");
 }
 
 // What the state asks the world for: its effects, before the shell carries them out.

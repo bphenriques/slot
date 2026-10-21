@@ -16,5 +16,6 @@ pkgs.mkShell {
     cargo-llvm-cov
     cargo-zigbuild
     zig
+    cmake
   ];
 }

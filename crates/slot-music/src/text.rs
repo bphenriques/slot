@@ -45,8 +45,6 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
             ("L1 / R1", "Previous / next song"),
             ("Left / Right held", "Seek"),
             ("L2 / R2", "Back / on 10 s"),
-            ("Up", "Repeat"),
-            ("Down", "Shuffle"),
         ],
     ),
     (
@@ -335,9 +333,6 @@ pub enum Notice {
     Saved,
     /// A write to the card failed: it is full, or locked.
     CantSave,
-    /// Up or Down on Now Playing stepped the repeat round, or shuffled the queue or put it back.
-    Repeat(Repeat),
-    Shuffle(bool),
 }
 
 /// Short, as the corner is: where songs went, and how many, as players say it.
@@ -358,10 +353,6 @@ pub fn notice(notice: &Notice) -> String {
         Notice::NoSound => "No sound".into(),
         Notice::Saved => "Saved".into(),
         Notice::CantSave => "Can't save".into(),
-        Notice::Repeat(Repeat::Off) => "Repeat Off".into(),
-        Notice::Repeat(Repeat::All) => "Repeat All".into(),
-        Notice::Repeat(Repeat::One) => "Repeat One".into(),
-        Notice::Shuffle(on) => format!("Shuffle {}", on_off(*on)),
     }
 }
 

@@ -125,7 +125,6 @@ impl Music {
             }
             Outcome::ShuffleQueue => {
                 self.player.edit().toggle_shuffle(self.now.seed);
-                self.tell(Notice::Shuffle(self.player.shuffled()));
                 None
             }
             Outcome::Change(Setting::SleepTimer, by) => {
@@ -145,10 +144,6 @@ impl Music {
                 let was = self.settings;
                 self.settings.change(setting, by);
                 self.player.set_repeat(self.settings.repeat);
-                // Up on Now Playing says what it stepped to; a menu row shows it already.
-                if setting == Setting::Repeat && self.browser.view() == View::NowPlaying {
-                    self.tell(Notice::Repeat(self.settings.repeat));
-                }
                 for (key, value) in changes(&self.settings, &was) {
                     self.out.push(Effect::Setting(key, value));
                 }

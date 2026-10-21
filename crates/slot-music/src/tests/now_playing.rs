@@ -8,17 +8,12 @@ fn now_playing_skips_with_l1_r1_and_seeks_with_l2_r2() {
     let mut b = Browser::default();
     press(&mut b, &lib, &[Key::Select]);
     assert_eq!(b.view(), View::NowPlaying);
-    assert_eq!(press(&mut b, &lib, &[Key::Down]), Outcome::ShuffleQueue);
     let cx = Context::new(&lib, at(0));
+    assert_eq!(b.mode(&cx, Key::X), Mode::Once);
     assert_eq!(
-        b.mode(&cx, Key::X),
-        Mode::Once,
-        "repeat is on Up and START's menu"
-    );
-    assert_eq!(
-        press(&mut b, &lib, &[Key::Up]),
-        Outcome::Change(crate::Setting::Repeat, 0),
-        "round, as the menu row goes"
+        press(&mut b, &lib, &[Key::Up, Key::Down]),
+        Outcome::None,
+        "repeat and shuffle are in START's menu"
     );
     assert_eq!(press(&mut b, &lib, &[Key::L1]), Outcome::Skip(-1));
     assert_eq!(press(&mut b, &lib, &[Key::R1]), Outcome::Skip(1));
@@ -59,11 +54,6 @@ fn x_opens_the_lyrics_and_closes_them_and_up_and_down_scroll_from_the_line_sung(
     let mut b = Browser::default();
     press(&mut b, &lib, &[Key::Select]);
     let cx = Context::new(&lib, at(0));
-    assert_eq!(
-        b.press(&cx, Key::Down),
-        Outcome::ShuffleQueue,
-        "shuffle beside repeat"
-    );
     b.press(&cx, Key::X);
     assert_eq!(b.view(), View::NowPlaying, "no lyrics, nothing to open");
     let sung = Context {

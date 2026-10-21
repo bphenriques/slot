@@ -154,7 +154,7 @@ mixer, is held (`music/MIXER.md`).
 A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to
 delete.
 
-Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; a chained Ogg (streams joined in one file, as some radio rips are) plays only its first; Opus and WMA are not listed, as symphonia has no decoder for them; Bluetooth output is whatever ALSA's
+Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; a chained Ogg (streams joined in one file, as some radio rips are) plays only its first; WMA is not listed, as symphonia has no decoder for it (Opus is decoded by libopus, built with CMake); Bluetooth output is whatever ALSA's
 `default` is (no device choice yet); the old keys in the card's `music.txt` (`clock`, `skip`, `rows`,
 `fade`, `animations`) are ignored; its `player` key is ignored now. Playlist editing is out of scope (see
 `music/README.md`).
