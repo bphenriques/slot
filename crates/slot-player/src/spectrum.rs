@@ -8,7 +8,7 @@ use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
 /// How many bands, from the bass up.
-pub const BANDS: usize = 24;
+pub const BANDS: usize = 32;
 /// Each band's level, 0 (quiet) to 255 (as loud as the samples go).
 pub type Bands = [u8; BANDS];
 

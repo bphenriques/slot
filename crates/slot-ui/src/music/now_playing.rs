@@ -88,16 +88,24 @@ pub(super) fn draw(
     }
 }
 
-/// How tall the tallest bar stands, of the screen; the gap between bars; a bar's brighter top.
-const BARS_H: f32 = 0.6;
-const BAR_GAP: f32 = 3.0;
-const BAR_TOP: f32 = 3.0;
+/// The room left between the bars and what they sit between, the picture and the hints; the gap
+/// between bars; a bar's brighter top.
+const BARS_ROOM: f32 = 6.0;
+const BAR_GAP: f32 = 4.0;
+const BAR_TOP: f32 = 2.0;
 
-/// The visualizer's bars behind it all, the bass at the left, rising from the bottom in the
-/// bar's ink, faint, each with a brighter top, as a level meter has.
+/// Where the bars stand, and how tall the tallest is: on the hints, up to the picture's foot.
+fn bars_span() -> (f32, f32) {
+    let foot = LEGEND_Y - BARS_ROOM;
+    (foot, foot - (NP_TOP + ART_BOX as f32 + BARS_ROOM))
+}
+
+/// The visualizer's bars, the bass at the left, a strip across the screen under the picture and
+/// above the hints, as a hi-fi's level display: faint, in the bar's ink, each with a brighter top.
+/// Nothing covers them, and they cover nothing but Up Next.
 fn draw_bars(bars: &[f32], ink: [f32; 4], canvas: Canvas, theme: &MusicTheme, out: &mut Vec<Draw>) {
     let pitch = canvas.w / bars.len().max(1) as f32;
-    let tallest = canvas.h * BARS_H;
+    let (foot, tallest) = bars_span();
     for (i, &level) in bars.iter().enumerate() {
         let h = (tallest * level.clamp(0.0, 1.0)).round();
         if h < 1.0 {
@@ -105,7 +113,7 @@ fn draw_bars(bars: &[f32], ink: [f32; 4], canvas: Canvas, theme: &MusicTheme, ou
         }
         let x = (i as f32 * pitch).round();
         let w = ((i + 1) as f32 * pitch).round() - x - BAR_GAP;
-        let y = canvas.h - h;
+        let y = foot - h;
         let faint = |alpha: f32| [ink[0], ink[1], ink[2], alpha];
         out.push(Draw::Rect {
             x,
@@ -195,7 +203,8 @@ mod tests {
     }
 
     #[test]
-    fn the_bars_stand_behind_it_all_as_tall_as_their_level_and_silence_draws_none() {
+    fn the_bars_stand_on_the_hints_under_the_picture_as_tall_as_their_level_and_silence_draws_none()
+    {
         let canvas = Canvas::FRAMED;
         let np = |bars: Vec<f32>| NowPlayingFaces {
             bars,
@@ -214,15 +223,19 @@ mod tests {
             .iter()
             .take_while(|d| matches!(d, Draw::Rect { .. }))
             .filter_map(|d| match *d {
-                Draw::Rect { h, y, .. } if y + h == canvas.h => Some(h),
+                Draw::Rect { h, y, .. } if y + h == bars_span().0 => Some(h),
                 _ => None,
             })
             .collect();
-        let tallest = (canvas.h * BARS_H).round();
+        let tallest = bars_span().1;
         assert_eq!(
             heights,
-            [tallest, (tallest / 2.0).round()],
-            "first drawn, from the bottom"
+            [tallest.round(), (tallest / 2.0).round()],
+            "first drawn, standing on the hints"
+        );
+        assert!(
+            bars_span().0 - tallest >= NP_TOP + ART_BOX as f32,
+            "under the picture"
         );
         let mut quiet = Vec::new();
         draw(
