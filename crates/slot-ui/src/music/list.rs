@@ -32,9 +32,10 @@ const ONE_LINE_ROWS: f32 = 8.0;
 /// The gap between a two-line row's lines, their type to type.
 const LINE_GAP: f32 = 4.0;
 
-/// How far a two-line row's lines are lifted, of the name's type: a name in capitals leaves
-/// its room below the baseline blank, so the pair, centred by type, would look low.
-const CAPS_LIFT: f32 = 0.125;
+/// How far a two-line row's lines are lifted, of the name's type, so the pair is centred from the
+/// top of the name's capitals to the baseline under it, as type is set: a letter hanging below,
+/// as a p does, dips into the room beneath rather than pushing the pair up.
+const CAPS_LIFT: f32 = 0.04;
 
 /// Room left between a row's text and its value.
 const VALUE_GAP: u32 = 20;

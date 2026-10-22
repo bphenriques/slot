@@ -534,13 +534,27 @@ fn highlight(shot: &Shot) -> (f32, f32) {
 }
 
 #[test]
-fn a_two_line_row_keeps_its_ink_inside_its_highlight_with_room_round_it() {
+fn a_two_line_row_is_centred_in_its_highlight_from_its_capitals_to_its_baseline() {
     let mut screen = Screen::new(card);
     screen.open("Library");
     screen.open("Albums");
-    // Under it, "Paper Kites Club": a line reaching down, as a "p" does.
+    // "Aurora Lane" under it: nothing hangs below its baseline, so the room is even.
+    screen.to("First Light");
+    let (above, below) = room(&screen.shot());
+    assert!(
+        above == below && above >= 6.0,
+        "even: {above} above, {below} below"
+    );
+    // "Paper Kites Club": the p hangs into the room beneath, the pair where it was.
     screen.to("Rooftop Summer");
-    let shot = screen.shot();
+    let (hung_above, hung_below) = room(&screen.shot());
+    assert_eq!(hung_above, above, "the same place, whatever hangs");
+    assert!(hung_below >= 2.0, "the p inside: {hung_below} below");
+}
+
+/// The room between the highlighted row's ink and its highlight, above and below; failing if
+/// any of it reaches out of the highlight.
+fn room(shot: &Shot) -> (f32, f32) {
     let (top, h) = highlight(&shot);
     let ground = shot.pixel(shot.w - 2, shot.h - 2);
     let bar = shot.pixel(shot.w - 2, (top + h / 2.0) as u32);
@@ -566,11 +580,7 @@ fn a_two_line_row_keeps_its_ink_inside_its_highlight_with_room_round_it() {
         inked.first().expect("its text drawn"),
         inked.last().unwrap(),
     );
-    let (above, below) = (*first as f32 - top, top + h - 1.0 - *last as f32);
-    assert!(
-        above >= 5.0 && below >= 5.0,
-        "room above {above}, below {below}"
-    );
+    (*first as f32 - top, top + h - 1.0 - *last as f32)
 }
 
 /// A tour of the music screens, each kept by `keep` under a name in the order a listener meets
