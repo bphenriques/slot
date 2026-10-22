@@ -2,6 +2,7 @@
 //! menu, settings and queue on top of it.
 
 use crate::library::sort::initial;
+use crate::library::Library;
 
 use super::{Body, Legend, ListBody, Screen};
 use crate::books;
@@ -33,8 +34,8 @@ pub(crate) fn press(b: &mut Browser, cx: &Context, rows: &[Row], at: usize, key:
     let to = match key {
         Key::Up => (at + n - 1) % n,
         Key::Down => (at + 1) % n,
-        Key::Left => turn(view, at, n, false),
-        Key::Right => turn(view, at, n, true),
+        Key::Left => turn(cx.lib, view, at, n, false),
+        Key::Right => turn(cx.lib, view, at, n, true),
         Key::L1 => rows::letter(cx.lib, rows, at, false),
         Key::R1 => rows::letter(cx.lib, rows, at, true),
         Key::X => {
@@ -225,6 +226,7 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         progress: None,
         lifted: false,
         readonly: false,
+        two_lines: page.two_lines,
         thumbs: page.thumbs,
         books: matches!(view, View::BookList(_) | View::Author(_)),
         titled: view != View::Main,
@@ -237,13 +239,13 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
 
 /// Where Left or Right (`on`) turns to from row `at` of `n`: the same place on the page before
 /// or after, or the first or last row from the first or last page.
-fn turn(view: View, at: usize, n: usize, on: bool) -> usize {
-    let page = page_of(view, at);
-    let place = at - page_rows(view, page, n).start;
+fn turn(lib: &Library, view: View, at: usize, n: usize, on: bool) -> usize {
+    let page = page_of(lib, view, at);
+    let place = at - page_rows(lib, view, page, n).start;
     let to = match (on, page) {
         (false, 0) => return 0,
-        (false, page) => page_rows(view, page - 1, n),
-        (true, page) => page_rows(view, page + 1, n),
+        (false, page) => page_rows(lib, view, page - 1, n),
+        (true, page) => page_rows(lib, view, page + 1, n),
     };
     if to.is_empty() {
         return n - 1;

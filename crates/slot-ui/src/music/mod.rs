@@ -33,8 +33,9 @@ use slot::{
 pub use face::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_heart_face, music_hint_face, music_letter_face, music_line_face, music_no_art_face,
-    music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face, music_second_face,
-    music_status_face, music_thumb_blank_face, music_window, Ink, LineInk, MUSIC_STATUS,
+    music_number_w, music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face,
+    music_second_face, music_status_face, music_thumb_blank_face, music_window, Ink, LineInk,
+    MUSIC_STATUS,
 };
 pub use list::{music_rich_px, music_row_ink, music_row_px, music_row_text_w};
 pub use text_view::TextFaces;
@@ -187,11 +188,14 @@ pub struct ListFaces {
     pub heart: Option<MusicFace>,
     /// Whether a title sits above it: a titled menu starts below it rather than centred.
     pub titled: bool,
-    /// Whether the rows are two lines beside their album's thumbnail; each one's thumbnail,
-    /// once read, and its second line: who made it.
+    /// Whether the rows are two lines, and each one's second line: who made it, starting past
+    /// its row's number, under the name.
+    pub two_lines: bool,
+    pub seconds: Vec<Option<MusicFace>>,
+    pub indents: Vec<u32>,
+    /// Whether the rows start with their album's thumbnail, and each one's, once read.
     pub thumbed: bool,
     pub thumbs: Vec<Option<MusicFace>>,
-    pub seconds: Vec<Option<MusicFace>>,
     /// What an empty thumbnail shows, dim: a note, or a book.
     pub blank: Option<MusicFace>,
     /// The row playing, in a list with thumbnails, and the play mark drawn on its thumbnail

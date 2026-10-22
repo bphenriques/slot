@@ -353,8 +353,8 @@ pub(crate) fn left_at(cx: &Context, rows: &[Row], book: BookId) -> usize {
 }
 
 /// The album whose thumbnail starts `row` in `view`: an album's or a book's own, or a song's.
-/// Only in a list of two lines a row (`View::rich`), the one place that says which lists have
-/// thumbnails; none in an album's own list, say, which numbers its songs instead.
+/// Only in a list with thumbnails (`View::rich`), the one place that says which have them; none in
+/// an album's own list, say, which numbers its songs instead.
 pub(crate) fn album(cx: &Context, view: View, row: Row) -> Option<AlbumId> {
     let lib = cx.lib;
     if !view.rich() {
@@ -516,8 +516,8 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             let finished = book.is_some_and(|b| cx.shelf.place(lib, b).finished);
             RowText::plain(text::finished(finished))
         }
-        // Tracks show their number in their album, their artist elsewhere; in their album too
-        // where it is not the album's, as on a compilation or a song with a guest.
+        // Tracks show their number in their album, their artist elsewhere; in their album too,
+        // under it, where it is not the album's, as on a compilation or a song with a guest.
         Row::Track(t) if view == View::Album(lib.tracks[t].album) => RowText {
             before: lib.tracks[t].number.clone(),
             after: Some(&lib.tracks[t].artist)

@@ -96,7 +96,7 @@ impl Music {
         let view = self.browser.view();
         let page = Page {
             view,
-            page: page_of(view, self.browser.at()),
+            page: page_of(&self.library, view, self.browser.at()),
             queued: self.player.queue().tracks.len(),
         };
         if self.pictures.page == Some(page) {
@@ -105,7 +105,7 @@ impl Music {
         self.pictures.page = Some(page);
         let cx = self.context();
         let rows = rows::rows(&cx, view);
-        let wanted: Vec<AlbumId> = rows[page_rows(view, page.page, rows.len())]
+        let wanted: Vec<AlbumId> = rows[page_rows(&self.library, view, page.page, rows.len())]
             .iter()
             .filter_map(|&row| rows::album(&cx, view, row))
             .collect();

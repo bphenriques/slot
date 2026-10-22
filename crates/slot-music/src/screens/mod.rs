@@ -206,8 +206,9 @@ pub struct ListBody {
     pub readonly: bool,
     /// Its title is shown above it: every list and menu but the Music menu, bare as slot's own.
     pub titled: bool,
-    /// Its rows are two lines, the name over who made it (`after`), beside their album's
+    /// Its rows are two lines, the name over who made it (`after`); and start with their album's
     /// thumbnail, or room for it until it is read.
+    pub two_lines: bool,
     pub thumbs: bool,
     /// Its rows are books: a thumbnail not read, or with no picture, shows a book, not a note.
     pub books: bool,

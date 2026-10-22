@@ -135,8 +135,8 @@ impl View {
         )
     }
 
-    /// Whether its rows are two lines, the name over who made it, beside their album's thumbnail:
-    /// the lists of albums, songs from across albums and books.
+    /// Whether its rows start with their album's thumbnail, two lines beside it: the lists of
+    /// albums, songs from across albums and books.
     pub(crate) fn rich(self) -> bool {
         matches!(
             self,
@@ -384,8 +384,9 @@ pub struct Page {
     /// Rows on this page with a rule above them: under the action rows, between discs, and
     /// under Recently Added.
     pub rules: Vec<usize>,
-    /// Its rows are two lines beside their album's thumbnail: albums, books, songs from across
-    /// albums.
+    /// Its rows are two lines, the name over who made it; and beside their album's thumbnail:
+    /// albums, books, songs from across albums.
+    pub two_lines: bool,
     pub thumbs: bool,
 }
 
@@ -546,9 +547,9 @@ impl Browser {
         let rows = rows(cx, view);
         let fixed = rows::fixed(view).len();
         let at = self.at().min(rows.len().saturating_sub(1));
-        let per = per_page(view);
-        let page = page_of(view, at);
-        let span = page_rows(view, page, rows.len());
+        let per = per_page(cx.lib, view);
+        let page = page_of(cx.lib, view, at);
+        let span = page_rows(cx.lib, view, page, rows.len());
         let shown = || rows[span.clone()].iter();
         Page {
             title: match view {
@@ -583,8 +584,9 @@ impl Browser {
                     }
                 })
                 .collect(),
+            two_lines: two_lines(cx.lib, view),
             thumbs: view.rich(),
-            pages: page_of(view, rows.len().saturating_sub(1)) + 1,
+            pages: page_of(cx.lib, view, rows.len().saturating_sub(1)) + 1,
             item: at.checked_sub(fixed).map(|i| i + 1),
             items: rows.len() - fixed,
             per_page: per,
@@ -696,11 +698,17 @@ impl Browser {
     }
 }
 
+/// Whether `view`'s rows are two lines, the name over who made it: the lists with thumbnails, and
+/// an album with songs by others than its artist, as players show a compilation.
+pub(crate) fn two_lines(lib: &Library, view: View) -> bool {
+    view.rich() || matches!(view, View::Album(a) if lib.mixed(a))
+}
+
 /// Rows a page of `view` holds: menus keep slot's size, lists their own, fewer of two lines.
-pub fn per_page(view: View) -> usize {
+pub fn per_page(lib: &Library, view: View) -> usize {
     if view.is_menu() {
         MENU_ROWS
-    } else if view.rich() {
+    } else if two_lines(lib, view) {
         RICH_ROWS
     } else {
         LIST_ROWS
@@ -709,8 +717,8 @@ pub fn per_page(view: View) -> usize {
 
 /// The action rows (Play All) that lead the first page of `view` besides its `per_page`: a
 /// one-line row's height, they fit over a page of two-line rows; in a one-line list, none.
-fn lead(view: View) -> usize {
-    if view.rich() {
+fn lead(lib: &Library, view: View) -> usize {
+    if two_lines(lib, view) {
         rows::fixed(view).len()
     } else {
         0
@@ -718,13 +726,18 @@ fn lead(view: View) -> usize {
 }
 
 /// The page of `view` row `at` is on.
-pub(crate) fn page_of(view: View, at: usize) -> usize {
-    at.saturating_sub(lead(view)) / per_page(view)
+pub(crate) fn page_of(lib: &Library, view: View, at: usize) -> usize {
+    at.saturating_sub(lead(lib, view)) / per_page(lib, view)
 }
 
 /// The rows page `page` of `view` shows, of `n`.
-pub(crate) fn page_rows(view: View, page: usize, n: usize) -> std::ops::Range<usize> {
-    let (lead, per) = (lead(view), per_page(view));
+pub(crate) fn page_rows(
+    lib: &Library,
+    view: View,
+    page: usize,
+    n: usize,
+) -> std::ops::Range<usize> {
+    let (lead, per) = (lead(lib, view), per_page(lib, view));
     let start = if page == 0 { 0 } else { lead + page * per };
     start.min(n)..(lead + (page + 1) * per).min(n)
 }

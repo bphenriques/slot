@@ -722,6 +722,19 @@ fn a_compilation_s_songs_say_who_sings_each_and_an_artist_s_own_album_does_not()
         ["", "Dee feat. Ann", ""],
         "only the song with a guest"
     );
+    // Each shown under its song, as two-line rows, with no thumbnails: they are the album's.
+    let page = |album: AlbumId| {
+        let mut b = Browser::default();
+        b.push(View::Album(album), 0);
+        b.page(&cx(&lib, QueueView::default(), Settings::default()))
+    };
+    let hits = page(album("Hits"));
+    assert!(hits.two_lines && !hits.thumbs, "two lines, no thumbnails");
+    let plain = Library::build(root, vec![tagged("Eve/One", "One", "Eve", 1)]);
+    let mut b = Browser::default();
+    b.push(View::Album(AlbumId(0)), 0);
+    let one = b.page(&cx(&plain, QueueView::default(), Settings::default()));
+    assert!(!one.two_lines, "an artist's own album, one line a song");
 }
 
 #[test]

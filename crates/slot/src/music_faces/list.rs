@@ -5,8 +5,8 @@ use super::Textures;
 use slot_input::Millis;
 use slot_music::{AlbumId, Art, ListBody, RowText};
 use slot_ui::music::{
-    music_half_w, music_rich_px, music_row_ink, music_row_px, music_row_text_w, music_text_width,
-    Ink, ListFaces, MusicFace,
+    music_half_w, music_number_w, music_rich_px, music_row_ink, music_row_px, music_row_text_w,
+    music_text_width, Ink, ListFaces, MusicFace,
 };
 use slot_ui::Canvas;
 
@@ -29,7 +29,7 @@ pub(super) fn faces(
     let bar = text.motion.bar(&body.rows, selected, now);
     let row_px = music_row_px(body.menu, body.per_page) as u32;
     // Two-line rows: the name at a list's usual size, and who made it a size down, dim, below.
-    let (row_px, second_px) = if body.thumbs {
+    let (row_px, second_px) = if body.two_lines {
         music_rich_px()
     } else {
         (row_px, 0)
@@ -58,13 +58,21 @@ pub(super) fn faces(
         );
     }
     let mut seconds = Vec::with_capacity(body.rows.len());
+    let mut indents = Vec::with_capacity(body.rows.len());
     let mut rows = Vec::with_capacity(body.rows.len());
     for (i, mut row) in body.rows.into_iter().enumerate() {
         row.playing &= !body.thumbs;
-        let second = (body.thumbs && !row.after.is_empty()).then(|| std::mem::take(&mut row.after));
+        let second =
+            (body.two_lines && !row.after.is_empty()).then(|| std::mem::take(&mut row.after));
+        // Under the name, past the row's number, as players set a compilation's songs.
+        indents.push(if body.two_lines {
+            music_number_w(&row.before, row_px as f32)
+        } else {
+            0
+        });
         seconds.push(second.and_then(|after| {
             let spec = Spec::Second(after, second_px);
-            let width = music_row_text_w(width, false, 0, true);
+            let width = music_row_text_w(width, false, 0, body.thumbs);
             text.seconds
                 .sync(compositor, text.theme, i, spec, width, None)
         }));
@@ -103,6 +111,8 @@ pub(super) fn faces(
         lifted: body.lifted,
         hearts,
         heart,
+        two_lines: body.two_lines,
+        indents,
         thumbed: body.thumbs,
         thumbs,
         seconds,

@@ -114,7 +114,7 @@ impl<'a> Grid<'a> {
         let grid = Grid::new(list.menu, list.per_page);
         // Two-line rows leave the first page room for its action row (Play All), and are as tall
         // on every page, so the rows look alike on each.
-        let pitch = if list.thumbed {
+        let pitch = if list.two_lines {
             Grid::rich_pitch(list.per_page)
         } else {
             grid.pitch
@@ -194,7 +194,15 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
                 let top = grid.row_mid(i, (name + LINE_GAP + by).round() as u32)
                     - (name * CAPS_LIFT).round();
                 push(out, tex, x, top - ROW_FACE_PAD, w, h);
-                push(out, stex, x, top + name + LINE_GAP - ROW_FACE_PAD, sw, sh);
+                let indent = list.indents.get(i).copied().unwrap_or(0) as f32;
+                push(
+                    out,
+                    stex,
+                    x + indent,
+                    top + name + LINE_GAP - ROW_FACE_PAD,
+                    sw,
+                    sh,
+                );
             }
             (Some((tex, w, h)), None) => push(out, tex, x, grid.row_mid(i, h), w, h),
             _ => {}
@@ -386,6 +394,7 @@ mod tests {
     fn an_empty_thumbnail_shows_its_note_or_book_and_a_read_one_its_picture() {
         let (blank, picture) = (TexId::from_raw(1), TexId::from_raw(2));
         let list = ListFaces {
+            two_lines: true,
             thumbed: true,
             thumbs: vec![None, Some((picture, THUMB_PX, THUMB_PX))],
             blank: Some((blank, 22, 22)),
@@ -408,6 +417,7 @@ mod tests {
     #[test]
     fn play_all_is_as_tall_in_a_two_line_list_as_in_a_one_line_list_and_a_full_page_under_it() {
         let list = |head| ListFaces {
+            two_lines: true,
             thumbed: true,
             head,
             per_page: 5,
@@ -432,6 +442,7 @@ mod tests {
     #[test]
     fn the_highlight_grows_as_it_glides_from_play_all_to_a_two_line_row() {
         let list = ListFaces {
+            two_lines: true,
             thumbed: true,
             head: 1,
             per_page: 5,

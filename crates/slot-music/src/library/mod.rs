@@ -442,6 +442,15 @@ impl Library {
             .collect()
     }
 
+    /// Whether `album` has songs by others than its artist, as a compilation or a guest has.
+    pub fn mixed(&self, album: AlbumId) -> bool {
+        let by = &self.artists[self.albums[album].artist].name;
+        self.albums[album]
+            .tracks
+            .iter()
+            .any(|&t| self.tracks[t].artist != *by)
+    }
+
     /// The album's artist, under whom the song is filed.
     pub fn artist_of(&self, track: TrackId) -> &Artist {
         &self.artists[self.albums[self.tracks[track].album].artist]

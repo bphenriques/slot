@@ -459,16 +459,31 @@ fn set(text: &str, ink: [u8; 3], px: f32, h: u32, cased: bool) -> Option<UndoFac
     } else {
         layout
     };
+    let w = set_w(font, &layout);
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    draw_centred(&mut rgba, w, h, &layout, ink);
+    Some(UndoFace { rgba, w, h })
+}
+
+/// How wide `layout` is set, a pixel either side for glyphs that reach past their advance.
+fn set_w(font: &fontdue::Font, layout: &Layout) -> u32 {
     let set = layout
         .lines
         .iter()
         .map(|l| line_width(font, l, layout.px, layout.tracking))
         .fold(0.0, f32::max);
-    // A pixel either side for glyphs that reach past their advance.
-    let w = set.ceil() as u32 + 2;
-    let mut rgba = vec![0u8; (w * h * 4) as usize];
-    draw_centred(&mut rgba, w, h, &layout, ink);
-    Some(UndoFace { rgba, w, h })
+    set.ceil() as u32 + 2
+}
+
+/// How far a row's name starts past its number at `px`: the number and the gap after it, as
+/// `music_row_face` sets them; 0 with none. A second line under the name starts there too.
+pub fn music_number_w(number: &str, px: f32) -> u32 {
+    match label_font() {
+        Some(font) if !number.is_empty() => {
+            set_w(font, &fit(font, number, f32::INFINITY, 1, px, px)) + PART_GAP
+        }
+        _ => 0,
+    }
 }
 
 /// `parts` side by side, centred on one line, with the menu's padding around them.
@@ -534,6 +549,20 @@ mod tests {
             0,
             "the cap itself left clear"
         );
+    }
+
+    #[test]
+    fn a_row_s_number_is_measured_as_its_face_sets_it_and_none_is_nothing() {
+        let theme = MusicTheme::dark();
+        let with = music_row_face(None, "01", "A", "", Ink::Lit, 24.0, u32::MAX, false, &theme);
+        let without = music_row_face(None, "", "A", "", Ink::Lit, 24.0, u32::MAX, false, &theme);
+        let (with, without) = (with.unwrap().w, without.unwrap().w);
+        assert_eq!(
+            music_number_w("01", 24.0),
+            with - without,
+            "where the name moves to"
+        );
+        assert_eq!(music_number_w("", 24.0), 0);
     }
 
     #[test]
