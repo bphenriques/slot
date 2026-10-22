@@ -2831,6 +2831,7 @@ dependencies = [
  "slot-input",
  "slot-labels",
  "slot-music",
+ "slot-music-ui",
  "slot-player",
  "slot-power",
  "slot-retro",
@@ -2895,8 +2896,17 @@ dependencies = [
  "lofty",
  "log",
  "slot-player",
- "slot-store",
  "tempfile",
+]
+
+[[package]]
+name = "slot-music-ui"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "resvg",
+ "slot-gfx",
+ "usvg",
 ]
 
 [[package]]
