@@ -90,7 +90,7 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 <img src=".github/resources/screenshots/link.gif" width="96.5%" alt="Two SPs racing in Mario Kart over the emulated link">
 </p>
 
-The music player:
+The music player, [mute](https://github.com/bphenriques/mute-player), built in:
 
 <p align="center">
 <img src=".github/resources/screenshots/music-01-music.png" width="48%" alt="The Music menu: Now Playing with the song beside it, Queue, Library, Playlists, Audiobooks and Settings">

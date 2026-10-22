@@ -10,7 +10,7 @@ echo
 echo "Versions are recorded in Cargo.lock. These are the license and notice files supplied by the linked Rust dependencies."
 echo
 cargo tree --locked -p "$package" -e normal --prefix none --format '{p}' |
-  sed 's/ (.*//; s/ v/ /' | sort -u | grep -v '^slot-' |
+  sed 's/ (.*//; s/ v/ /' | sort -u | grep -v '^slot-\|^mute' |
   while read -r name version; do
     dir=$(jq -r --arg n "$name" --arg v "$version" \
       '.packages[] | select(.name == $n and .version == $v) | .manifest_path' <<<"$meta" |

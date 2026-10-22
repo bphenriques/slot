@@ -1617,6 +1617,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
+name = "mute"
+version = "0.1.0"
+source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+dependencies = [
+ "image",
+ "libc",
+ "lofty",
+ "log",
+ "mute-audio",
+]
+
+[[package]]
+name = "mute-audio"
+version = "0.1.0"
+source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+dependencies = [
+ "cc",
+ "libc",
+ "libloading",
+ "lofty",
+ "log",
+ "rubato",
+ "rustfft",
+ "symphonia",
+ "symphonia-adapter-libopus",
+]
+
+[[package]]
+name = "mute-ui"
+version = "0.1.0"
+source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+dependencies = [
+ "fontdue",
+ "resvg",
+ "usvg",
+]
+
+[[package]]
+name = "mute-view"
+version = "0.1.0"
+source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+dependencies = [
+ "mute",
+ "mute-ui",
+]
+
+[[package]]
 name = "ndk"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2825,15 +2872,15 @@ dependencies = [
  "lofty",
  "log",
  "lz4_flex",
+ "mute",
+ "mute-audio",
+ "mute-ui",
+ "mute-view",
  "png 0.17.16",
  "slot-achievements",
  "slot-gfx",
  "slot-input",
  "slot-labels",
- "slot-music",
- "slot-music-ui",
- "slot-music-view",
- "slot-player",
  "slot-power",
  "slot-retro",
  "slot-store",
@@ -2886,55 +2933,6 @@ dependencies = [
  "tempfile",
  "unicode-normalization",
  "ureq",
-]
-
-[[package]]
-name = "slot-music"
-version = "0.1.0"
-dependencies = [
- "image",
- "libc",
- "lofty",
- "log",
- "slot-player",
- "tempfile",
-]
-
-[[package]]
-name = "slot-music-ui"
-version = "0.1.0"
-dependencies = [
- "fontdue",
- "resvg",
- "usvg",
-]
-
-[[package]]
-name = "slot-music-view"
-version = "0.1.0"
-dependencies = [
- "lofty",
- "png 0.17.16",
- "slot-music",
- "slot-music-ui",
- "slot-player",
- "tempfile",
-]
-
-[[package]]
-name = "slot-player"
-version = "0.1.0"
-dependencies = [
- "cc",
- "libc",
- "libloading",
- "lofty",
- "log",
- "rubato",
- "rustfft",
- "symphonia",
- "symphonia-adapter-libopus",
- "tempfile",
 ]
 
 [[package]]

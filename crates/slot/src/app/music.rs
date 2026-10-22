@@ -4,10 +4,10 @@
 
 use std::time::Duration;
 
+use mute::{AlbumId, Art, Button, Input, Music, Screen};
+use mute_ui::MusicTheme;
 use slot_gfx::Draw;
 use slot_input::{Action, Btn, Millis, RawEvent};
-use slot_music::{AlbumId, Art, Button, Input, Music, Screen};
-use slot_music_ui::MusicTheme;
 use slot_store::Shader;
 use slot_ui::QuickRow;
 
@@ -15,8 +15,8 @@ use super::{App, Phase};
 
 /// The music, playing through the device's own player: the one place a device is chosen for it.
 pub(super) fn start(root: &std::path::Path) -> Music {
-    use slot_music_ui::{ART_BOX, THUMB_PX};
-    Music::spawn(root, ART_BOX, THUMB_PX, slot_music::Handle::slot)
+    use mute_ui::{ART_BOX, THUMB_PX};
+    Music::spawn(root, ART_BOX, THUMB_PX, mute::Handle::slot)
 }
 
 impl App {

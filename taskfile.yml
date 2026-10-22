@@ -91,66 +91,24 @@ tasks:
 
   check:music:
     desc: >-
-      The music player's checks, as AGENTS.md lists them: format, lint, tests (the rules among
-      them), then how far slot's own files have moved from upstream's, to keep to hooks
+      The music's checks in slot, as AGENTS.md lists them: format, lint, slot's tests with its
+      glue, then how far slot's own files have moved from upstream's, to keep to hooks. The music
+      itself is checked in mute-player.
     cmds:
-      - cargo fmt -p slot-music -p slot-music-ui -p slot-music-view -p slot-ui -p slot -p slot-player -- --check
-      - cargo clippy -p slot-music -p slot-music-ui -p slot-music-view -p slot-ui -p slot-input -p slot-player --tests -- -D warnings
+      - cargo fmt -p slot-ui -p slot -- --check
+      - cargo clippy -p slot-ui -p slot-input --tests -- -D warnings
       - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
-      - cargo test -p slot-music -p slot-music-ui -p slot-music-view -p slot-ui -p slot-input -p slot-player
-      - cargo clippy -p slot-music -p slot-player --features slot-music/perf --tests -- -D warnings
-      - cargo test -p slot-music -p slot-player --features slot-music/perf
+      - cargo clippy -p slot --no-default-features --features slot/device,slot/music-perf -- -D warnings
+      - cargo test -p slot-ui -p slot-input
       - cargo test -p slot --no-default-features --features slot/device --lib
       - cargo test -p slot --no-default-features --features slot/device --test evdev
       - git checkout -- crates/slot/tests/prefetch.rs
       - task: footprint
 
-  shots:
-    desc: >-
-      Pictures of the music screens, light and dark, drawn without a device by the view and the
-      kit (crates/slot-music-view/tests/shots.rs), into target/shots for review
-    cmds:
-      - cargo test -q -p slot-music-view --test shots -- --ignored
-      - 'echo "pictures in target/shots"'
-
   licenses:music:
     desc: The license and notice files of every crate the music player links, for System/licenses
     cmds:
-      - tools/third-party.sh slot-music 'the music player (slot-music, slot-player)' > licenses/slot-music-third-party.txt
-
-  coverage:
-    desc: How much of the music player's crates the tests run, file by file
-    cmds:
-      - rustup component add llvm-tools-preview
-      - cargo llvm-cov -p slot-music -p slot-player --summary-only
-
-  perf:player:
-    desc: >-
-      Where the player's work goes on a real file (FILE=song.mp3), stage by stage, as shares
-      of this machine's core: not the device's, but how the stages compare
-    requires:
-      vars: [FILE]
-    cmds:
-      - SLOT_PLAYER_FILE={{.FILE}} cargo test --release -q -p slot-player --lib stages -- --ignored --nocapture 2>&1 | grep -E "as fast|Hz"
-
-  perf:ab:
-    desc: >-
-      The music's work budgets (how often each scenario's screen changes, the frames worth
-      drawing) at REV and in the working tree, side by side; a REV from before the budgets
-      prints none
-    requires:
-      vars: [REV]
-    vars:
-      AT: '{{.ROOT_DIR}}/target/ab'
-    cmds:
-      - git worktree remove --force {{.AT}} 2>/dev/null || true
-      - git worktree add --detach {{.AT}} {{.REV}}
-      # The other build keeps its own target, or cargo would take it for this one's.
-      - defer: git worktree remove --force {{.AT}}
-      - echo "{{.REV}}:"
-      - cd {{.AT}} && CARGO_TARGET_DIR={{.ROOT_DIR}}/target/ab-build cargo test -q -p slot-music work_budget -- --nocapture 2>&1 | grep "^budget" || true
-      - echo "working tree:"
-      - cargo test -q -p slot-music work_budget -- --nocapture 2>&1 | grep "^budget"
+      - tools/third-party.sh mute 'the music player (mute)' > licenses/slot-music-third-party.txt
 
   footprint:
     desc: slot's own files as changed from upstream's, ours left out; growth here is a hook too many

@@ -11,14 +11,9 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 
 | Where | What |
 |---|---|
-| `crates/slot-music` | The player's behaviour, no drawing, tested without a device: `music/` (`Music`: the state and its shell, by concern: `act`, `loading`, `art`, `books`, `lyrics`, `pocket`, `worker`), `library/` (scan, tags, cache, pictures, playlists), `playback/` (player, queue, fades, Recently Played), `books/`, `browse/` (views, keys, rows), `screens/` (each screen as data), `integrations/` (what the player tells programs outside it, each opt-in: the scrobbler log), `logging.rs` (the one logger), `lyrics.rs`, `settings.rs`, `text.rs`. |
-| `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (symphonia decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
-| `crates/slot-player/soundtouch` | SoundTouch 2.3.2 sources (LGPL-2.1), built by `build.rs` with `cc`. |
-| `crates/slot-music/src/store` | Everything kept on the card: one writer, each file's format (`Kept`). |
-| `crates/slot-music-ui` | The kit that draws, needing no frontend: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour), and its own draw list. |
-| `crates/slot-music-view` | The music screen for any host: a `Screen` into the kit's faces each frame, the textures kept, animation (`motion.rs`); the screenshot tour in `tests/shots.rs`. |
-| `crates/slot/src/music_faces.rs`, `crates/slot/src/app/music.rs` | slot as the host: the view's textures and draws into its compositor; input routing. |
-| `music/` | `README.md` (what the screens cannot say: the card's files, how it plays), `music.txt.example`, `music-eq.txt`. |
+| mute ([mute-player](https://github.com/bphenriques/mute-player)) | The player, as crates at the revision `crates/slot/Cargo.toml` pins: `mute-audio` (plays files), `mute` (behaviour, every screen as data, the card's files), `mute-ui` (the kit that draws), `mute-view` (a screen into the kit's faces, and the screenshot tour). Its layout, rules and tests are in its own `README.md` and `AGENTS.md`. |
+| `crates/slot/src/music_faces.rs`, `crates/slot/src/app/music.rs` | slot as mute's host: the view's textures and draws into its compositor; input routing; the screen off, power, volume and the lid. |
+| `music/` | `music.txt.example` and `music-eq.txt`, put on the card as examples, as mute has them; `README.md` and the notes, as mute's, kept for this fork's history. |
 
 Upstream files touched: `task footprint` lists them, as changed from upstream's. Keep those
 diffs small. `crates/slot/src/audio/line_out.rs` is ours, new beside upstream's sound: the codec's
@@ -38,11 +33,11 @@ level following music's fades.
 ## Build, test, lint
 
 ```sh
-nix-shell --run "cargo test -p slot-music -p slot-music-ui -p slot-ui -p slot-input -p slot-player"
+nix-shell --run "cargo test -p slot-ui -p slot-input"
 nix-shell --run "cargo test -p slot --no-default-features --features slot/device --lib"
 nix-shell --run "cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings"
-nix-shell --run "cargo clippy -p slot-music -p slot-music-ui -p slot-ui -p slot-input -p slot-player --tests -- -D warnings"
-nix-shell --run "cargo fmt -p slot-music -p slot-music-ui -p slot -p slot-player"
+nix-shell --run "cargo clippy -p slot-ui -p slot-input --tests -- -D warnings"
+nix-shell --run "cargo fmt -p slot -p slot-ui"
 git checkout -- crates/slot/tests/prefetch.rs   # fmt touches this upstream file; keep it as upstream has it
 ```
 
@@ -85,14 +80,12 @@ here (2026-10-19, the same song, the lid closed): writing 0.90% against 0.64%, A
 against 0.12%, the player's thread 3.2% against 3.0%, likely as the mapped buffer is uncached and
 the half second kept for a pause's fade is read back out of it; so the write stays as it is.
 
-To see the screens without the device: `nix-shell --run "task shots"` draws each music screen,
-light and dark, into `target/shots/` as a host draws it (the view's faces and the kit, put into
-pixels instead of the GPU, on a card made for the test, playing into silence). The same drawing backs a test that
-holds a two-line row's text inside its highlight; a screen's pixels can be checked so.
+To see the screens without the device, mute-player draws each, light and dark, into its
+`target/shots/` (its `README.md` says how): the change to look at is made there.
 
 Logging: `log::warn!` for what went wrong, always written; `log::info!` for what happens, only
 with Advanced › Detailed Log on (`log = on`), so a user asked for help turns it on and sends
-`Logs/slot.log`. Nothing prints directly (`rules.rs` holds it so); the launcher keeps the last
+`Logs/slot.log`. Nothing prints directly (mute's `rules.rs` holds it so); the launcher keeps the last
 session's log as `slot.log.1`, and the performance log moves to `music-perf.log.1` past 1 MB.
 
 Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
@@ -101,16 +94,11 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 ## Conventions
 
 - Simple, idiomatic, succinct, composable; YAGNI; familiar UX (look at how common players do it).
-- Every user-visible word in `crates/slot-music/src/text.rs`; every colour and level in
-  `crates/slot-music-ui/src/theme.rs`. No literals elsewhere.
-- Logic emits values (`Outcome`, `Notice`, `Legend`); `slot-music-ui` and the frontend only draw.
-- Buttons: a tap does one thing, a hold another, shown as "Tap (Held)"; hints never change
-  while held (the corner ring shows the hold). START menus hold only what no button does.
-  Put any key change in Settings › Help (`text.rs`'s `KEYS`); `music/README.md` only says what
-  the screens cannot.
+- The player's own (its words, colours, keys, screens and tests) are mute's: its `AGENTS.md`.
+  Here, the glue only carries what slot has into mute and what mute gives back out.
 - Comments and docs in the existing voice: plain sentences saying what something is for.
-- Tests for behaviour (`crates/slot-music/src/tests/`, a module an area; the music as a whole in `src/music/tests.rs`, `crates/slot-player/tests/player.rs`,
-  which plays WAVs made in the test into a `Capture` output). Timing tests keep wide margins.
+- Tests for the glue beside it (`app/music.rs`, `music_faces.rs`); the player's in mute. Timing
+  tests keep wide margins.
 - Performance: the device is a battery handheld (H700, Cortex-A53). Nothing polls while idle;
   work only while playing; measure before and after (see Status).
 - Editing with scripts: no Python on the host; with perl, `\|` in a `|`-delimited regex is an
@@ -132,12 +120,12 @@ device build is plain release, and these are the hardware's and BaseOS's.
 
 | Quirk | Seen as | Met in |
 |---|---|---|
-| The speaker's amplifier switches off with the sound device, heard as a click however quietly the sound ends. | A click on every pause, the fade-out logged clean each time. | `slot-player/src/alsa.rs`, `KEPT_PAUSED`: a pause keeps the device on silence 3 s. |
-| BaseOS has no mixer: one opener of the codec at a time. | slot's own sound busy while music plays, and the other way round. | Music owns the device while it plays and lets it go after (`MIXER.md` for the plan beyond). |
+| The speaker's amplifier switches off with the sound device, heard as a click however quietly the sound ends. | A click on every pause, the fade-out logged clean each time. | mute's `mute-audio/src/alsa.rs`, `KEPT_PAUSED`: a pause keeps the device on silence 3 s. |
+| BaseOS has no mixer: one opener of the codec at a time. | slot's own sound busy while music plays, and the other way round. | Music owns the device while it plays and lets it go after (mute's `music/MIXER.md` for the plan beyond). |
 | The device takes 44.1 kHz as well as 48 kHz. | "sound at 44100 Hz" in `slot.log`. | `Output::set_rate`: a file plays at its own rate, resampled only when refused. |
-| The place the device says it is at moves in steps, behind what it is reading. | A click when all it held was taken back; and the place said going back a little after each write, the bar redrawn twice as often as it moves. | `alsa.rs`, `taken_back`: 50 ms is left to play out; `engine.rs`, `Writer::write`: what is said heard never goes back. |
+| The place the device says it is at moves in steps, behind what it is reading. | A click when all it held was taken back; and the place said going back a little after each write, the bar redrawn twice as often as it moves. | mute's `alsa.rs`, `taken_back`: 50 ms is left to play out; `engine.rs`, `Writer::write`: what is said heard never goes back. |
 | The codec's level is `lineout volume` on `hw:0`, 0 to 31 at 1.5 dB a step, as plorpOS found. | Music played straight to the codec, at slot's volume. | `slot/src/audio/line_out.rs`, followed through music's fades. |
-| Two shoulders squeezed together come in as one moment, in either order. | The button trace with the performance log on. | `music/controller.rs`: any two of them are the pocket combo. |
+| Two shoulders squeezed together come in as one moment, in either order. | The button trace with the performance log on. | mute's `music/controller.rs`: any two of them are the pocket combo. |
 | The lid watcher slot 1.8.0 runs beside it (`card/System/lid.sh`) powers off once the lid has been closed the Lid Off time and a minute, whatever slot is doing. | Music playing on in a pocket cut off four minutes after the lid closed. | `slot/src/app/music.rs`, `say_busy`: while music plays with the lid closed, slot writes the uptime to `/run/slot-busy` every 10 s, and `lid.sh` counts the lid as just closed while that is recent. |
 
 A device after this one gets its own row, and its own answer where the row says.
@@ -150,7 +138,7 @@ the clock mostly at 480 MHz): playing, the player's thread is ~3% of a core (dec
 Playing lit with a title scrolling, the music screen is drawn only on the frames that change (~23
 a second), the frame loop ~5%. Release notes are current, and the music's third-party notices are in
 `licenses/slot-music-third-party.txt` (`task licenses:music` after a dependency changes). Phase 2, the
-mixer, is held (`music/MIXER.md`).
+mixer, is held (mute's `music/MIXER.md`).
 
 A card from before Muse was gone keeps an unused `System/muse/` and `System/muse.sh`, safe to
 delete.
@@ -158,14 +146,14 @@ delete.
 Known gaps: chapters only from MP4 books and MP3s' ID3 `CHAP` frames; a chained Ogg (streams joined in one file, as some radio rips are) plays only its first; WMA is not listed, as symphonia has no decoder for it (Opus is decoded by libopus, built with CMake); Bluetooth output is whatever ALSA's
 `default` is (no device choice yet); the old keys in the card's `music.txt` (`clock`, `skip`, `rows`,
 `fade`, `animations`) are ignored; its `player` key is ignored now. Playlist editing is out of scope (see
-`music/README.md`).
+mute's `music/README.md`).
 
 Crossfade keeps an album gapless (2026-10-19): no fade where the next song follows on its album,
 chosen in `Player::follows_on_album` and told as `Crossfade(0)` through the sound the player is
 told, part by part as it changes; no player change. A genre list (Classical, Live) waits until missed.
 
 Ideas, if wanted: Bluetooth output choice; equalizer presets; crossfade only between albums. Each fits as a stage in
-`slot-player/src/track.rs` or `engine.rs`, behind a setting on the Sound page.
+mute's `mute-audio/src/track.rs` or `engine.rs`, behind a setting on the Sound page.
 
 SELECT held to blank the screen was dropped (2026-10-19): the lid does it, and SELECT now acts
 as it is let go, a chord with L1 or R1 or else Now Playing.

@@ -458,7 +458,7 @@ pub struct App {
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
     state_writer: crate::state_writer::StateWriter,
-    music: Option<slot_music::Music>,
+    music: Option<mute::Music>,
     music_faces: Vec<slot_ui::Draw>,
     music_on_wake: bool,
     music_frames: music::Frames,

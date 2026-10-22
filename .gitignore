@@ -22,3 +22,6 @@
 # Parallel implementation worktrees, never content.
 /.worktrees
 .superpowers/
+
+# A local checkout of mute to build against, as AGENTS.md says: never committed.
+/.cargo/config.toml

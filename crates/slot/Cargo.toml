@@ -10,13 +10,13 @@ default = ["host"]
 host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
 device = ["slot-gfx/device"]
 # The music's performance log, for a build to measure on the device.
-music-perf = ["slot-music/perf"]
+music-perf = ["mute/perf"]
 
 [dependencies]
 slot-labels = { path = "../slot-labels" }
-slot-music = { path = "../slot-music" }
-slot-music-ui = { path = "../slot-music-ui" }
-slot-music-view = { path = "../slot-music-view" }
+mute = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
+mute-ui = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
+mute-view = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
 slot-achievements = { path = "../slot-achievements" }
 slot-gfx = { path = "../slot-gfx", default-features = false }
 slot-input = { path = "../slot-input" }
@@ -35,6 +35,6 @@ png = { workspace = true }
 
 [dev-dependencies]
 lofty.workspace = true
-slot-player = { path = "../slot-player" }
+mute-audio = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
 slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
 tempfile = { workspace = true }

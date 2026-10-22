@@ -3,16 +3,16 @@
 
 #![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
 
+use mute_ui::{Canvas as KitCanvas, Draw as KitDraw, TexId as KitTexId};
+use mute_view::{Frame, Textures};
 use slot_gfx::{Canvas, Compositor, Draw, TexId};
-use slot_music_ui::{Canvas as KitCanvas, Draw as KitDraw, TexId as KitTexId};
-use slot_music_view::{Frame, Textures};
 
 use crate::app::App;
 
 /// The music's view, and the compositor's texture for each of its own, by its number.
 #[derive(Default)]
 pub struct MusicText {
-    view: slot_music_view::MusicText,
+    view: mute_view::MusicText,
     textures: Vec<TexId>,
 }
 
@@ -40,7 +40,7 @@ impl MusicText {
         };
         let (faces, wake) = self.view.faces(frame, &mut gpu);
         let mut draws = Vec::new();
-        slot_music_ui::draw_music(&faces, &mut draws);
+        mute_ui::draw_music(&faces, &mut draws);
         let draws = draws.into_iter().map(|d| slot_s(d, &self.textures));
         app.set_music_draws(draws.collect());
         app.music_drawn(wake);
@@ -96,7 +96,7 @@ mod tests {
         use slot_ui::{quick_row_top, QuickRow};
         let first = QuickRow::MAIN[0];
         assert_eq!(
-            slot_music_ui::music_menu_top(QuickRow::MAIN.len()),
+            mute_ui::music_menu_top(QuickRow::MAIN.len()),
             quick_row_top(first, &[]).round()
         );
     }
