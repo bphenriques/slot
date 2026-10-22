@@ -10,11 +10,15 @@ say: where things go on the card, and how the player behaves.
 - `Music/`: songs, a folder per artist and album or any layout; tags win, folders fill gaps.
 - `Music/Playlists/`: `.m3u` playlists, played here and edited on a computer. Favorites is one,
   written as Y adds and takes out songs; START in the Queue saves it as a new one.
+- Songs and books can live elsewhere, as on the other card: `music_folder` and `books_folder` in
+  `music.txt` take any path.
 - `Audiobooks/`: a folder per book (its files play in order, each a chapter), or one `.m4b` (its
   own chapters; an MP3's ID3 chapters are read too). `Author - Title` names a book with no tags.
-- Lyrics: an `.lrc` beside the song with its name, or the lyrics in its tags.
+- Lyrics: an `.lrc` beside the song with its name, or the lyrics in its tags. Timed ones say
+  Synced, follow the song and fade away from the line sung; a thin bar shows how far into it.
 - `Config/music.txt`: the settings, kept as they change; see `music.txt.example`.
-- `Config/music-eq.txt`: your equalizer presets; copy `music-eq.txt.example` to start.
+- `Config/music-eq.txt`: your own equalizer presets, made in Music Settings › Equalizer › New
+  Preset, a line each: rename one by changing its name here.
 - `Config/audiobooks.txt`: each book's place, speed and bookmarks.
 - `.scrobbler.log`: songs listened to, for a Last.fm uploader, with Settings › Advanced › Scrobbler Log on.
 - `Logs/slot.log`: what went wrong, and with Settings › Advanced › Detailed Log, what happened.
@@ -28,11 +32,16 @@ Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis,
   the row it was left on; A held on it shuffles every song.
 - In a list by name the shoulders jump a letter; in any other list they turn a page; on a menu
   they do nothing. SELECT with L1 or R1 skips the song from anywhere.
+- Folders show each folder with the picture of its first album and how many songs it holds.
+- The Queue says, beside where you are in it, how long it has left.
 - Lists of albums, books and songs show each row on two lines, the name over who made it, beside
   its album's thumbnail, made with the Now Playing picture after a scan (`Labels/Music`, named by
   size); a card from before has them made once from the pictures it has.
 - The Music menu has the Queue under Now Playing, opening on the song playing.
-- Settings › Advanced › Experimental holds what is still being shaped: the Equalizer and Skip Silence.
+- Settings › Music › Equalizer: Off, slot's presets and your own, A choosing one. New Preset starts
+  from the one chosen; Left and Right move each band a dB, up to 12 either way, heard as they
+  move; Y keeps it as "Custom 1" and so on, and B leaves it unkept. X held deletes one of yours.
+- Settings › Advanced › Experimental holds what is still being shaped: Skip Silence.
 - A card with nothing yet sets back what leads nowhere and says where to put songs and books.
 - A write the card refuses (full, or locked) says "Can't save" in the corner, each time. A song's place
   is saved every two minutes as it plays, and a book's every minute, so a sudden power cut loses

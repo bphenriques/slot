@@ -22,6 +22,30 @@ use crate::text;
 pub const MUSIC_DIR: &str = "Music";
 /// Audiobooks, apart from the music: a folder, or a file, a book.
 pub const BOOKS_DIR: &str = "Audiobooks";
+/// Where the library is read from: the music's folder and the books', as `music.txt` names
+/// them, each from the card's root unless a whole path, as on another card.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Dirs {
+    pub music: PathBuf,
+    pub books: PathBuf,
+}
+
+impl Dirs {
+    /// The folders `music` and `books` name, from `root`.
+    pub fn named(root: &Path, music: &str, books: &str) -> Dirs {
+        Dirs {
+            music: root.join(music),
+            books: root.join(books),
+        }
+    }
+
+    /// The folders slot looks in unless told otherwise: `Music` and `Audiobooks` on the card.
+    #[cfg(test)]
+    pub fn on(root: &Path) -> Dirs {
+        Dirs::named(root, MUSIC_DIR, BOOKS_DIR)
+    }
+}
+
 /// How many albums Recently Added lists.
 const RECENT_ALBUMS: usize = 25;
 
@@ -109,12 +133,15 @@ pub struct Genre {
 }
 
 /// A folder of Music as it is on the card: its name, and the folders and songs in it, each by
-/// name.
+/// name; and, of all in it however deep, how many songs, and the first, its own before its
+/// folders', for its picture.
 #[derive(Default)]
 pub struct Folder {
     pub name: String,
     pub folders: Vec<FolderId>,
     pub tracks: Vec<TrackId>,
+    pub songs: usize,
+    pub first: Option<TrackId>,
 }
 
 /// An audiobook: its title, author, parts and picture are kept as an album's are.
@@ -239,23 +266,23 @@ impl Library {
     /// Reads the card afresh, every song's tags and none from the cache.
     #[cfg(test)]
     pub fn scan(root: &Path) -> Library {
-        crate::library::scan::scan(root, true, &crate::library::scan::Progress::default()).0
+        let progress = crate::library::scan::Progress::default();
+        crate::library::scan::scan(root, &Dirs::on(root), true, &progress).0
     }
 
-    /// The library from `records`, in any order, with the playlists in `root`'s music and the
-    /// audiobooks after it.
-    pub fn build(root: &Path, records: Vec<Record>) -> Library {
-        let (music, books) = (root.join(MUSIC_DIR), root.join(BOOKS_DIR));
-        let (book_records, records): (Vec<Record>, Vec<Record>) = records
-            .into_iter()
-            .partition(|r| r.path.starts_with(&books));
+    /// The library from `records`, in any order, with the playlists in the music's folder and
+    /// the audiobooks after it.
+    pub fn build(dirs: &Dirs, records: Vec<Record>) -> Library {
+        let (music, books) = (&dirs.music, &dirs.books);
+        let (book_records, records): (Vec<Record>, Vec<Record>) =
+            records.into_iter().partition(|r| r.path.starts_with(books));
         // Album artist, then album, each by its name in any case.
         type Albums = HashMap<String, (String, Vec<Song>)>;
         let mut grouped: HashMap<String, (String, Albums)> = HashMap::new();
         let shared = shared_artists(&records);
         for song in records.into_iter().map(|r| {
             let shared = shared.get(&album_key(&r)).cloned();
-            let mut song = Song::of(&music, r);
+            let mut song = Song::of(music, r);
             song.album_artist = shared.unwrap_or(song.album_artist);
             song
         }) {
@@ -308,9 +335,9 @@ impl Library {
         lib.albums_by_year
             .sort_by_cached_key(|&a| (lib.albums[a].year, sort_key(&lib.albums[a].name)));
         lib.genres = genres(&lib, &album_genres);
-        lib.folders = folders(&lib, &music);
-        lib.add_books(&books, book_records);
-        lib.playlists = crate::store::playlists::read(root, &lib);
+        lib.folders = folders(&lib, music);
+        lib.add_books(books, book_records);
+        lib.playlists = crate::store::playlists::read(music, &lib);
         lib
     }
 
@@ -501,6 +528,17 @@ fn folders(lib: &Library, music: &Path) -> Vec<Folder> {
     for folder in &mut folders {
         folder.folders.sort_by(|a, b| names[a.0].cmp(&names[b.0]));
         folder.tracks.sort_by_cached_key(file);
+    }
+    // A folder comes before those in it, so from the last back each has its own counted.
+    for i in (0..folders.len()).rev() {
+        let inner = folders[i]
+            .folders
+            .iter()
+            .map(|&f| (folders[f.0].songs, folders[f.0].first));
+        let (songs, first): (Vec<usize>, Vec<Option<TrackId>>) = inner.unzip();
+        let own = &folders[i].tracks;
+        let first = own.first().copied().or(first.into_iter().flatten().next());
+        (folders[i].songs, folders[i].first) = (own.len() + songs.iter().sum::<usize>(), first);
     }
     folders
 }

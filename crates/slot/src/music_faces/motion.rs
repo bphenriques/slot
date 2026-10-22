@@ -5,8 +5,8 @@
 use slot_input::Millis;
 use slot_music::{RowText, Screen};
 use slot_ui::music::{
-    marquee_start, music_eased, MusicMotion, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS,
-    MUSIC_SLIDE_MS,
+    marquee_start, music_arrived, music_eased, MusicMotion, MusicTween, MUSIC_ART_MS,
+    MUSIC_GLIDE_MS, MUSIC_SLIDE_MS,
 };
 
 /// Rows moved further than this came from elsewhere, as a new page, and just arrive.
@@ -16,7 +16,7 @@ const MOVED_MAX: usize = 2;
 pub(super) struct Motion {
     /// The screen shown, by title and depth, when it came in and from which side.
     shown: Option<(String, usize)>,
-    entered: MusicTween,
+    entered: Millis,
     side: f32,
     /// The highlight, and the rows it glides over.
     bar: MusicTween,
@@ -43,7 +43,7 @@ impl Motion {
     /// How long the screen shown has been up, for a title too long for the header to scroll:
     /// from the marquee's beat, so it steps with the rest.
     pub fn up_for(&self, now: Millis) -> Millis {
-        now.saturating_sub(marquee_start(self.entered.since))
+        now.saturating_sub(marquee_start(self.entered))
     }
 
     /// A screen is shown. A new one slides in: deeper from the right, back from the left.
@@ -57,11 +57,7 @@ impl Motion {
             Some((_, was)) if was > screen.depth => -1.0,
             _ => 0.0,
         };
-        self.entered = MusicTween {
-            from: 0.0,
-            to: 1.0,
-            since: now,
-        };
+        self.entered = now;
     }
 
     /// Where the highlight is drawn, in rows: it glides within a page. When the rows change it
@@ -73,7 +69,7 @@ impl Motion {
             let was = self.rows.get(self.bar.to as usize);
             self.rides = was.is_some_and(|was| rows.get(selected) == Some(was));
             // On the same screen, rows follow their change; a new one just arrives.
-            if self.entered.since == now {
+            if self.entered == now {
                 self.moved = Vec::new()
             } else {
                 self.follow(rows, now)
@@ -129,7 +125,7 @@ impl Motion {
     /// Where the text view's middle is, in lines: it moves smoothly to `to`; on a new screen it
     /// starts there.
     pub fn focus(&mut self, to: f32, now: Millis) -> f32 {
-        if self.entered.since == now {
+        if self.entered == now {
             self.focus = MusicTween::still(to, now)
         } else {
             self.focus.toward(to, now, MUSIC_SLIDE_MS)
@@ -148,7 +144,7 @@ impl Motion {
 
     /// Whether the screen shown is still coming in `now`.
     pub fn entering(&self, now: Millis) -> bool {
-        self.entered.at(now, MUSIC_SLIDE_MS) < 1.0
+        self.arrived(now) < 1.0
     }
 
     /// Whether anything is still on its way `now`: a screen sliding in, the highlight gliding, rows
@@ -156,7 +152,7 @@ impl Motion {
     pub fn moving(&self, now: Millis) -> bool {
         let going = |since, over| self.eased(since, now, over) < 1.0;
         let gliding = |t: &MusicTween, over| t.from != t.to && going(t.since, over);
-        going(self.entered.since, MUSIC_SLIDE_MS)
+        self.entering(now)
             || gliding(&self.bar, MUSIC_GLIDE_MS)
             || gliding(&self.focus, MUSIC_SLIDE_MS)
             || (self.moved.iter().any(|&d| d != 0.0) && going(self.moved_at, self.slide))
@@ -165,10 +161,15 @@ impl Motion {
 
     pub fn at(&self, now: Millis) -> MusicMotion {
         MusicMotion {
-            enter: self.entered.at(now, MUSIC_SLIDE_MS),
+            enter: self.arrived(now),
             side: self.side,
             art: self.eased(self.art, now, MUSIC_ART_MS),
         }
+    }
+
+    /// How far the screen shown has come in `now`, 0 to 1.
+    fn arrived(&self, now: Millis) -> f32 {
+        music_arrived(now.saturating_sub(self.entered), MUSIC_SLIDE_MS)
     }
 
     /// How far along an ease begun at `since`, 0 to 1.

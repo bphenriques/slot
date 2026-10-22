@@ -14,6 +14,7 @@ use crate::music::ReadAhead;
 use crate::playback::fade::Sleep;
 use crate::screens;
 use crate::settings::{Setting, Settings};
+use crate::store::equalizer::{Gains, Presets};
 use crate::text;
 use rows::{label, rows, value, Row, RowText};
 use std::time::Instant;
@@ -42,6 +43,9 @@ pub enum View {
     Advanced,
     /// What is still being shaped, under Advanced.
     Experimental,
+    /// The equalizer's presets, from Music's settings; and New Preset, its bands to set.
+    Equalizer,
+    NewPreset,
     /// The library's ways in: artists, albums, songs, genres, years and folders.
     Library,
     Artists,
@@ -136,7 +140,7 @@ impl View {
     }
 
     /// Whether its rows start with their album's thumbnail, two lines beside it: the lists of
-    /// albums, songs from across albums and books.
+    /// albums, songs from across albums and books, and folders, by the first album in each.
     pub(crate) fn rich(self) -> bool {
         matches!(
             self,
@@ -146,6 +150,7 @@ impl View {
                 | View::Genre(_)
                 | View::Decade(_)
                 | View::Tracks
+                | View::Folder(_)
                 | View::Playlist(_)
                 | View::RecentlyPlayed
                 | View::Queue
@@ -278,6 +283,17 @@ pub enum Outcome {
     },
     /// Move the track at the first place in the queue to the second.
     Move(usize, usize),
+    /// Play through equalizer preset `i`, from 1, or none for 0.
+    Equalizer(usize),
+    /// Open New Preset from the preset chosen; move a band of it by `by` dB; keep it.
+    NewPreset,
+    Tune {
+        band: usize,
+        by: i32,
+    },
+    SavePreset,
+    /// Delete one's own preset `i`, from 1.
+    DeletePreset(usize),
 }
 
 /// How Play orders tracks: as listed, shuffled, or as shuffled groups `sizes` long.
@@ -321,8 +337,9 @@ pub struct Context<'a> {
     pub shuffled: bool,
     /// Chapters read from books' files, by part.
     pub chapters: &'a ReadAhead<Vec<Chapter>>,
-    /// The equalizer's preset, by name; none when off.
-    pub eq: Option<&'a str>,
+    /// The equalizer's presets, and New Preset's bands as they are being set.
+    pub equalizer: &'a Presets,
+    pub tuning: Gains,
     /// The albums whose thumbnails are read, for the rows of the page shown.
     pub thumbs: &'a [Art],
     /// The moment the keys act at: the frame's, never the clock's.
@@ -354,7 +371,8 @@ impl<'a> Context<'a> {
             recent: &[],
             shuffled: false,
             chapters: &NO_CHAPTERS,
-            eq: None,
+            equalizer: &crate::store::equalizer::NO_PRESETS,
+            tuning: [0.0; crate::store::equalizer::BANDS],
             thumbs: &[],
             now,
         }
@@ -453,6 +471,7 @@ impl Browser {
         match (self.mode(cx, key), self.view(), self.row(cx)) {
             (Mode::Repeat, ..) if self.at_end(cx, key) => Outcome::None,
             (_, _, Some(Row::Queued(i))) if key == Key::X => screens::queue::held(self, cx, i, key),
+            (_, _, Some(Row::Preset(i))) if key == Key::X => screens::equalizer::held(cx, i, key),
             (Mode::Repeat, ..) => self.press(cx, key),
             (_, View::NowPlaying, _) if cx.book.is_some() => screens::book::held(self, cx, key),
             (_, View::NowPlaying, _) => screens::now_playing::held(key),
@@ -533,6 +552,9 @@ impl Browser {
         let own = match rows[at] {
             row if self.view().is_start_menu() => screens::menu::press(self, cx, row, key),
             Row::Setting(s) => screens::settings::press(s, key),
+            Row::Preset(i) => screens::equalizer::press_preset(i, key),
+            Row::NewPreset => screens::equalizer::press_new(key),
+            Row::Band(band) => screens::equalizer::press_band(band, key),
             Row::Queued(i) => screens::queue::press(self, cx, i, key),
             Row::BookChapter { .. } | Row::Bookmark(_) => {
                 screens::book::press_row(self, rows[at], key)
@@ -574,6 +596,8 @@ impl Browser {
                     let (above, row) = (span.start + i - 1, span.start + i);
                     match (rows.get(above), rows.get(row)) {
                         (Some(_), Some(_)) if row == fixed => true,
+                        // Making a preset is kept apart from the presets.
+                        (Some(_), Some(Row::NewPreset)) => true,
                         // The lists pinned first are kept apart from the playlists made.
                         (Some(Row::Open(View::RecentlyAdded)), Some(_)) => true,
                         (Some(&Row::Track(a)), Some(&Row::Track(b))) => {

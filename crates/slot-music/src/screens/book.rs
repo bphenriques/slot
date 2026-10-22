@@ -170,7 +170,7 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
         progress: super::fraction(pos - start, end - start),
         marks,
         // Where music says its place in the queue, a book says how long it has left, at its speed.
-        place: text::book_left(left.max(0.0) / f64::from(speed)),
+        place: text::time_left(left.max(0.0) / f64::from(speed)),
         time: text::elapsed(pos - start, end - start),
         next: next_chapter(music, book, part).map(|t| text::up_next_chapter(&t)),
         book: true,

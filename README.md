@@ -103,7 +103,7 @@ The music player:
 </p>
 
 <p align="center">
-<img src=".github/resources/screenshots/music-38-visualizer.png" width="48%" alt="Now Playing with the visualizer on: faint bars behind it, moving with the music">
+<img src=".github/resources/screenshots/music-38-visualizer.png" width="48%" alt="Now Playing with the visualizer on: a faint level meter beside the picture, moving with the music">
 <img src=".github/resources/screenshots/music-26-book.png" width="48%" alt="An audiobook playing: the chapter, the next one, and the time the book has left">
 </p>
 

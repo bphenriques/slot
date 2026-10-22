@@ -9,7 +9,7 @@ use slot_store::is_hidden;
 
 use super::Store;
 use crate::library::playlists::Playlist;
-use crate::library::{Library, TrackId, MUSIC_DIR};
+use crate::library::{Library, TrackId};
 
 /// Where playlists live, in the music folder; the library does not read it as an artist.
 pub const PLAYLISTS_DIR: &str = "Playlists";
@@ -25,9 +25,10 @@ impl Store {
 }
 
 /// The playlists, Favorites first whether or not it has been written yet, then the rest by name.
-/// Lines that name no track in the library are left out. Read with the library.
-pub fn read(root: &Path, lib: &Library) -> Vec<Playlist> {
-    let dir = root.join(MUSIC_DIR).join(PLAYLISTS_DIR);
+/// Lines that name no track in the library are left out. Read with the library, from the
+/// music's folder, `music`.
+pub fn read(music: &Path, lib: &Library) -> Vec<Playlist> {
+    let dir = music.join(PLAYLISTS_DIR);
     let index = lib.index();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .into_iter()
@@ -46,7 +47,7 @@ pub fn read(root: &Path, lib: &Library) -> Vec<Playlist> {
         .chain(files)
         .map(|path| Playlist {
             name: name(&path),
-            tracks: tracks(&path, root, &index),
+            tracks: tracks(&path, music, &index),
             path,
         })
         .collect()
@@ -67,13 +68,15 @@ pub fn encode(list: &Playlist, lib: &Library) -> String {
     text
 }
 
-/// The songs a playlist names, by path: from its own folder, from the card, or whole.
-fn tracks(path: &Path, root: &Path, index: &HashMap<&Path, TrackId>) -> Vec<TrackId> {
+/// The songs a playlist names, by path: from its own folder, from the music's or the folder it is
+/// in (the card), or whole.
+fn tracks(path: &Path, music: &Path, index: &HashMap<&Path, TrackId>) -> Vec<TrackId> {
     let Ok(bytes) = std::fs::read(path) else {
         return Vec::new();
     };
     let text = text(bytes);
-    let dir = path.parent().unwrap_or(root);
+    let dir = path.parent().unwrap_or(music);
+    let card = music.parent().unwrap_or(music);
     text.lines()
         .map(|l| l.trim_start_matches('\u{feff}').trim())
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
@@ -81,7 +84,7 @@ fn tracks(path: &Path, root: &Path, index: &HashMap<&Path, TrackId>) -> Vec<Trac
             // Windows players write their folders with backslashes.
             let line = line.replace('\\', "/");
             let line = Path::new(&line);
-            [dir, root, root.join(MUSIC_DIR).as_path()]
+            [dir, card, music]
                 .into_iter()
                 .find_map(|base| index.get(normal(&base.join(line)).as_path()).copied())
         })

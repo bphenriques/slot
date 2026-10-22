@@ -7,6 +7,26 @@ use super::{list, Body, Screen};
 use crate::browse::{Browser, Context, Key, Outcome, QueueView};
 use crate::{text, Music};
 
+/// Seconds the queue has left to play: the rest of the song playing and the songs after it,
+/// at its speed.
+pub(crate) fn left(music: &Music) -> f64 {
+    let (lib, player) = (&music.library, &music.player);
+    let queue = player.queue();
+    let after = queue.tracks.iter().skip(queue.at + 1);
+    let after: f64 = after.map(|&t| lib.tracks[t].secs).sum();
+    let (at, len) = player.time();
+    (after + (len - at).max(0.0)) / f64::from(player.speed())
+}
+
+/// Seconds until the queue's time left shows the next minute, while it plays.
+pub(crate) fn steps_in(music: &Music) -> Option<f64> {
+    let playing = music.player.state() == slot_player::PlayState::Playing;
+    let rate = f64::from(music.player.speed()) / 60.0;
+    playing
+        .then(|| super::whole_in(-left(music) / 60.0, rate))
+        .flatten()
+}
+
 /// After how many repeats X held takes out one track more at a time: about a second, at the
 /// quickest repeat.
 const RUN: usize = 20;
@@ -82,6 +102,8 @@ pub(crate) fn screen(music: &Music) -> Screen {
         return Screen::message(text::QUEUE, text::QUEUE_EMPTY);
     }
     let mut screen = list::rows_screen(music);
+    // Beside where the cursor is, how long the queue has left, as players say under it.
+    screen.corner = text::queue_corner(&screen.corner, left(music));
     // The carried track's highlight is lifted; its legend says how to put it down.
     if let (Some(_), Body::List(list)) = (music.browser.carry, &mut screen.body) {
         list.lifted = true;

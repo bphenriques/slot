@@ -1,5 +1,5 @@
-# The equalizer's presets, as Music Settings > Sound > Equalizer steps through them, in this
-# order. To change them, copy this file to music-eq.txt beside it and edit that one.
+# The equalizer's presets slot ships, as Music Settings > Equalizer lists them, before your own.
+# Your own are made on the device and kept in Config/music-eq.txt, where you can rename them.
 #
 # bands: the centre of each band, in Hz. width: how wide each is (Q; 1 is about an octave).
 # Then a preset a line: its name, and how far up or down each band goes, in dB.

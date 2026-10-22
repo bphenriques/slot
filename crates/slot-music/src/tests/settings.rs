@@ -41,6 +41,7 @@ fn music_settings_flip_with_left_and_right() {
             on("Volume Leveling", "Off"),
             on("Mono Audio", "Off"),
             on("Visualizer", "Off"),
+            on("Equalizer", "Off"),
         ]
     );
     sound.press(&own_cx, Key::B);
@@ -100,7 +101,7 @@ fn a_settings_row_that_opens_a_page_hints_no_change() {
         }
         let hints = crate::text::legend(crate::screens::legend(&b, &cx));
         assert!(
-            hints.iter().all(|h| h.tap != "Change"),
+            hints.iter().all(|h| h.tap != Some("Change")),
             "{:?}: {hints:?}",
             b.row(&cx)
         );
@@ -108,7 +109,7 @@ fn a_settings_row_that_opens_a_page_hints_no_change() {
 }
 
 #[test]
-fn advanced_ends_with_an_experimental_page_of_the_equalizer_and_skip_silence() {
+fn advanced_ends_with_an_experimental_page_of_skip_silence() {
     let (_d, lib) = library(&["X/A/01 one.mp3"]);
     let s = Settings::default();
     let mut b = Browser::default();
@@ -120,5 +121,5 @@ fn advanced_ends_with_an_experimental_page_of_the_equalizer_and_skip_silence() {
     );
     assert_eq!(b.view(), View::Experimental);
     let page = b.page(&cx(&lib, QueueView::default(), s));
-    assert_eq!(page.rows, ["Equalizer", "Skip Silence"]);
+    assert_eq!(page.rows, ["Skip Silence"]);
 }

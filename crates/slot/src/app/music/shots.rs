@@ -312,7 +312,12 @@ fn card(root: &Path) {
     cover(&hits.join("cover.png"), [[250, 160, 40], [240, 60, 90]]);
     std::fs::write(
         root.join("Music/Aurora Lane/Northern Lights/01 Harbour Song.lrc"),
-        "[00:00.50]The boats come in at evening\n[00:02.00]The lamps along the quay\n[00:04.00]And every light is someone\n[00:06.00]Still waiting by the sea\n",
+        concat!(
+            "[00:00.10]The tide goes out at morning\n[00:00.30]The gulls cry on the wall\n",
+            "[00:00.50]The boats come in at evening\n[00:02.00]The lamps along the quay\n",
+            "[00:04.00]And every light is someone\n[00:06.00]Still waiting by the sea\n",
+            "[00:08.00]The nets are hung for mending\n[00:10.00]The ropes are coiled and dry\n",
+        ),
     )
     .unwrap();
     let book = root.join("Audiobooks/Kipling - Just So Stories");
@@ -746,6 +751,27 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     s.tap(Btn::Select);
     s.wait(600);
     keep(s, "38-visualizer");
+    // The equalizer: a preset chosen, one being made, and one's own kept.
+    home(s);
+    s.open("Settings");
+    s.open("Music");
+    s.open("Equalizer");
+    s.open("Bass Boost");
+    keep(s, "39-equalizer");
+    s.open("New Preset");
+    for btn in [
+        Btn::Down,
+        Btn::Down,
+        Btn::Right,
+        Btn::Right,
+        Btn::Down,
+        Btn::Right,
+    ] {
+        s.tap(btn);
+    }
+    keep(s, "40-new-preset");
+    s.tap(Btn::Y);
+    keep(s, "41-equalizer-own");
 }
 
 /// Keeps the screen as it is this moment, for what lasts only a moment (a notice, a letter,

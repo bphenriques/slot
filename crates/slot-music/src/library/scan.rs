@@ -10,7 +10,7 @@ use std::time::UNIX_EPOCH;
 use slot_store::is_hidden;
 
 use crate::library::tags::{self, Tags};
-use crate::library::{is_audio, Library, Record, BOOKS_DIR, MUSIC_DIR};
+use crate::library::{is_audio, Dirs, Library, Record};
 use crate::store::playlists::PLAYLISTS_DIR;
 
 pub const CACHE_FILE: &str = "Config/music-library.tsv";
@@ -56,21 +56,22 @@ impl Progress {
 
 /// The library as the cache last had it, without looking at the card's folders; none without a
 /// cache.
-pub fn cached(root: &Path) -> Option<Library> {
+pub fn cached(root: &Path, dirs: &Dirs) -> Option<Library> {
     let (records, _) = read_cache(root);
-    (!records.is_empty()).then(|| Library::build(root, records.into_values().collect()))
+    (!records.is_empty()).then(|| Library::build(dirs, records.into_values().collect()))
 }
 
-/// The library under `root`, and whether it differs from the cache's: every song read again
-/// when `full`, otherwise only those the cache does not have as they are.
-pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
+/// The library in `dirs`, its cache kept on the card at `root`, and whether it differs from the
+/// cache's: every song read again when `full`, otherwise only those the cache does not have as
+/// they are.
+pub fn scan(root: &Path, dirs: &Dirs, full: bool, progress: &Progress) -> (Library, bool) {
     // A full scan reads every song again, but keeps when each came into the library.
     let (mut cached, stale) = read_cache(root);
     progress.start(cached.len());
     let mut files = Vec::new();
-    let books = root.join(BOOKS_DIR);
-    walk(&root.join(MUSIC_DIR), 0, &mut files, progress);
-    walk(&books, 0, &mut files, progress);
+    let books = &dirs.books;
+    walk(&dirs.music, 0, &mut files, progress);
+    walk(books, 0, &mut files, progress);
     let fresh = |path: &Path, modified: u64, size: u64| {
         !full
             && !stale
@@ -95,7 +96,7 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
                     progress.step();
                     Record {
                         // A book's parts are timed, for how far into it the listener is.
-                        tags: guarded(&path, || tags::read(&path, path.starts_with(&books))),
+                        tags: guarded(&path, || tags::read(&path, path.starts_with(books))),
                         added: known.map_or(now, |r| r.added),
                         path,
                         modified,
@@ -111,7 +112,7 @@ pub fn scan(root: &Path, full: bool, progress: &Progress) -> (Library, bool) {
         write_cache(root, &records);
     }
     log::info!("{} songs, {read} read", records.len());
-    (Library::build(root, records), changed)
+    (Library::build(dirs, records), changed)
 }
 
 /// `read` of the song at `path`, or nothing known of it if reading it panics, as a malformed tag

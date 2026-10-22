@@ -9,6 +9,7 @@ mod art;
 mod books;
 mod controller;
 mod engine;
+mod equalizer;
 mod input;
 mod loading;
 mod lyrics;
@@ -37,7 +38,7 @@ pub(crate) use visualizer::{BAR_STEPS, FRAME_S};
 
 use crate::integrations::scrobbler::Scrobbler;
 use crate::settings::Settings;
-use crate::store::equalizer::Presets;
+use crate::store::equalizer::{Gains, Presets};
 use crate::store::queue::SavedQueue;
 use crate::store::settings::SETTINGS_FILE;
 use crate::store::{Card, Kept, Store};
@@ -169,6 +170,8 @@ pub struct Music {
     pub(crate) recent: Recent,
     /// The equalizer's presets, from the card.
     pub(crate) equalizer: Presets,
+    /// New Preset's bands, as they are being set.
+    pub(crate) tuning: Gains,
     pub(crate) visualizer: visualizer::Visualizer,
     /// What the scrobbler log was told of the song playing.
     scrobbler: Scrobbler,
@@ -216,12 +219,14 @@ impl Music {
             out.push(Effect::Setting("help", "seen".into()));
         }
         let progress = Arc::new(scan::Progress::default());
+        let dirs = store.dirs();
         Music {
             root: root.to_path_buf(),
             out,
             library: Library::default(),
             scan: Scan {
-                rx: Some(spawn_scan(root, false, progress.clone(), thumb_px)),
+                rx: Some(spawn_scan(root, &dirs, false, progress.clone(), thumb_px)),
+                dirs,
                 thumb_px,
                 ready: false,
                 queue_text: Some(store.read(SavedQueue::FILE)),
@@ -260,6 +265,7 @@ impl Music {
             ahead: Ahead::default(),
             recent: Recent::default(),
             equalizer,
+            tuning: Gains::default(),
             scrobbler: Scrobbler::default(),
             visualizer: Default::default(),
             dark: false,
@@ -525,7 +531,7 @@ impl Music {
         }
     }
 
-    /// Whether music carries on with the screen off (`screen_off = play`).
+    /// Whether music carries on with the screen off (`screen_off = play` or `locked`).
     pub fn plays_screen_off(&self) -> bool {
         self.settings.screen_off.plays()
     }
@@ -574,7 +580,8 @@ impl Music {
             recent: &self.recent.tracks,
             shuffled: self.player.shuffled(),
             chapters: &self.ahead.chapters,
-            eq: self.equalizer.name(self.settings.eq),
+            equalizer: &self.equalizer,
+            tuning: self.tuning,
             thumbs: &self.pictures.thumbs,
             now: self.now.at,
         }

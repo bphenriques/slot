@@ -10,12 +10,12 @@ use crate::text::Word;
 use super::{Legend, MainHold, Target};
 
 /// A key on a screen: how it acts while down, and its hint, if it has one: what a tap does, and
-/// what a hold does.
+/// what a hold does, either of which it may not.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub(crate) struct Bind {
     pub key: Key,
     pub mode: Mode,
-    pub hint: Option<(Word, Option<Word>)>,
+    pub hint: Option<(Option<Word>, Option<Word>)>,
 }
 
 /// Hinted, acting tapped.
@@ -23,7 +23,7 @@ fn tap(key: Key, word: Word) -> Bind {
     Bind {
         key,
         mode: Mode::Once,
-        hint: Some((word, None)),
+        hint: Some((Some(word), None)),
     }
 }
 
@@ -32,7 +32,16 @@ fn hold(key: Key, tapped: Word, held: Word) -> Bind {
     Bind {
         key,
         mode: Mode::Hold,
-        hint: Some((tapped, Some(held))),
+        hint: Some((Some(tapped), Some(held))),
+    }
+}
+
+/// Hinted, acting only held, as a deletion does, its tap doing nothing: "(Delete)".
+fn held(key: Key, word: Word) -> Bind {
+    Bind {
+        key,
+        mode: Mode::Hold,
+        hint: Some((None, Some(word))),
     }
 }
 
@@ -193,6 +202,24 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
             binds.extend(repeat(&MOVES));
             binds
         }
+        // A uses the preset; X held deletes one's own, as the queue's X takes a song out.
+        Legend::Equalizer { own } => {
+            let mut binds = vec![tap(Key::B, Word::Back), tap(Key::A, Word::Choose)];
+            binds.extend(own.then(|| held(Key::X, Word::Delete)));
+            binds.extend(repeat(&MOVES));
+            binds
+        }
+        // Left and Right move a band, again and again held, as the arrows say; Y keeps them.
+        Legend::Tune => {
+            let mut binds = vec![
+                tap(Key::B, Word::Back),
+                acting(tap(Key::Left, Word::Change), Mode::Repeat),
+                tap(Key::Y, Word::Save),
+                quiet(Key::Right, Mode::Repeat),
+            ];
+            binds.extend(repeat(&MOVES));
+            binds
+        }
         Legend::Menu => {
             let mut binds = vec![
                 tap(Key::B, Word::Back),
@@ -287,7 +314,7 @@ mod tests {
             );
             let back = binds(legend)
                 .iter()
-                .any(|b| b.key == Key::B && b.hint == Some((Word::Back, None)));
+                .any(|b| b.key == Key::B && b.hint == Some((Some(Word::Back), None)));
             let carry = legend == Legend::Carry;
             assert_eq!(back, !playing && !carry, "{legend:?}");
         }

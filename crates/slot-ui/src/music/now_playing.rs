@@ -10,7 +10,7 @@ const MARK_RISE: f32 = 3.0;
 use super::theme::rgba;
 use super::{
     draw_progress, text_left, MusicFace, MusicTheme, MusicTint, NowPlayingFaces, ART_BOX, LEGEND_Y,
-    NP_BAR_GAP, NP_LINE, NP_SECOND_LINE, NP_TOP, PROGRESS_H, SMALL_H, STATUS_GAP,
+    NP_BAR_GAP, NP_LINE, NP_SECOND_LINE, NP_TOP, PROGRESS_H, SMALL_H, STATUS_GAP, STATUS_PX,
 };
 
 /// `art_in` is how far the picture has faded in, 0 to 1.
@@ -33,7 +33,7 @@ pub(super) fn draw(
             push(out, tex, left - pad, y, w, h);
         }
     }
-    let bar = NP_TOP + ART_BOX as f32 - SMALL_H as f32 - NP_BAR_GAP - PROGRESS_H;
+    let bar = progress_y();
     // Play or pause at the left, shuffle and repeat at the right.
     let icons = |h: u32| bar - NP_BAR_GAP - h as f32;
     // The marks after the first centred on its middle, a word (a book's speed) as an icon is.
@@ -88,31 +88,40 @@ pub(super) fn draw(
     }
 }
 
-/// The room left between the bars and what they sit between, the picture and the hints; the gap
-/// between bars; a bar's brighter top.
-const BARS_ROOM: f32 = 6.0;
-const BAR_GAP: f32 = 4.0;
+/// The room left between the bars and the state symbols under them; the gap between bars; a
+/// bar's brighter top.
+const BARS_ROOM: f32 = 12.0;
+const BAR_GAP: f32 = 2.0;
 const BAR_TOP: f32 = 2.0;
 
-/// Where the bars stand, and how tall the tallest is: on the hints, up to the picture's foot.
-fn bars_span() -> (f32, f32) {
-    let foot = LEGEND_Y - BARS_ROOM;
-    (foot, foot - (NP_TOP + ART_BOX as f32 + BARS_ROOM))
+/// Where the bars stand, as a level meter beside the picture: across the text column, as wide
+/// as the progress bar under them, from below the names down to a gap above the state symbols.
+/// Their left, how wide they span, their foot, and how tall the tallest is.
+fn bars_box(canvas: Canvas) -> (f32, f32, f32, f32) {
+    let left = text_left(true) as f32;
+    let top = NP_TOP + NP_LINE + 2.0 * NP_SECOND_LINE;
+    let foot = progress_y() - NP_BAR_GAP - STATUS_PX - BARS_ROOM;
+    (left, canvas.w - QUICK_EDGE - left, foot, foot - top)
 }
 
-/// The visualizer's bars, the bass at the left, a strip across the screen under the picture and
-/// above the hints, as a hi-fi's level display: faint, in the bar's ink, each with a brighter top.
-/// Nothing covers them, and they cover nothing but Up Next.
+/// Where the progress bar is drawn, at the foot of the text beside the picture.
+fn progress_y() -> f32 {
+    NP_TOP + ART_BOX as f32 - SMALL_H as f32 - NP_BAR_GAP - PROGRESS_H
+}
+
+/// The visualizer's bars, the bass at the left, beside the picture as a hi-fi's level display:
+/// faint, in the bar's ink, each with a brighter top. They cover nothing.
 fn draw_bars(bars: &[f32], ink: [f32; 4], canvas: Canvas, theme: &MusicTheme, out: &mut Vec<Draw>) {
-    let pitch = canvas.w / bars.len().max(1) as f32;
-    let (foot, tallest) = bars_span();
+    let (left, span, foot, tallest) = bars_box(canvas);
+    // The last bar ends at the margin, its gap past it.
+    let pitch = (span + BAR_GAP) / bars.len().max(1) as f32;
     for (i, &level) in bars.iter().enumerate() {
         let h = (tallest * level.clamp(0.0, 1.0)).round();
         if h < 1.0 {
             continue;
         }
-        let x = (i as f32 * pitch).round();
-        let w = ((i + 1) as f32 * pitch).round() - x - BAR_GAP;
+        let x = (left + i as f32 * pitch).round();
+        let w = (left + (i + 1) as f32 * pitch).round() - x - BAR_GAP;
         let y = foot - h;
         let faint = |alpha: f32| [ink[0], ink[1], ink[2], alpha];
         out.push(Draw::Rect {
@@ -203,8 +212,8 @@ mod tests {
     }
 
     #[test]
-    fn the_bars_stand_on_the_hints_under_the_picture_as_tall_as_their_level_and_silence_draws_none()
-    {
+    fn the_bars_stand_beside_the_picture_over_the_state_as_tall_as_their_level_and_silence_draws_none(
+    ) {
         let canvas = Canvas::FRAMED;
         let np = |bars: Vec<f32>| NowPlayingFaces {
             bars,
@@ -219,23 +228,35 @@ mod tests {
             &MusicTheme::dark(),
             &mut out,
         );
-        let heights: Vec<f32> = out
+        let (left, span, foot, tallest) = bars_box(canvas);
+        let bars: Vec<(f32, f32, f32)> = out
             .iter()
             .take_while(|d| matches!(d, Draw::Rect { .. }))
             .filter_map(|d| match *d {
-                Draw::Rect { h, y, .. } if y + h == bars_span().0 => Some(h),
+                Draw::Rect { x, w, h, y, .. } if y + h == foot => Some((x, w, h)),
                 _ => None,
             })
             .collect();
-        let tallest = bars_span().1;
+        let heights: Vec<f32> = bars.iter().map(|b| b.2).collect();
         assert_eq!(
             heights,
             [tallest.round(), (tallest / 2.0).round()],
-            "first drawn, standing on the hints"
+            "first drawn, as tall as their level"
+        );
+        let (last_x, last_w, _) = bars[1];
+        assert!(left >= text_left(true) as f32, "beside the picture");
+        assert_eq!(
+            last_x + last_w,
+            left + span,
+            "the last ending at the margin"
         );
         assert!(
-            bars_span().0 - tallest >= NP_TOP + ART_BOX as f32,
-            "under the picture"
+            foot - tallest >= NP_TOP + NP_LINE + 2.0 * NP_SECOND_LINE,
+            "under the names"
+        );
+        assert!(
+            foot <= progress_y() - NP_BAR_GAP - STATUS_PX,
+            "over the state symbols"
         );
         let mut quiet = Vec::new();
         draw(

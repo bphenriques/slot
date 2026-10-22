@@ -112,7 +112,7 @@ pub(crate) fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcom
         Row::Album(a) => (View::Album(a), Outcome::None),
         Row::Rescan => return Outcome::Rescan(false),
         Row::Setting(s) => return Outcome::Change(s, 0),
-        // The START menus answer these themselves.
+        // The START menus and the equalizer answer these themselves.
         Row::StartOver
         | Row::Finished
         | Row::Chapters
@@ -128,7 +128,10 @@ pub(crate) fn open(b: &mut Browser, cx: &Context, row: Row, at: usize) -> Outcom
         | Row::SaveQueue
         | Row::ClearQueue
         | Row::Info(_)
-        | Row::HelpLine(_) => return Outcome::None,
+        | Row::HelpLine(_)
+        | Row::Preset(_)
+        | Row::NewPreset
+        | Row::Band(_) => return Outcome::None,
         // A pick in the queue returns to Now Playing, which opened it.
         Row::Queued(i) if b.under_now_playing() => {
             b.pop();
@@ -189,9 +192,13 @@ pub(crate) fn screen(music: &Music) -> Screen {
         let (done, of) = music.reading();
         Screen::message(text::MUSIC, &text::reading(done, of))
     } else if books && lib.books.is_empty() {
-        Screen::message(text::BOOKS, text::NO_BOOKS)
+        Screen::message(
+            text::BOOKS,
+            &text::no_books(&folder(&music.scan.dirs.books)),
+        )
     } else if !books && lib.tracks_by_title.is_empty() {
-        Screen::message(text::title(view).unwrap_or(text::MUSIC), text::NO_MUSIC)
+        let line = text::no_music(&folder(&music.scan.dirs.music));
+        Screen::message(text::title(view).unwrap_or(text::MUSIC), &line)
     } else {
         rows_screen(music)
     }
@@ -219,7 +226,7 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         rows: page.rows,
         values: page.values,
         selected: page.selected,
-        adjustable: matches!(legend, Legend::Settings | Legend::Menu),
+        adjustable: matches!(legend, Legend::Settings | Legend::Menu | Legend::Tune),
         menu: view.is_menu(),
         per_page,
         rules: page.rules,
@@ -251,4 +258,12 @@ fn turn(lib: &Library, view: View, at: usize, n: usize, on: bool) -> usize {
         return n - 1;
     }
     (to.start + place).min(to.end - 1)
+}
+
+/// A folder as a message names it: by its own name, however deep or on whichever card.
+fn folder(dir: &std::path::Path) -> String {
+    dir.file_name().map_or_else(
+        || dir.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
 }

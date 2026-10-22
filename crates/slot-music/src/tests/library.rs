@@ -200,7 +200,7 @@ fn favorites_is_written_as_a_playlist_other_players_read() {
 fn tags_come_first_and_folders_fill_in_what_they_leave_out() {
     use crate::Tags;
     let lib = Library::build(
-        Path::new("/card"),
+        &crate::library::Dirs::on(Path::new("/card")),
         vec![
             // A compilation: one album, filed under its album artist.
             record(
@@ -273,26 +273,27 @@ fn tags_come_first_and_folders_fill_in_what_they_leave_out() {
 fn a_scan_reads_only_songs_that_changed_since_the_cache() {
     let (d, _) = library(&["X/A/01 one.mp3"]);
     let progress = crate::Progress::default();
-    crate::scan_library(d.path(), false, &progress);
+    let dirs = crate::library::Dirs::on(d.path());
+    crate::scan_library(d.path(), &dirs, false, &progress);
     let cache = d.path().join(crate::CACHE_FILE);
     // Tags only the cache knows: an unchanged song keeps them, a full scan does not.
     let text = std::fs::read_to_string(&cache).unwrap();
     std::fs::write(&cache, text.replace("\t\t\t\t\t", "\tCached\t\t\t\t")).unwrap();
     // The cache's library comes at once, without the card; the scan then finds it the same.
-    let shown = crate::cached_library(d.path()).unwrap();
+    let shown = crate::cached_library(d.path(), &dirs).unwrap();
     assert_eq!(shown.tracks[0].title, "Cached");
-    let (lib, changed) = crate::scan_library(d.path(), false, &progress);
+    let (lib, changed) = crate::scan_library(d.path(), &dirs, false, &progress);
     assert_eq!((lib.tracks[0].title.as_str(), changed), ("Cached", false));
-    let (lib, changed) = crate::scan_library(d.path(), true, &progress);
+    let (lib, changed) = crate::scan_library(d.path(), &dirs, true, &progress);
     assert_eq!((lib.tracks[0].title.as_str(), changed), ("one", true));
     // A changed song is read again.
     std::fs::write(&cache, text.replace("\t\t\t\t\t", "\tCached\t\t\t\t")).unwrap();
     std::fs::write(d.path().join("Music/X/A/01 one.mp3"), b"changed").unwrap();
-    let (lib, changed) = crate::scan_library(d.path(), false, &progress);
+    let (lib, changed) = crate::scan_library(d.path(), &dirs, false, &progress);
     assert_eq!((lib.tracks[0].title.as_str(), changed), ("one", true));
     // A song gone is a change too.
     std::fs::remove_file(d.path().join("Music/X/A/01 one.mp3")).unwrap();
-    let (lib, changed) = crate::scan_library(d.path(), false, &progress);
+    let (lib, changed) = crate::scan_library(d.path(), &dirs, false, &progress);
     assert_eq!((lib.tracks.len(), changed), (0, true));
 }
 
@@ -305,7 +306,7 @@ fn recently_added_is_by_when_the_library_got_them_and_an_album_artist_names_the_
         ..record(path, tags)
     };
     let lib = Library::build(
-        Path::new("/card"),
+        &crate::library::Dirs::on(Path::new("/card")),
         vec![
             // Copied in last, though its files are the oldest.
             added("A/Old/01 a.mp3", 300, 10, Tags::default()),
@@ -371,7 +372,7 @@ fn an_artist_lists_albums_by_year_and_discs_are_ruled_apart() {
         )
     };
     let lib = Library::build(
-        Path::new("/card"),
+        &crate::library::Dirs::on(Path::new("/card")),
         vec![
             tagged("X/A/1.mp3", "Arrival", 1999, 1, 1),
             tagged("X/B/1.mp3", "Begin", 1990, 1, 1),
@@ -497,7 +498,7 @@ fn tagged(folder: &str, album: &str, artist: &str, n: u32) -> crate::Record {
 fn an_album_by_several_artists_with_no_album_artist_is_one_album_as_players_file_it() {
     let root = std::path::Path::new("/card");
     let lib = Library::build(
-        root,
+        &crate::library::Dirs::on(root),
         vec![
             tagged("Hits", "Hits", "Ann", 1),
             tagged("Hits", "Hits", "Bob", 2),
@@ -551,7 +552,7 @@ fn of_genre(folder: &str, artist: &str, genre: &str, year: u32) -> crate::Record
 fn genres_gather_albums_by_name_in_any_case_and_a_tag_may_name_several() {
     let root = std::path::Path::new("/card");
     let lib = Library::build(
-        root,
+        &crate::library::Dirs::on(root),
         vec![
             of_genre("Kid A", "Radiohead", "Rock; Electronic", 2000),
             of_genre("OK Computer", "Radiohead", "rock", 1997),
@@ -592,7 +593,7 @@ fn genres_gather_albums_by_name_in_any_case_and_a_tag_may_name_several() {
 fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
     let root = std::path::Path::new("/card");
     let lib = Library::build(
-        root,
+        &crate::library::Dirs::on(root),
         vec![
             of_genre("Kid A", "Radiohead", "Rock", 2000),
             of_genre("OK Computer", "Radiohead", "Rock", 1997),
@@ -666,7 +667,8 @@ fn library_lists_genres_and_years_by_decade_only_when_the_tags_fill_them() {
 fn a_cache_from_before_genres_keeps_when_songs_came_in_and_has_their_tags_read_again() {
     let (d, _) = library(&["X/A/01 one.mp3"]);
     let progress = crate::Progress::default();
-    crate::scan_library(d.path(), false, &progress);
+    let dirs = crate::library::Dirs::on(d.path());
+    crate::scan_library(d.path(), &dirs, false, &progress);
     let cache = d.path().join(crate::CACHE_FILE);
     let text = std::fs::read_to_string(&cache).unwrap();
     // As the last layout wrote it: no genre, its own header, a title only it knows, and an
@@ -676,9 +678,9 @@ fn a_cache_from_before_genres_keeps_when_songs_came_in_and_has_their_tags_read_a
     fields.truncate(12);
     (fields[3], fields[4]) = ("42", "Cached");
     std::fs::write(&cache, format!("#SLOT-LIBRARY 4\n{}\n", fields.join("\t"))).unwrap();
-    let shown = crate::cached_library(d.path()).unwrap();
+    let shown = crate::cached_library(d.path(), &dirs).unwrap();
     assert_eq!(shown.tracks[0].title, "Cached", "shown at once as it was");
-    let (lib, changed) = crate::scan_library(d.path(), false, &progress);
+    let (lib, changed) = crate::scan_library(d.path(), &dirs, false, &progress);
     assert_eq!(
         (lib.tracks[0].title.as_str(), changed),
         ("one", true),
@@ -699,7 +701,7 @@ fn a_cache_from_before_genres_keeps_when_songs_came_in_and_has_their_tags_read_a
 fn a_compilation_s_songs_say_who_sings_each_and_an_artist_s_own_album_does_not() {
     let root = std::path::Path::new("/card");
     let lib = Library::build(
-        root,
+        &crate::library::Dirs::on(root),
         vec![
             tagged("Hits", "Hits", "Ann", 1),
             tagged("Hits", "Hits", "Bob", 2),
@@ -730,7 +732,10 @@ fn a_compilation_s_songs_say_who_sings_each_and_an_artist_s_own_album_does_not()
     };
     let hits = page(album("Hits"));
     assert!(hits.two_lines && !hits.thumbs, "two lines, no thumbnails");
-    let plain = Library::build(root, vec![tagged("Eve/One", "One", "Eve", 1)]);
+    let plain = Library::build(
+        &crate::library::Dirs::on(root),
+        vec![tagged("Eve/One", "One", "Eve", 1)],
+    );
     let mut b = Browser::default();
     b.push(View::Album(AlbumId(0)), 0);
     let one = b.page(&cx(&plain, QueueView::default(), Settings::default()));
@@ -805,4 +810,91 @@ fn an_opus_file_is_filed_by_its_own_tags() {
         ("Tone", "Fixtures")
     );
     assert_eq!(t.artist, "Slot");
+}
+
+#[test]
+fn songs_and_books_on_another_card_are_read_and_kept_by_their_whole_paths() {
+    use crate::library::{scan, Dirs};
+    let (card, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    for f in [
+        "Songs/Eve/One/01 a.mp3",
+        "Songs/Playlists/Mine.m3u8",
+        "Books/Saga/01.mp3",
+    ] {
+        let path = other.path().join(f);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"").unwrap();
+    }
+    std::fs::write(
+        other.path().join("Songs/Playlists/Mine.m3u8"),
+        "../Eve/One/01 a.mp3\n",
+    )
+    .unwrap();
+    let music = other.path().join("Songs");
+    let dirs = Dirs::named(
+        card.path(),
+        music.to_str().unwrap(),
+        other.path().join("Books").to_str().unwrap(),
+    );
+    let (lib, _) = scan::scan(card.path(), &dirs, true, &scan::Progress::default());
+    let artist = lib
+        .music_artists
+        .iter()
+        .map(|&a| lib.artists[a].name.as_str());
+    assert_eq!(
+        artist.collect::<Vec<_>>(),
+        ["Eve"],
+        "filed by the folders under it"
+    );
+    assert_eq!(lib.books.len(), 1);
+    let mine = lib.playlists.iter().find(|p| p.name == "Mine").unwrap();
+    assert_eq!(mine.tracks.len(), 1, "its playlists beside its songs");
+    // Off the card, Recently Played keeps the whole path, and reads it back.
+    let at = Card {
+        root: card.path(),
+        lib: &lib,
+    };
+    let text = Recent::new(vec![TrackId(0)]).encode(at);
+    assert!(text.contains(music.to_str().unwrap()), "{text}");
+    assert_eq!(Recent::decode(&text, at).tracks, [TrackId(0)]);
+    // And the cache, kept on slot's card, has it again.
+    assert_eq!(
+        scan::cached(card.path(), &dirs).map(|l| l.tracks.len()),
+        Some(2)
+    );
+}
+
+#[test]
+fn a_folder_counts_its_songs_however_deep_and_shows_its_first_album_s_picture() {
+    use crate::browse::rows::{album, label, Row};
+    use crate::library::FolderId;
+    let (_d, lib) = library(&[
+        "Abba/Gold/01 a.mp3",
+        "Abba/Gold/02 b.mp3",
+        "Abba/Arrival/01 c.mp3",
+        "Loose.mp3",
+    ]);
+    let root = &lib.folders[FolderId(0)];
+    let abba = root.folders[0];
+    assert_eq!((root.songs, lib.folders[abba].songs), (4, 3));
+    let first = |f: FolderId| lib.folders[f].first.map(|t| lib.tracks[t].title.clone());
+    assert_eq!(
+        first(FolderId(0)).as_deref(),
+        Some("Loose"),
+        "its own songs first"
+    );
+    assert_eq!(
+        first(abba).as_deref(),
+        Some("c"),
+        "else its first folder's, Arrival"
+    );
+    let cx = Context::new(&lib, at(0));
+    let view = View::Folder(FolderId(0));
+    let shown = album(&cx, view, Row::Folder(abba));
+    assert_eq!(
+        shown,
+        Some(lib.tracks[lib.folders[abba].first.unwrap()].album)
+    );
+    let row = label(&cx, view, Row::Folder(abba));
+    assert_eq!((row.text.as_str(), row.after.as_str()), ("Abba", "3 songs"));
 }

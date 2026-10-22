@@ -55,21 +55,21 @@ fn a_book_s_chapters_skip_within_it_and_its_speed_goes_to_the_player_but_not_mus
 
 #[test]
 fn a_book_s_time_left_is_said_in_hours_and_minutes_as_the_sleep_timer_says_them() {
-    use crate::text::book_left;
+    use crate::text::time_left;
     assert_eq!(
-        book_left(10_740.0),
+        time_left(10_740.0),
         "2 h 59 min left",
         "not 2:59, which reads as minutes"
     );
     assert_eq!(
-        book_left(3723.0),
+        time_left(3723.0),
         "1 h 3 min left",
         "a minute begun counts whole"
     );
-    assert_eq!(book_left(7200.0), "2 h left");
-    assert_eq!(book_left(90.0), "2 min left");
+    assert_eq!(time_left(7200.0), "2 h left");
+    assert_eq!(time_left(90.0), "2 min left");
     assert_eq!(
-        book_left(1.0),
+        time_left(1.0),
         "1 min left",
         "never none while some is left"
     );

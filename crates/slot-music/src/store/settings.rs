@@ -3,7 +3,10 @@
 
 use slot_store::ini;
 
+use std::path::Path;
+
 use super::Store;
+use crate::library::{Dirs, BOOKS_DIR, MUSIC_DIR};
 use crate::playback::player::Repeat;
 use crate::settings::{ScreenOff, Settings, BOOSTS, FADES, JUMPS};
 
@@ -12,6 +15,12 @@ pub const SETTINGS_FILE: &str = "Config/music.txt";
 impl Store {
     pub fn settings(&self) -> Settings {
         Settings::decode(&self.read(SETTINGS_FILE))
+    }
+
+    /// Where the songs and books are: `music_folder` and `books_folder`, raw paths, each from
+    /// the card's root unless whole; `Music` and `Audiobooks` unless set.
+    pub fn dirs(&self) -> Dirs {
+        dirs(&self.root, &self.read(SETTINGS_FILE))
     }
 
     /// Writes what differs from `was`.
@@ -25,6 +34,20 @@ impl Store {
 
 /// The keys `now` sets otherwise than `was`, as it was read or last written: one key a change,
 /// rather than the whole file over again for each.
+/// The folders `text` names, from `root`.
+fn dirs(root: &Path, text: &str) -> Dirs {
+    let file = ini::parse(text);
+    let get = |key: &str, or: &'static str| {
+        let set = file.get(key).map(|v| v.trim()).filter(|v| !v.is_empty());
+        set.unwrap_or(or).to_string()
+    };
+    Dirs::named(
+        root,
+        &get("music_folder", MUSIC_DIR),
+        &get("books_folder", BOOKS_DIR),
+    )
+}
+
 pub fn changes(now: &Settings, was: &Settings) -> Vec<(&'static str, String)> {
     let before = was.entries();
     let entries = now.entries().into_iter();
@@ -128,6 +151,31 @@ mod tests {
             "the one changed, beside what was there: {text}"
         );
         assert_eq!(store.settings(), now);
+    }
+
+    #[test]
+    fn the_folders_are_raw_paths_from_the_card_or_whole_and_music_and_audiobooks_unless_set() {
+        let root = Path::new("/mnt/sdcard");
+        assert_eq!(dirs(root, ""), Dirs::on(root), "unless set");
+        let set = dirs(
+            root,
+            "music_folder = /mnt/other/Songs\nbooks_folder = Media/Books\n",
+        );
+        assert_eq!(
+            set.music,
+            Path::new("/mnt/other/Songs"),
+            "whole, on another card"
+        );
+        assert_eq!(
+            set.books,
+            Path::new("/mnt/sdcard/Media/Books"),
+            "from the card"
+        );
+        assert_eq!(
+            dirs(root, "music_folder =\n"),
+            Dirs::on(root),
+            "empty is unset"
+        );
     }
 
     #[test]

@@ -131,13 +131,24 @@ impl Music {
                 self.transport.sleep.step(by, self.now.at);
                 None
             }
-            // Off, then each preset the card's file lists, kept by name.
-            Outcome::Change(Setting::Equalizer, by) => {
-                let order: Vec<usize> = (0..=self.equalizer.len()).collect();
-                let eq = crate::settings::cycle(&order, self.settings.eq, by);
-                self.settings.eq = eq;
-                let name = self.equalizer.name(eq).unwrap_or("off").to_string();
-                self.out.push(Effect::Setting("eq", name));
+            Outcome::Equalizer(i) => {
+                self.choose_preset(i);
+                None
+            }
+            Outcome::NewPreset => {
+                self.new_preset();
+                None
+            }
+            Outcome::Tune { band, by } => {
+                self.tune(band, by);
+                None
+            }
+            Outcome::SavePreset => {
+                self.save_preset();
+                None
+            }
+            Outcome::DeletePreset(i) => {
+                self.delete_preset(i);
                 None
             }
             Outcome::Change(setting, by) => {

@@ -59,10 +59,15 @@ pub(crate) fn following(b: &Browser, now: Instant) -> bool {
         .is_none_or(|at| now.saturating_duration_since(at) >= FOLLOW_AFTER)
 }
 
-/// Seconds until timed lyrics show the song moved on, as `screen` shows them: the next line
-/// sung, while it plays; and, scrolled by hand, when they follow it again.
+/// Seconds until the lyrics show the song moved on, as `screen` shows them: the bar's next step,
+/// while it plays; timed, the next line sung, and, scrolled by hand, when they follow it again.
 pub(crate) fn steps_in(music: &Music) -> Option<f64> {
-    let lyrics = music.lyrics_now().filter(|l| l.timed())?;
+    let lyrics = music.lyrics_now()?;
+    let playing = music.player.state() == PlayState::Playing;
+    let bar = playing.then(|| now_playing::bar_in(music)).flatten();
+    if !lyrics.timed() {
+        return bar;
+    }
     let since = |at| music.now.at.saturating_duration_since(at);
     let back = music
         .browser
@@ -75,7 +80,7 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
     let line = (player.state() == PlayState::Playing)
         .then(|| sung.reduce(f64::min).map(|t| (t - at) / rate))
         .flatten();
-    [back, line].into_iter().flatten().reduce(f64::min)
+    [back, line, bar].into_iter().flatten().reduce(f64::min)
 }
 
 pub(crate) fn screen(music: &Music) -> Screen {
@@ -90,6 +95,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
         return Screen::message(&title, text::NO_LYRICS);
     };
     let LyricsAt { sung, .. } = music.lyrics_at();
+    let (at, len) = music.player.time();
     let focus = if following(&music.browser, music.now.at) && lyrics.timed() {
         sung.unwrap_or(0)
     } else {
@@ -100,7 +106,14 @@ pub(crate) fn screen(music: &Music) -> Screen {
         // Timed, the line sung is lit and the rest dim; plain, all is to be read.
         lit: lyrics.timed().then_some(sung),
         focus,
+        // How far into the song, as a thin bar under the title, as the list's picture bar is.
+        progress: super::fraction(at, len),
     };
     let legend = super::legend(&music.browser, &music.context());
-    Screen::new(title, legend, Body::Text(body))
+    // Timed lyrics say so, as they follow the song.
+    let corner = if lyrics.timed() { text::SYNCED } else { "" };
+    Screen {
+        corner: corner.into(),
+        ..Screen::new(title, legend, Body::Text(body))
+    }
 }

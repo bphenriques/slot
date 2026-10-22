@@ -6,6 +6,7 @@ use crate::integrations::scrobbler;
 use crate::integrations::Listen;
 use crate::playback::fade::{Fade, Fading, SleepTimer, FADE, SLEEP_FADE};
 use crate::playback::recent::Recent;
+use crate::store::equalizer::Gains;
 use crate::store::Kept;
 use slot_player::{Command, Leveling, PlayState};
 
@@ -17,7 +18,7 @@ pub(super) struct Sound {
     boost: u32,
     level: Leveling,
     mono: bool,
-    eq: usize,
+    eq: Gains,
 }
 
 /// The transport's own: a fade running, the sleep timer, and the sound last told the player.
@@ -122,6 +123,7 @@ impl Music {
         let along = self.player.follows_on_album(&self.library);
         let s = &self.settings;
         let level = s.level(self.player.shuffled());
+        let eq = self.heard_gains();
         let sound = if self.book().is_some() {
             Sound {
                 crossfade: 0,
@@ -129,7 +131,7 @@ impl Music {
                 boost: s.boost,
                 level,
                 mono: s.mono,
-                eq: s.eq,
+                eq,
             }
         } else {
             Sound {
@@ -138,7 +140,7 @@ impl Music {
                 boost: 0,
                 level,
                 mono: s.mono,
-                eq: s.eq,
+                eq,
             }
         };
         let was = self.transport.sound.replace(sound);

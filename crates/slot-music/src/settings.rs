@@ -22,8 +22,8 @@ pub struct Settings {
     pub leveling: bool,
     /// Seconds a song's end fades into the next (`crossfade = 0`, 3 or 6); never a book's.
     pub crossfade: u32,
-    /// The equalizer's preset, from 1 as `Config/music-eq.txt` lists them; 0 is off (`eq = <its
-    /// name>`, kept by name, so a preset added or moved in the file stays the one chosen).
+    /// The equalizer's preset, from 1 as the presets are listed; 0 is off (`eq = <its name>`,
+    /// kept by name, so a preset added, renamed or deleted elsewhere moves none other in).
     pub eq: usize,
     /// For books: pauses cut short (`skip_silence = on`), and dB louder (`boost = 0`, 3 or 6).
     pub skip_silence: bool,
@@ -71,7 +71,6 @@ pub enum Setting {
     Jump,
     Mono,
     Visualizer,
-    Equalizer,
     Crossfade,
     Leveling,
     SkipSilence,
@@ -101,9 +100,9 @@ impl Setting {
     /// The Audiobooks page's: the jump, then what slot's player alone does for a voice.
     pub const BOOKS: [Setting; 2] = [Setting::Jump, Setting::Boost];
 
-    /// Advanced's Experimental page: what is still being shaped, the equalizer and skipping a
-    /// book's silences, which guesses at where speech pauses.
-    pub const EXPERIMENTAL: [Setting; 2] = [Setting::Equalizer, Setting::SkipSilence];
+    /// Advanced's Experimental page: what is still being shaped, skipping a book's silences,
+    /// which guesses at where speech pauses.
+    pub const EXPERIMENTAL: [Setting; 1] = [Setting::SkipSilence];
 }
 
 /// The jumps an audiobook offers, as players do: 15 is Apple's, 30 Audible's.
@@ -165,8 +164,6 @@ impl Settings {
             Setting::SkipSilence => self.skip_silence ^= true,
             Setting::Boost => self.boost = cycle(&BOOSTS, self.boost, by),
             Setting::PerfLog => self.perf ^= true,
-            // Stepped by the music, which knows the presets.
-            Setting::Equalizer => {}
             Setting::Log => self.log ^= true,
             Setting::Scrobbler => self.scrobbler ^= true,
             Setting::Leveling => self.leveling ^= true,

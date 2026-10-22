@@ -95,7 +95,8 @@ impl Music {
         self.buttons.pocket.rumble(self.now.at)
     }
 
-    /// The screen went off or on: off, only the shoulders act, as a closed lid leaves them.
+    /// The screen went off or on: off, the music pauses unless set to play on, and only the
+    /// shoulders act, as a closed lid leaves them.
     pub fn set_dark(&mut self, dark: bool) {
         self.stamp();
         self.dark = dark;
@@ -104,5 +105,8 @@ impl Music {
         // it already; the lid opened, the keys are back.
         let locks = self.settings.screen_off == ScreenOff::PlayLocked;
         self.buttons.pocket.locked = dark && (locks || self.buttons.pocket.locked);
+        if dark && !self.settings.screen_off.plays() {
+            self.pause();
+        }
     }
 }

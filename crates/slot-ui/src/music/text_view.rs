@@ -3,21 +3,42 @@
 
 #[cfg(test)]
 use super::slot::TexId;
-use super::slot::{push, Canvas, Draw};
-use super::{MusicFace, LEGEND_Y, ROWS_Y};
+use super::slot::{push, Canvas, Draw, QUICK_EDGE};
+use super::theme::rgba;
+use super::{draw_progress, MusicFace, MusicTheme, LEGEND_Y, PROGRESS_Y, ROWS_Y};
 
 /// Room between paragraphs, and what an empty one, a pause, takes.
 const GAP: f32 = 12.0;
 const PAUSE_H: f32 = 24.0;
+/// Lines followed as they are sung fade further the further they are from the one in the middle,
+/// down to the faintest, so the eye stays on it: how much a line, and how far.
+const FADE_STEP: f32 = 0.3;
+const FADE_MOST: f32 = 0.7;
 
-/// The text view's paragraphs, and which is in the middle: between two as it scrolls.
+/// The text view's paragraphs, and which is in the middle: between two as it scrolls; whether
+/// those away from it fade, as lyrics followed do; and how far into the song, as a thin bar
+/// under the title.
 #[derive(Default)]
 pub struct TextFaces {
     pub lines: Vec<Option<MusicFace>>,
     pub focus: f32,
+    pub fade: bool,
+    pub progress: Option<f32>,
 }
 
-pub(super) fn draw(text: &TextFaces, canvas: Canvas, out: &mut Vec<Draw>) {
+pub(super) fn draw(text: &TextFaces, canvas: Canvas, theme: &MusicTheme, out: &mut Vec<Draw>) {
+    if let Some(done) = text.progress {
+        let w = canvas.w - 2.0 * QUICK_EDGE;
+        draw_progress(
+            QUICK_EDGE,
+            PROGRESS_Y,
+            w,
+            done,
+            rgba(theme.lit, 1.0),
+            theme,
+            out,
+        );
+    }
     let height = |line: &Option<MusicFace>| line.map_or(PAUSE_H, |(_, _, h)| h as f32);
     // Each paragraph's top, the first's at 0.
     let mut tops = Vec::with_capacity(text.lines.len());
@@ -35,7 +56,7 @@ pub(super) fn draw(text: &TextFaces, canvas: Canvas, out: &mut Vec<Draw>) {
     let next = middle((i + 1).min(tops.len() - 1));
     let at = middle(i) + (next - middle(i)) * text.focus.fract();
     let shift = ((ROWS_Y + LEGEND_Y) / 2.0 - at.min(last + PAUSE_H)).round();
-    for (line, top) in text.lines.iter().zip(&tops) {
+    for (i, (line, top)) in text.lines.iter().zip(&tops).enumerate() {
         let Some((tex, w, h)) = *line else {
             continue;
         };
@@ -43,8 +64,17 @@ pub(super) fn draw(text: &TextFaces, canvas: Canvas, out: &mut Vec<Draw>) {
         // Only what is wholly between the header and the hints.
         if y >= ROWS_Y && y + h as f32 <= LEGEND_Y - GAP {
             push(out, tex, ((canvas.w - w as f32) / 2.0).round(), y, w, h);
+            if let (true, Some(Draw::Tex { alpha, .. })) = (text.fade, out.last_mut()) {
+                *alpha = faded((i as f32 - text.focus).abs());
+            }
         }
     }
+}
+
+/// How strongly a line `away` lines from the middle shows: the one there and those next to it
+/// whole, as their ink has them, then fainter a line at a time.
+fn faded(away: f32) -> f32 {
+    1.0 - ((away - 1.0).max(0.0) * FADE_STEP).min(FADE_MOST)
 }
 
 #[cfg(test)]
@@ -58,9 +88,10 @@ mod tests {
                 .map(|i| Some((TexId::from_raw(i), 200, 30)))
                 .collect(),
             focus: 20.0,
+            ..TextFaces::default()
         };
         let mut out = Vec::new();
-        draw(&faces, Canvas::FRAMED, &mut out);
+        draw(&faces, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
         assert!(!out.is_empty() && out.len() < 40, "only those in the room");
         let mid = (ROWS_Y + LEGEND_Y) / 2.0;
         let focus = out.iter().find_map(|d| match d {
@@ -69,5 +100,47 @@ mod tests {
         });
         let y = focus.expect("the focus is drawn");
         assert!((y + 15.0 - mid).abs() < 1.0, "centred: {y}");
+    }
+
+    #[test]
+    fn followed_lines_fade_the_further_from_the_middle_and_the_song_s_bar_is_drawn() {
+        let alpha_of = |fade: bool| {
+            let faces = TextFaces {
+                lines: (0..9)
+                    .map(|i| Some((TexId::from_raw(i), 200, 30)))
+                    .collect(),
+                focus: 4.0,
+                fade,
+                progress: Some(0.5),
+            };
+            let mut out = Vec::new();
+            draw(&faces, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
+            let alpha = |i| {
+                out.iter().find_map(|d| match *d {
+                    Draw::Tex { tex, alpha, .. } if tex == TexId::from_raw(i) => Some(alpha),
+                    _ => None,
+                })
+            };
+            let bar = out
+                .iter()
+                .any(|d| matches!(d, Draw::Rect { y, .. } if *y == PROGRESS_Y));
+            ([4, 3, 2, 1].map(alpha), bar)
+        };
+        let ([middle, next, two, three], bar) = alpha_of(true);
+        assert_eq!(
+            (middle, next),
+            (Some(1.0), Some(1.0)),
+            "the line and those beside it"
+        );
+        assert!(
+            two < next && three < two,
+            "fainter a line at a time: {two:?} {three:?}"
+        );
+        assert!(bar, "the song's bar under the title");
+        let (plain, _) = alpha_of(false);
+        assert!(
+            plain.iter().all(|&a| a == Some(1.0)),
+            "plain lyrics, all to be read"
+        );
     }
 }

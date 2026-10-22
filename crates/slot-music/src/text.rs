@@ -44,7 +44,7 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
         &[
             ("L1 / R1", "Previous / next song"),
             ("Left / Right held", "Seek"),
-            ("L2 / R2", "Back / on 10 s"),
+            ("L2 / R2", "Back / forward 10 s"),
         ],
     ),
     (
@@ -118,9 +118,15 @@ pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
 pub const UNKNOWN_ALBUM: &str = "Unknown Album";
 /// Who an album of songs by several artists, its tags naming none for it, is filed under.
 pub const VARIOUS_ARTISTS: &str = "Various Artists";
-/// What a library or audiobooks screen says with nothing to list: where to put it.
-pub const NO_MUSIC: &str = "Add songs to Music";
-pub const NO_BOOKS: &str = "Add books to Audiobooks";
+/// What a library or audiobooks screen says with nothing to list: where to put it, the folder
+/// by its name.
+pub fn no_music(folder: &str) -> String {
+    format!("Add songs to {folder}")
+}
+
+pub fn no_books(folder: &str) -> String {
+    format!("Add books to {folder}")
+}
 /// The Music menu's corner on a card with neither.
 pub const NOTHING_YET: &str = "No music or books";
 pub const QUEUE_EMPTY: &str = "Nothing up next";
@@ -138,6 +144,11 @@ pub const CHAPTERS: &str = "Chapters";
 pub const BOOKMARKS: &str = "Bookmarks";
 pub const FOLDERS: &str = "Folders";
 pub const NO_BOOKMARKS: &str = "No bookmarks yet";
+/// The lyrics' corner, when they are timed and follow the song.
+pub const SYNCED: &str = "Synced";
+pub const EQUALIZER: &str = "Equalizer";
+/// The equalizer's row that makes a preset of one's own, and its page.
+pub const NEW_PRESET: &str = "New Preset";
 
 /// A screen's title, or `None` where the library names it (an artist, an album).
 pub fn title(view: View) -> Option<&'static str> {
@@ -154,6 +165,8 @@ pub fn title(view: View) -> Option<&'static str> {
         View::BookSettings => BOOKS,
         View::Advanced => ADVANCED,
         View::Experimental => EXPERIMENTAL,
+        View::Equalizer => EQUALIZER,
+        View::NewPreset => NEW_PRESET,
         View::Help => HELP,
         View::Artists => "Artists",
         View::Albums => "Albums",
@@ -198,13 +211,13 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         Row::ShuffleQueue => "Shuffle",
         Row::SaveQueue => "Save as Playlist",
         Row::ClearQueue => "Clear Queue",
+        Row::NewPreset => NEW_PRESET,
         Row::Setting(s) => match s {
             Setting::ScreenOff => "Screen Off",
             Setting::OpenPlaying => "Open on Now Playing",
             Setting::Jump => "Jump Length",
             Setting::Mono => "Mono Audio",
             Setting::Visualizer => "Visualizer",
-            Setting::Equalizer => "Equalizer",
             Setting::Crossfade => "Crossfade",
             Setting::SkipSilence => "Skip Silence",
             Setting::PerfLog => "Performance Log",
@@ -236,9 +249,37 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
         | Row::Book(_)
         | Row::BookChapter { .. }
         | Row::Bookmark(_)
+        | Row::Preset(_)
+        | Row::Band(_)
         | Row::Back
         | Row::Finished => return None,
     })
+}
+
+/// A preset made on the device, named by how many came before: renamed on a computer.
+pub fn own_preset(n: usize) -> String {
+    format!("Custom {n}")
+}
+
+/// An equalizer band by where it is: "60 Hz", "3.6 kHz".
+pub fn hz(hz: f32) -> String {
+    if hz >= 1000.0 {
+        let k = format!("{:.1}", hz / 1000.0);
+        format!("{} kHz", k.trim_end_matches(".0"))
+    } else {
+        format!("{hz:.0} Hz")
+    }
+}
+
+/// How far a band goes up or down: "+3 dB", "0 dB", "−3 dB".
+pub fn db(db: f32) -> String {
+    let n = format!("{:.1}", db.abs());
+    let n = n.trim_end_matches(".0");
+    match db {
+        d if d > 0.0 => format!("+{n} dB"),
+        d if d < 0.0 => format!("−{n} dB"),
+        _ => "0 dB".into(),
+    }
 }
 
 /// A choice that is on or off.
@@ -263,14 +304,7 @@ pub fn info(info: Info) -> &'static str {
 }
 
 /// A setting's choice; `sleep` is what the sleep timer waits for.
-/// `eq` is the equalizer's preset, by name; none is off.
-pub fn setting(
-    setting: Setting,
-    settings: &Settings,
-    sleep: Option<Sleep>,
-    book: bool,
-    eq: Option<&str>,
-) -> String {
+pub fn setting(setting: Setting, settings: &Settings, sleep: Option<Sleep>, book: bool) -> String {
     let on_off = |on: bool| on_off(on).to_string();
     let pick = |on: bool, yes: &str, no: &str| if on { yes } else { no }.to_string();
     match setting {
@@ -290,7 +324,6 @@ pub fn setting(
         Setting::Visualizer => on_off(settings.visualizer),
         Setting::SkipSilence => on_off(settings.skip_silence),
         Setting::PerfLog => on_off(settings.perf),
-        Setting::Equalizer => eq.map_or_else(|| on_off(false), str::to_string),
         Setting::Log => on_off(settings.log),
         Setting::Scrobbler => on_off(settings.scrobbler),
         Setting::Crossfade => match settings.crossfade {
@@ -336,8 +369,10 @@ pub enum Notice {
     Bookmarked,
     /// The sound device stopped working; the music paused where it was.
     NoSound,
-    /// The queue was kept as a playlist.
+    /// The queue was kept as a playlist, or an equalizer preset as one's own.
     Saved,
+    /// One's own equalizer preset deleted.
+    Deleted,
     /// A write to the card failed: it is full, or locked.
     CantSave,
 }
@@ -359,19 +394,25 @@ pub fn notice(notice: &Notice) -> String {
         Notice::Bookmarked => "Bookmarked".into(),
         Notice::NoSound => "No sound".into(),
         Notice::Saved => "Saved".into(),
+        Notice::Deleted => "Deleted".into(),
         Notice::CantSave => "Can't save".into(),
     }
 }
 
-/// How long the whole book has left to play, in the words the sleep timer uses: 2 h 59 min left,
-/// 12 min left; a minute started counts whole, so it never says none while some is left.
-pub fn book_left(secs: f64) -> String {
+/// How long a book, or the queue, has left to play, in the words the sleep timer uses: 2 h 59
+/// min left, 12 min left; a minute started counts whole, so it never says none while some is left.
+pub fn time_left(secs: f64) -> String {
     let minutes = (secs.max(0.0) / 60.0).ceil() as u64;
     match (minutes / 60, minutes % 60) {
         (0, m) => format!("{m} min left"),
         (h, 0) => format!("{h} h left"),
         (h, m) => format!("{h} h {m} min left"),
     }
+}
+
+/// The queue's corner: where the cursor is in it, as a list counts, and how long it has left.
+pub fn queue_corner(place: &str, secs: f64) -> String {
+    format!("{place} · {}", time_left(secs))
 }
 
 /// The chapter after this one, under a book's picture, as Up Next names the next song.
@@ -539,16 +580,17 @@ pub fn hint_of(legend: Legend, key: Key) -> Option<usize> {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Hint {
     pub key: &'static str,
-    pub tap: &'static str,
+    pub tap: Option<&'static str>,
     pub held: Option<&'static str>,
 }
 
 impl Hint {
-    /// What it says: the tap, and the hold in brackets, "Play (Next)".
+    /// What it says: the tap, and the hold in brackets, "Play (Next)", or only "(Delete)".
     pub fn label(&self) -> String {
-        match self.held {
-            Some(held) => format!("{} ({held})", self.tap),
-            None => self.tap.into(),
+        match (self.tap, self.held) {
+            (Some(tap), Some(held)) => format!("{tap} ({held})"),
+            (None, Some(held)) => format!("({held})"),
+            (tap, None) => tap.unwrap_or_default().into(),
         }
     }
 }
@@ -585,6 +627,10 @@ pub(crate) enum Word {
     Jump(u32),
     Change,
     Rebuild,
+    /// The equalizer's: use a preset, keep one's own, delete it.
+    Choose,
+    Save,
+    Delete,
 }
 
 fn word(word: Word) -> &'static str {
@@ -619,6 +665,9 @@ fn word(word: Word) -> &'static str {
         Word::Jump(_) => "30 s",
         Word::Change => "Change",
         Word::Rebuild => "Rebuild",
+        Word::Choose => "Choose",
+        Word::Save => "Save",
+        Word::Delete => "Delete",
     }
 }
 
@@ -630,7 +679,7 @@ pub fn legend(legend: Legend) -> Vec<Hint> {
             let (tap, held) = bind.hint?;
             Some(Hint {
                 key: cap(bind.key)?,
-                tap: word(tap),
+                tap: tap.map(word),
                 held: held.map(word),
             })
         })

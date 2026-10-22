@@ -38,5 +38,7 @@ pub(super) fn faces(
     TextFaces {
         lines,
         focus: text.motion.focus(body.focus as f32, now),
+        fade: body.lit.is_some(),
+        progress: body.progress,
     }
 }

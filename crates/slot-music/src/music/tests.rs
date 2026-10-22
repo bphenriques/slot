@@ -451,7 +451,7 @@ fn a_book_s_now_playing_shows_its_part_place_and_time_left() {
     assert_eq!(np.time, text::elapsed(30.0, 60.0));
     assert_eq!(np.progress, Some(0.5));
     // Where music says its place, the time left, here this part's, its parts' lengths not known.
-    assert_eq!(np.place, text::book_left(30.0));
+    assert_eq!(np.place, text::time_left(30.0));
     // Up Next names the next chapter, as it names the next song; at 1×, no speed mark.
     assert_eq!(np.next, Some(text::up_next_chapter("camel")));
     assert_eq!(np.speed, None);
@@ -662,6 +662,7 @@ fn under_the_lid_a_trigger_plays_or_pauses_a_shoulder_changes_song_and_locked_ne
 #[test]
 fn it_is_due_to_change_only_while_it_moves_or_plays_where_it_is_seen() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
+    rig.music.settings.screen_off = crate::settings::ScreenOff::Play;
     assert!(
         rig.music.due_in().is_none(),
         "nothing playing: only what comes in changes it"
@@ -1558,34 +1559,135 @@ fn detailed_log_is_kept_and_turns_the_log_s_detail_on_and_off() {
     );
 }
 
+impl Rig {
+    /// From the Music menu, Settings › Music › Equalizer.
+    fn equalizer(&mut self) {
+        for row in ["Settings", text::MUSIC_SETTINGS, text::EQUALIZER] {
+            self.to(row);
+            self.keys(&[Button::A]);
+        }
+        assert_eq!(self.music.browser.view(), View::Equalizer);
+    }
+
+    /// The gains the player was last told to play through, since last asked; none for none.
+    fn told_eq(&mut self) -> Option<Vec<f32>> {
+        let mut told = self.told().into_iter().filter_map(|c| match c {
+            Command::Equalizer(bands) => Some(bands.iter().map(|b| b.db).collect()),
+            _ => None,
+        });
+        told.next_back()
+    }
+
+    /// The value beside the row named `row` on the list shown.
+    fn screen_value(&self, row: &str) -> String {
+        let Body::List(list) = self.screen().body else {
+            panic!("no list for {row}");
+        };
+        let at = list
+            .rows
+            .iter()
+            .position(|r| r.text == row)
+            .expect("the row");
+        list.values[at].clone().unwrap_or_default()
+    }
+
+    fn hint_labels(&self) -> Vec<String> {
+        let hints = text::legend(self.screen().legend);
+        hints.iter().map(text::Hint::label).collect()
+    }
+}
+
 #[test]
-fn the_equalizer_steps_through_the_card_s_presets_kept_by_name() {
+fn the_equalizer_chooses_a_preset_with_a_kept_by_name_and_plays_through_it() {
     let mut rig = Rig::new(&["Music/X/A/01 one.mp3"]);
-    let card = rig._card.path().to_path_buf();
-    std::fs::create_dir_all(card.join("Config")).unwrap();
-    let presets = "bands = 100, 1000\nWarm = 3, -1\nBright = -1, 3\n";
-    std::fs::write(card.join(crate::store::equalizer::EQ_FILE), presets).unwrap();
-    std::fs::write(card.join(SETTINGS_FILE), "eq = Bright\n").unwrap();
-    // Read again as slot starts: the card's presets, and the one music.txt names.
-    let (equalizer, eq) = rig.music.shell.store.equalizer();
-    (rig.music.equalizer, rig.music.settings.eq) = (equalizer, eq);
-    assert_eq!(rig.music.context().eq, Some("Bright"));
-    rig.music.browser.push(View::Experimental, 0);
-    rig.music.act(Press::Tap(Key::Right));
-    assert_eq!(rig.music.settings.eq, 2, "the last: Right stops there");
-    rig.music.act(Press::Tap(Key::Left));
-    rig.frames(FRAME);
-    let mut told = rig.told().into_iter().filter_map(|c| match c {
-        Command::Equalizer(bands) => Some(bands.iter().map(|b| b.db).collect::<Vec<_>>()),
-        _ => None,
-    });
-    assert_eq!(
-        told.next_back(),
-        Some(vec![3.0, -1.0]),
-        "Warm, to the player"
+    rig.equalizer();
+    let rows = rig.rows();
+    assert_eq!(rows[0], "Off");
+    assert_eq!(rows.last().map(String::as_str), Some(text::NEW_PRESET));
+    let first = rig.music.equalizer.get(1).unwrap().clone();
+    rig.to(&first.name);
+    assert!(
+        !rig.hint_labels().iter().any(|h| h.contains('(')),
+        "slot's own cannot be deleted: {:?}",
+        rig.hint_labels()
     );
-    rig.music.act(Press::Tap(Key::Left));
-    assert_eq!(rig.music.context().eq, None, "and off");
+    rig.told();
+    rig.keys(&[Button::A]);
+    assert_eq!(rig.told_eq(), Some(first.gains.to_vec()), "heard at once");
+    let kept = rig
+        .music
+        .out
+        .iter()
+        .any(|e| matches!(e, Effect::Setting("eq", n) if *n == first.name));
+    assert!(kept || rig.music.settings.eq == 1, "kept by name");
+    let Body::List(list) = rig.screen().body else {
+        panic!("the presets");
+    };
+    assert!(list.rows[1].playing, "marked as what plays");
+    rig.keys(&[Button::B]);
+    assert_eq!(
+        rig.screen_value(text::EQUALIZER),
+        first.name,
+        "named on Music's settings"
+    );
+}
+
+#[test]
+fn a_new_preset_is_heard_as_it_is_set_kept_with_y_and_deleted_with_x_held() {
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3"]);
+    rig.equalizer();
+    let slot_s = rig.music.equalizer.len();
+    rig.to(text::NEW_PRESET);
+    rig.keys(&[Button::A]);
+    assert_eq!(rig.music.browser.view(), View::NewPreset);
+    assert_eq!(rig.rows().len(), crate::store::equalizer::BANDS);
+    rig.told();
+    rig.keys(&[Button::Right, Button::Right, Button::Right]);
+    assert_eq!(
+        rig.told_eq(),
+        Some(vec![3.0, 0.0, 0.0, 0.0, 0.0]),
+        "heard as it is set"
+    );
+    // B leaves it unkept, and what was chosen, off, plays again.
+    rig.keys(&[Button::B]);
+    assert_eq!(rig.told_eq(), Some(Vec::new()));
+    assert_eq!(rig.music.equalizer.len(), slot_s);
+    // Set again, from what is chosen, and kept with Y.
+    rig.keys(&[Button::A]);
+    rig.keys(&[Button::Down, Button::Left, Button::Left, Button::Y]);
+    assert_eq!(
+        rig.music.browser.view(),
+        View::Equalizer,
+        "back on the presets"
+    );
+    let own = text::own_preset(1);
+    assert_eq!(
+        rig.music.equalizer.name(rig.music.settings.eq),
+        Some(own.as_str()),
+        "chosen"
+    );
+    assert_eq!(rig.screen().corner, text::notice(&Notice::Saved));
+    let Body::List(list) = rig.screen().body else {
+        panic!("the presets");
+    };
+    assert_eq!(list.rows[list.selected].text, own, "at it");
+    rig.music.flush();
+    let file = rig._card.path().join(crate::store::equalizer::EQ_FILE);
+    let kept = std::fs::read_to_string(&file).unwrap();
+    assert!(kept.contains(&format!("{own} = 0, -2, 0, 0, 0")), "{kept}");
+    // One's own deletes with X held, as the hint says.
+    assert!(
+        rig.hint_labels().contains(&"(Delete)".to_string()),
+        "{:?}",
+        rig.hint_labels()
+    );
+    rig.keys(&[Button::X]);
+    assert_eq!(rig.music.equalizer.len(), slot_s + 1, "tapped, nothing");
+    rig.hold(Button::X, 700);
+    assert_eq!(rig.music.equalizer.len(), slot_s, "held, deleted");
+    assert_eq!(rig.music.settings.eq, 0, "off, as it was chosen");
+    rig.music.flush();
+    assert!(!std::fs::read_to_string(&file).unwrap().contains(&own));
 }
 
 #[test]
@@ -1716,11 +1818,14 @@ fn an_empty_card_sets_back_what_leads_nowhere_and_says_where_to_put_songs_and_bo
     assert_eq!(rig.music.browser.view(), View::Main);
     rig.to(text::LIBRARY);
     rig.keys(&[Button::A]);
-    assert_eq!(rig.screen().body, Body::Message(text::NO_MUSIC.into()));
+    assert_eq!(rig.screen().body, Body::Message(text::no_music("Music")));
     rig.keys(&[Button::B]);
     rig.to(text::BOOKS);
     rig.keys(&[Button::A]);
-    assert_eq!(rig.screen().body, Body::Message(text::NO_BOOKS.into()));
+    assert_eq!(
+        rig.screen().body,
+        Body::Message(text::no_books("Audiobooks"))
+    );
     // A book alone: the books lit, the music still set back, and the corner quiet.
     let mut rig = Rig::new(&["Audiobooks/Kipling - Just So/01 whale.mp3"]);
     let Body::List(list) = rig.screen().body else {
@@ -1733,7 +1838,7 @@ fn an_empty_card_sets_back_what_leads_nowhere_and_says_where_to_put_songs_and_bo
     assert_eq!(rig.screen().corner, "");
     rig.to(text::LIBRARY);
     rig.keys(&[Button::A]);
-    assert_eq!(rig.screen().body, Body::Message(text::NO_MUSIC.into()));
+    assert_eq!(rig.screen().body, Body::Message(text::no_music("Music")));
 }
 
 #[test]
@@ -2154,4 +2259,81 @@ fn set_to_play_locked_the_lid_shut_locks_the_keys_and_opened_gives_them_back() {
         !rig.music.buttons.pocket.locked,
         "opened, the keys are back"
     );
+}
+
+#[test]
+fn the_screen_going_off_pauses_unless_set_to_play_on() {
+    use crate::settings::ScreenOff;
+    for (choice, plays) in [
+        (ScreenOff::Pause, false),
+        (ScreenOff::Play, true),
+        (ScreenOff::PlayLocked, true),
+    ] {
+        let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
+        rig.music.settings.screen_off = choice;
+        rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
+        assert!(rig.now_playing().status.playing, "{choice:?}");
+        rig.told();
+        rig.music.set_dark(true);
+        let told = rig.told();
+        assert_eq!(
+            told.contains(&Command::Pause),
+            !plays,
+            "{choice:?}: {told:?}"
+        );
+        rig.music.set_dark(false);
+        assert_eq!(rig.now_playing().status.playing, plays, "{choice:?}");
+    }
+}
+
+#[test]
+fn timed_lyrics_say_synced_and_both_kinds_show_how_far_into_the_song_seen_as_it_moves() {
+    for (lrc, synced) in [
+        ("[00:01.00]Hello\n[00:30.00]Again", true),
+        ("Hello\nAgain", false),
+    ] {
+        let mut rig = Rig::new(&["Music/Wilde/A/01 one.mp3"]);
+        std::fs::write(rig._card.path().join("Music/Wilde/A/01 one.lrc"), lrc).unwrap();
+        rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
+        rig.heard(60.0, 240.0);
+        rig.music.browser.push(View::Lyrics, 0);
+        rig.wait(500);
+        let screen = rig.screen();
+        let corner = if synced { text::SYNCED } else { "" };
+        assert_eq!(screen.corner, corner, "{lrc}");
+        let Body::Text(body) = screen.body else {
+            panic!("the lyrics");
+        };
+        let done = body.progress.expect("the song's bar");
+        assert!((done - 0.25).abs() < 0.01, "a quarter in: {done}");
+        // The bar moves a thousandth at a time, and the screen with it: no finer.
+        let seen = seen_changes(&mut rig, 10);
+        assert!(seen > 0 && seen <= 42 + 2, "{lrc}: {seen} changes in 10 s");
+    }
+}
+
+#[test]
+fn the_queue_says_how_long_it_has_left_beside_where_the_cursor_is() {
+    let mut rig = Rig::new(&[
+        "Music/X/A/01 a.mp3",
+        "Music/X/A/02 b.mp3",
+        "Music/X/A/03 c.mp3",
+    ]);
+    let tracks = rig.music.library.albums[AlbumId(0)].tracks.clone();
+    let play = rig
+        .music
+        .player
+        .play(&rig.music.library, Queue::new(tracks, 1, None));
+    rig.music.send(play);
+    rig.frames(FRAME);
+    rig.heard(60.0, 240.0);
+    rig.to(text::QUEUE);
+    rig.keys(&[Button::A]);
+    // The songs after are of no known length here: the rest of the one playing.
+    assert_eq!(
+        rig.screen().corner,
+        text::queue_corner(&text::of(2, 3), 180.0)
+    );
+    let due = rig.music.due_in().expect("woken for the next minute");
+    assert!(due <= Duration::from_millis(60_001), "{due:?}");
 }

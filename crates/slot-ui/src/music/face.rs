@@ -169,22 +169,44 @@ pub fn music_paragraph_face(
 /// The most lines one paragraph wraps to.
 const PARAGRAPH_LINES: usize = 8;
 
-/// A list row: icon, number, name in `ink`, artist; empty parts are skipped. The number and
-/// artist are dim, or faint with a faint name. The name is a label in capitals, or, `cased`, a
-/// sentence set as written; what follows it, a name or what a key does, is set as written, as a
-/// second line is. Fitted to `fit_w` as lines are.
-#[allow(clippy::too_many_arguments)]
+/// A list row's words, in order: a mark, a number, the name, and what follows it, a name or
+/// what a key does. Empty parts are skipped. The name is a label in capitals, or, `cased`, a
+/// sentence set as written; what follows it is set as written, as a second line is.
+#[derive(Copy, Clone, Default)]
+pub struct RowWords<'a> {
+    pub icon: Option<char>,
+    pub before: &'a str,
+    pub text: &'a str,
+    pub after: &'a str,
+    pub cased: bool,
+}
+
+impl<'a> RowWords<'a> {
+    /// A row of a name alone, as a label.
+    pub fn name(text: &'a str) -> RowWords<'a> {
+        RowWords {
+            text,
+            ..RowWords::default()
+        }
+    }
+}
+
+/// A list row: its name in `ink`, the number and what follows dim, or faint with a faint name.
+/// Fitted to `fit_w` as lines are.
 pub fn music_row_face(
-    icon: Option<char>,
-    before: &str,
-    text: &str,
-    after: &str,
+    words: RowWords,
     ink: Ink,
     px: f32,
     fit_w: u32,
-    cased: bool,
     theme: &MusicTheme,
 ) -> Option<UndoFace> {
+    let RowWords {
+        icon,
+        before,
+        text,
+        after,
+        cased,
+    } = words;
     let h = (px + 2.0 * ROW_FACE_PAD).ceil() as u32;
     let context = match ink {
         Ink::Faint => Ink::Faint,
@@ -554,8 +576,12 @@ mod tests {
     #[test]
     fn a_row_s_number_is_measured_as_its_face_sets_it_and_none_is_nothing() {
         let theme = MusicTheme::dark();
-        let with = music_row_face(None, "01", "A", "", Ink::Lit, 24.0, u32::MAX, false, &theme);
-        let without = music_row_face(None, "", "A", "", Ink::Lit, 24.0, u32::MAX, false, &theme);
+        let row = |before| RowWords {
+            before,
+            ..RowWords::name("A")
+        };
+        let with = music_row_face(row("01"), Ink::Lit, 24.0, u32::MAX, &theme);
+        let without = music_row_face(row(""), Ink::Lit, 24.0, u32::MAX, &theme);
         let (with, without) = (with.unwrap().w, without.unwrap().w);
         assert_eq!(
             music_number_w("01", 24.0),

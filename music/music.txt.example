@@ -21,7 +21,7 @@ repeat = off
 # Audio.
 mono = off
 
-# Faint bars behind Now Playing that move with the music: on or off. Music Settings shows it as
+# Faint bars beside the picture on Now Playing, moving with the music: on or off. Shown as
 # Visualizer; while it shows, the screen is drawn more often, which uses a little more battery.
 visualizer = off
 
@@ -39,9 +39,16 @@ crossfade = 0
 skip_silence = off
 boost = 0
 
-
-# The equalizer's preset, by its name in music-eq.txt, or off.
+# The equalizer's preset, by its name, or off: one of slot's (Bass Boost, Bass Reducer, Treble
+# Boost, Vocal, Loudness) or your own. Make your own in Music Settings > Equalizer > New Preset;
+# they are kept in music-eq.txt beside this file, where you can rename them.
 eq = off
+
+# Where your songs and audiobooks are: a folder from this card's root (Music), or a whole path,
+# such as a folder on the other card, as your device mounts it. Read as slot starts. The settings,
+# queue, bookmarks and album pictures stay on this card.
+music_folder = Music
+books_folder = Audiobooks
 
 # Songs listened to go into .scrobbler.log, for a Last.fm uploader: on or off.
 scrobbler = off

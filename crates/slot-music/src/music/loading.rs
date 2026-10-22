@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use super::{Effect, Music};
 use crate::library::covers::{self, Covers};
-use crate::library::{scan, AlbumId, Library, TrackId};
+use crate::library::{scan, AlbumId, Dirs, Library, TrackId};
 use crate::playback::queue::Queue;
 use crate::playback::recent::Recent;
 use crate::store::queue::SavedQueue;
@@ -19,6 +19,8 @@ use slot_player::{Command, PlayState};
 /// The library being read, and what is put back once it is.
 pub(crate) struct Scan {
     pub(crate) rx: Option<Receiver<Found>>,
+    /// Where the songs and books are read from.
+    pub(crate) dirs: Dirs,
     /// The thumbnails' size, to tell which albums need theirs made.
     pub(crate) thumb_px: u32,
     /// A library is shown: the cache's, or the card's.
@@ -63,7 +65,13 @@ impl Music {
         self.scan.ready = false;
         self.scan.progress = Arc::new(scan::Progress::default());
         let progress = self.scan.progress.clone();
-        self.scan.rx = Some(spawn_scan(&self.root, full, progress, self.scan.thumb_px));
+        self.scan.rx = Some(spawn_scan(
+            &self.root,
+            &self.scan.dirs,
+            full,
+            progress,
+            self.scan.thumb_px,
+        ));
     }
 
     /// Whether the library is being read.
@@ -205,16 +213,17 @@ impl Music {
 /// How often a song's place is saved as it plays.
 const QUEUE_EVERY: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Reads the library in the background: the cache's at once, then the card's, reading what
+/// Reads the library in `dirs` in the background: the cache's at once, then the card's, reading what
 /// changed, or every song when `full`.
 pub(crate) fn spawn_scan(
     root: &Path,
+    dirs: &Dirs,
     full: bool,
     progress: Arc<scan::Progress>,
     thumb_px: u32,
 ) -> Receiver<Found> {
     let (tx, rx) = mpsc::channel();
-    let root: PathBuf = root.to_path_buf();
+    let (root, dirs): (PathBuf, Dirs) = (root.to_path_buf(), dirs.clone());
     // Asked on the frame loop, which is woken as each library is ready to show.
     let frames = std::thread::current();
     let spawned = std::thread::Builder::new()
@@ -223,10 +232,10 @@ pub(crate) fn spawn_scan(
             crate::background();
             let started = Instant::now();
             let shown = !full
-                && scan::cached(&root)
+                && scan::cached(&root, &dirs)
                     .is_some_and(|lib| tx.send(Found::Cached(Box::new(lib))).is_ok());
             frames.unpark();
-            let (lib, changed) = scan::scan(&root, full, &progress);
+            let (lib, changed) = scan::scan(&root, &dirs, full, &progress);
             let missing = covers::missing(&root, &lib, thumb_px);
             log::info!("library read in {} ms", started.elapsed().as_millis());
             let _ = tx.send(if shown && !changed {
@@ -249,7 +258,13 @@ mod tests {
     #[test]
     fn a_library_read_wakes_the_frame_loop_resting() {
         let card = tempfile::tempdir().unwrap();
-        let rx = spawn_scan(card.path(), true, Arc::new(scan::Progress::default()), 8);
+        let rx = spawn_scan(
+            card.path(),
+            &Dirs::on(card.path()),
+            true,
+            Arc::new(scan::Progress::default()),
+            8,
+        );
         let began = Instant::now();
         while rx.try_recv().is_err() {
             std::thread::park_timeout(std::time::Duration::from_secs(5));

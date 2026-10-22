@@ -93,15 +93,12 @@ impl App {
         }
     }
 
-    /// The screen is going off: music pauses unless `screen_off = play`, and the music screen
-    /// returns on wake.
+    /// The screen is going off: the music says whether it plays on, and its screen returns on
+    /// wake.
     pub(super) fn doze_music(&mut self) {
         self.music_on_wake = matches!(self.phase, Phase::Music);
         if let Some(music) = &mut self.music {
             music.set_dark(true);
-            if !music.plays_screen_off() {
-                music.pause();
-            }
         }
     }
 
@@ -232,10 +229,9 @@ impl App {
         }
     }
 
-    /// Whether music takes the keys: shown, or playing on with the screen off.
-    /// Whether the music reads the buttons: on its screen; and with the screen off, only while it
-    /// plays on (`screen_off = play`) and was in use, its screen open when the screen went off or
-    /// still sounding. A screen gone off over a game or the shelf leaves the keys alone, so a
+    /// Whether the music reads the buttons: on its screen; and with the screen off, only while
+    /// it plays on (Screen Off set to play) and was in use, its screen open when the screen went
+    /// off or still sounding. A screen gone off over a game or the shelf leaves the keys alone, so a
     /// shoulder pressed in a pocket never starts the music behind a game.
     pub fn music_takes_keys(&self) -> bool {
         let plays_on = self.music.as_ref().is_some_and(Music::plays_screen_off);
@@ -314,7 +310,8 @@ fn button(btn: Btn) -> Option<Button> {
 
 /// What the music screen shows, but for what moves of itself: what slot-music says, the picture
 /// and colours its faces are drawn from, the draws (which hold anything of slot's over the music,
-/// as its volume), and the settings the compositor draws them through. A frame showing the same as the last needs no drawing.
+/// as its volume), and the settings the compositor draws them through. A frame showing the
+/// same as the last needs no drawing.
 #[derive(PartialEq, Debug)]
 pub(super) struct Shown {
     screen: Option<Screen>,

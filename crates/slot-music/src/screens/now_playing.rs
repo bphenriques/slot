@@ -52,12 +52,18 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
     if player.current().is_none() || player.state() != PlayState::Playing {
         return None;
     }
-    let ((at, len), rate) = (player.time(), f64::from(player.speed()));
+    let (at, rate) = (player.time().0, f64::from(player.speed()));
     let time = super::whole_in(at, rate);
-    let bar = (len > 0.0)
+    [time, bar_in(music)].into_iter().flatten().reduce(f64::min)
+}
+
+/// Seconds until the song's bar, in thousandths as `screen` shows it, takes its next step.
+pub(crate) fn bar_in(music: &Music) -> Option<f64> {
+    let player = &music.player;
+    let ((at, len), rate) = (player.time(), f64::from(player.speed()));
+    (len > 0.0)
         .then(|| super::whole_in(at / len * 1000.0 + 0.5, rate * 1000.0 / len))
-        .flatten();
-    [time, bar].into_iter().flatten().reduce(f64::min)
+        .flatten()
 }
 
 pub(crate) fn screen(music: &Music) -> Screen {

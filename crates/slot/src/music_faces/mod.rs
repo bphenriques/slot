@@ -17,7 +17,7 @@ use slot_ui::music::{
     music_line_face, music_no_art_face, music_paragraph_face, music_ring_face, music_row_face,
     music_row_heart_face, music_second_face, music_status_face, music_thumb_blank_face,
     music_tint_ink, music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme,
-    MUSIC_RING_STEPS, MUSIC_STATUS,
+    RowWords, MUSIC_RING_STEPS, MUSIC_STATUS,
 };
 use slot_ui::UndoFace;
 
@@ -62,17 +62,14 @@ impl Spec {
             Spec::Second(text, px) => music_second_face(text, *px as f32, width, theme),
             Spec::Row { text, ink, px } => {
                 let icon = text.playing.then_some(MUSIC_STATUS[0]);
-                music_row_face(
+                let words = RowWords {
                     icon,
-                    &text.before,
-                    &text.text,
-                    &text.after,
-                    *ink,
-                    *px as f32,
-                    width,
-                    text.cased,
-                    theme,
-                )
+                    before: &text.before,
+                    text: &text.text,
+                    after: &text.after,
+                    cased: text.cased,
+                };
+                music_row_face(words, *ink, *px as f32, width, theme)
             }
         }
     }
@@ -570,8 +567,12 @@ mod help_tests {
                     text::HelpLine::Place(place) => (place, "", false),
                     text::HelpLine::Key(key, does) => (key, does, false),
                 };
-                let face =
-                    music_row_face(None, "", name, after, Ink::Lit, px, u32::MAX, cased, &theme)?;
+                let words = RowWords {
+                    after,
+                    cased,
+                    ..RowWords::name(name)
+                };
+                let face = music_row_face(words, Ink::Lit, px, u32::MAX, &theme)?;
                 (face.w > room).then(|| format!("{name} {after}: {} of {room} px", face.w))
             })
             .collect();
@@ -584,8 +585,8 @@ mod help_tests {
         let (theme, px) = (MusicTheme::dark(), music_row_px(true, 1));
         let room = music_text_width(false, Canvas::of((640, 480)));
         let lines = [
-            text::NO_MUSIC.to_string(),
-            text::NO_BOOKS.to_string(),
+            text::no_music("Music"),
+            text::no_books("Audiobooks"),
             text::NO_BOOKMARKS.to_string(),
             text::NO_LYRICS.to_string(),
             text::QUEUE_EMPTY.to_string(),
@@ -596,8 +597,7 @@ mod help_tests {
         let wide: Vec<String> = lines
             .iter()
             .filter_map(|line| {
-                let face =
-                    music_row_face(None, "", line, "", Ink::Lit, px, u32::MAX, false, &theme)?;
+                let face = music_row_face(RowWords::name(line), Ink::Lit, px, u32::MAX, &theme)?;
                 (face.w > room).then(|| format!("{line}: {} of {room} px", face.w))
             })
             .collect();

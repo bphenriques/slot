@@ -3,6 +3,7 @@
 pub(crate) mod binds;
 pub(crate) mod book;
 pub(crate) mod dark;
+pub(crate) mod equalizer;
 pub(crate) mod help;
 pub(crate) mod list;
 pub(crate) mod lyrics;
@@ -65,6 +66,12 @@ pub enum Legend {
     Chapters,
     Bookmarks,
     Settings,
+    /// The equalizer's presets: A chooses one, and X held deletes one's `own`.
+    Equalizer {
+        own: bool,
+    },
+    /// New Preset's bands: moved, and kept.
+    Tune,
     /// A START menu, which may hold a setting.
     Menu,
     /// Update Library: what changed, or held, everything again.
@@ -100,7 +107,8 @@ impl Legend {
     /// Every legend, for checks on how they fit.
     pub fn all() -> Vec<Legend> {
         let on = [false, true];
-        let mut all = vec![Legend::Carry, Legend::Settings, Legend::Menu];
+        let mut all = vec![Legend::Carry, Legend::Settings, Legend::Menu, Legend::Tune];
+        all.extend([false, true].map(|own| Legend::Equalizer { own }));
         all.extend([
             Legend::Update,
             Legend::Back,
@@ -181,6 +189,8 @@ pub struct TextBody {
     pub lines: Vec<String>,
     pub lit: Option<Option<usize>>,
     pub focus: usize,
+    /// How far into the song, 0 to 1.
+    pub progress: Option<f32>,
 }
 
 /// A page of rows with one highlighted.
@@ -293,7 +303,9 @@ impl Music {
             | View::MusicSettings
             | View::BookSettings
             | View::Advanced
-            | View::Experimental => list::rows_screen(self),
+            | View::Experimental
+            | View::Equalizer
+            | View::NewPreset => list::rows_screen(self),
             View::Queue => queue::screen(self),
             View::Lyrics => lyrics::screen(self),
             View::Help => help::screen(self),
@@ -432,6 +444,17 @@ pub(crate) fn legend(b: &Browser, cx: &Context) -> Legend {
             },
             _ => Legend::Settings,
         },
+        // A preset is chosen or deleted; New Preset opens.
+        View::Equalizer => match row {
+            Some(Row::Preset(i)) => Legend::Equalizer {
+                own: cx.equalizer.get(i).is_some_and(|p| p.own),
+            },
+            _ => Legend::Main {
+                playing: something,
+                hold: None,
+            },
+        },
+        View::NewPreset => Legend::Tune,
         View::SongInfo(_) | View::Help => Legend::Back,
         // A START menu's row that changes (the sleep timer, repeat, shuffle, speed) says so; the
         // rest open or act, with nothing to change.
@@ -506,6 +529,7 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
         (View::NowPlaying, Some((book, _))) => book::steps_in(music, book),
         (View::NowPlaying, None) => now_playing::steps_in(music),
         (View::Lyrics, _) => lyrics::steps_in(music),
+        (View::Queue, _) => queue::steps_in(music),
         _ => None,
     };
     // The bars, while there are: they move with every frame.

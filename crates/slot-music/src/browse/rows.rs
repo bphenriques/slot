@@ -8,6 +8,7 @@ use crate::browse::{BookList, Context, QueueView, View};
 use crate::library::Library;
 use crate::library::{AlbumId, ArtistId, BookId, FolderId, GenreId, TrackId};
 use crate::settings::Setting;
+use crate::store::equalizer::BANDS;
 use crate::text;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -62,6 +63,10 @@ pub enum Row {
     Info(Info),
     /// A line of Help, to read.
     HelpLine(usize),
+    /// An equalizer preset, from 1, or Off for 0; New Preset; and one of its bands.
+    Preset(usize),
+    NewPreset,
+    Band(usize),
 }
 
 /// What Song Info tells of the track playing.
@@ -221,7 +226,16 @@ pub fn rows(cx: &Context, view: View) -> Vec<Row> {
                 Row::Open(View::Advanced),
             ]);
         }
-        View::MusicSettings => rows.extend(Setting::MUSIC.map(Row::Setting)),
+        View::MusicSettings => {
+            rows.extend(Setting::MUSIC.map(Row::Setting));
+            rows.push(Row::Open(View::Equalizer));
+        }
+        // Off, then the presets, slot's and one's own; then one to make.
+        View::Equalizer => {
+            rows.extend((0..=cx.equalizer.len()).map(Row::Preset));
+            rows.push(Row::NewPreset);
+        }
+        View::NewPreset => rows.extend((0..BANDS).map(Row::Band)),
         View::BookSettings => rows.extend(Setting::BOOKS.map(Row::Setting)),
         View::Experimental => rows.extend(Setting::EXPERIMENTAL.map(Row::Setting)),
         // What tells about the player: the scrobbler log for an uploader, the detailed log, and
@@ -365,6 +379,7 @@ pub(crate) fn album(cx: &Context, view: View, row: Row) -> Option<AlbumId> {
         Row::Book(b) => Some(lib.books[b].album),
         Row::Track(t) => Some(lib.tracks[t].album),
         Row::Queued(i) => cx.queue.tracks.get(i).map(|&t| lib.tracks[t].album),
+        Row::Folder(f) => lib.folders[f].first.map(|t| lib.tracks[t].album),
         _ => None,
     }
 }
@@ -442,7 +457,11 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             ..RowText::plain(text::row(row, view).unwrap_or_default())
         },
         Row::Genre(g) => RowText::plain(&lib.genres[g].name),
-        Row::Folder(f) => RowText::plain(&lib.folders[f].name),
+        // A folder says how many songs it holds, however deep, below its name.
+        Row::Folder(f) => RowText {
+            after: text::songs(lib.folders[f].songs),
+            ..RowText::plain(&lib.folders[f].name)
+        },
         Row::Decade(d) => RowText::plain(text::decade(d)),
         // A decade's albums say who made them and when, below, as an artist's say when.
         Row::Album(a) if matches!(view, View::Decade(_)) => RowText {
@@ -560,6 +579,12 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             after: subject.map(|t| fact(lib, t, info)).unwrap_or_default(),
             ..RowText::plain(text::info(info))
         },
+        // The preset playing marked as a song playing is.
+        Row::Preset(i) => RowText {
+            playing: i == cx.settings.eq,
+            ..RowText::plain(cx.equalizer.name(i).unwrap_or(text::on_off(false)))
+        },
+        Row::Band(band) => RowText::plain(text::hz(cx.equalizer.hz()[band])),
         row => RowText::plain(text::row(row, view).unwrap_or_default()),
     }
 }
@@ -624,13 +649,15 @@ pub(crate) fn value(cx: &Context, row: Row) -> Option<String> {
         }
         Row::Open(View::Tracks) => count(cx.lib.tracks_by_title.len()),
         Row::Playlist(p) => count(cx.lib.playlists[p].tracks.len()),
-        Row::Setting(s) => Some(text::setting(
-            s,
-            &cx.settings,
-            cx.sleep,
-            cx.book.is_some(),
-            cx.eq,
-        )),
+        Row::Setting(s) => Some(text::setting(s, &cx.settings, cx.sleep, cx.book.is_some())),
+        // The preset chosen, beside the page that chooses it; a band, how far it goes.
+        Row::Open(View::Equalizer) => Some(
+            cx.equalizer
+                .name(cx.settings.eq)
+                .unwrap_or(text::on_off(false))
+                .into(),
+        ),
+        Row::Band(band) => Some(text::db(cx.tuning[band])),
         Row::Speed => Some(text::speed(cx.queue.speed)),
         Row::ShuffleQueue => Some(text::on_off(cx.shuffled).into()),
         // How many songs the library holds, beside reading it again.

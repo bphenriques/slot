@@ -1,6 +1,5 @@
-//! The equalizer's presets, from `Config/music-eq.txt`: the bands, how wide each is, and each
-//! preset's gains. Data, not code: the card's file if there is one, else the one slot ships,
-//! the same as `music-eq.txt.example` beside it.
+//! The equalizer's presets: those slot ships (`music/music-eq.txt`), then the listener's own,
+//! made on the device and kept in `Config/music-eq.txt`, a line each, to rename on a computer.
 
 use slot_player::Band;
 
@@ -8,8 +7,15 @@ use super::settings::SETTINGS_FILE;
 use super::Store;
 
 pub const EQ_FILE: &str = "Config/music-eq.txt";
-/// What slot ships, read when the card has no file of its own.
+/// What slot ships: the bands every preset sets, how wide each is, and its own presets.
 const SHIPPED: &str = include_str!("../../../../music/music-eq.txt");
+
+/// How many bands every preset sets.
+pub const BANDS: usize = 5;
+/// How far each band goes up or down, in dB.
+pub type Gains = [f32; BANDS];
+/// The most a band goes either way in a preset made on the device.
+pub const MOST_DB: f32 = 12.0;
 
 impl Store {
     /// The equalizer's presets, and which `music.txt` names: 0, off, if none or one gone.
@@ -21,52 +27,72 @@ impl Store {
     }
 }
 
-/// The presets, in order, each by its name with its gain at each band.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct Presets {
-    bands: Vec<f32>,
-    width: f32,
-    presets: Vec<(String, Vec<f32>)>,
+/// A preset: its name, its gains, and whether it is the listener's own, to delete.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Preset {
+    pub name: String,
+    pub gains: Gains,
+    pub own: bool,
 }
 
-impl Presets {
-    /// The card's file's, `text`; or, it empty or naming none, what slot ships.
-    pub fn read(text: &str) -> Presets {
-        let own = Presets::decode(text);
-        if own.presets.is_empty() {
-            Presets::decode(SHIPPED)
-        } else {
-            own
-        }
-    }
+/// The presets, slot's then the listener's, and the bands they set.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Presets {
+    hz: [f32; BANDS],
+    width: f32,
+    presets: Vec<Preset>,
+}
 
-    /// `text` as presets: `bands = …`, `width = …`, then `Name = gain, …`; a line it cannot read
-    /// is left out, as is a preset with a gain short.
-    fn decode(text: &str) -> Presets {
-        let numbers =
-            |v: &str| -> Option<Vec<f32>> { v.split(',').map(|n| n.trim().parse().ok()).collect() };
+/// None at all, for a screen read without the music.
+pub static NO_PRESETS: Presets = Presets {
+    hz: [0.0; BANDS],
+    width: 1.0,
+    presets: Vec::new(),
+};
+
+impl Presets {
+    /// Slot's, then the listener's own from `own`, the card's file: a line it cannot read is
+    /// left out, as is one named as one of slot's.
+    pub fn read(own: &str) -> Presets {
         let mut eq = Presets {
-            width: 1.0,
-            ..Presets::default()
+            presets: Vec::new(),
+            ..NO_PRESETS.clone()
         };
-        let lines = text.lines().map(str::trim).filter(|l| !l.starts_with('#'));
-        for (key, value) in lines.filter_map(|l| l.split_once('=')) {
-            let (key, value) = (key.trim(), value.trim());
+        for (key, value) in lines(SHIPPED) {
             match key {
-                "bands" => eq.bands = numbers(value).unwrap_or_default(),
+                "bands" => eq.hz = gains(value).unwrap_or_default(),
                 "width" => eq.width = value.parse().unwrap_or(1.0),
-                name => {
-                    if let Some(gains) = numbers(value).filter(|g| g.len() == eq.bands.len()) {
-                        eq.presets.push((name.to_string(), gains));
-                    }
-                }
+                name => eq.add(name, gains(value), false),
+            }
+        }
+        for (name, value) in lines(own).filter(|&(k, _)| k != "bands" && k != "width") {
+            if eq.find(name) == 0 {
+                eq.add(name, gains(value), true);
             }
         }
         eq
     }
 
+    fn add(&mut self, name: &str, gains: Option<Gains>, own: bool) {
+        if let Some(gains) = gains {
+            let name = name.to_string();
+            self.presets.push(Preset { name, gains, own });
+        }
+    }
+
+    /// The listener's own presets as their file keeps them.
+    pub fn encode(&self) -> String {
+        let mut text =
+            String::from("# Your equalizer presets, made in Music Settings. Rename one here.\n");
+        for p in self.presets.iter().filter(|p| p.own) {
+            let gains: Vec<String> = p.gains.iter().map(f32::to_string).collect();
+            text.push_str(&format!("{} = {}\n", p.name, gains.join(", ")));
+        }
+        text
+    }
+
     pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.presets.iter().map(|(name, _)| name.as_str())
+        self.presets.iter().map(|p| p.name.as_str())
     }
 
     pub fn len(&self) -> usize {
@@ -78,23 +104,71 @@ impl Presets {
         self.names().position(|n| n == name).map_or(0, |i| i + 1)
     }
 
-    /// The name of preset `i`, from 1; none for off.
-    pub fn name(&self, i: usize) -> Option<&str> {
-        self.presets.get(i.checked_sub(1)?).map(|(n, _)| n.as_str())
+    /// Preset `i`, from 1; none for off.
+    pub fn get(&self, i: usize) -> Option<&Preset> {
+        self.presets.get(i.checked_sub(1)?)
     }
 
-    /// The bands preset `i` plays through, from 1; none for off.
-    pub fn bands(&self, i: usize) -> Vec<Band> {
-        let Some((_, gains)) = i.checked_sub(1).and_then(|i| self.presets.get(i)) else {
+    /// The name of preset `i`, from 1; none for off.
+    pub fn name(&self, i: usize) -> Option<&str> {
+        self.get(i).map(|p| p.name.as_str())
+    }
+
+    /// The gains of preset `i`, from 1; flat for off.
+    pub fn gains(&self, i: usize) -> Gains {
+        self.get(i).map_or([0.0; BANDS], |p| p.gains)
+    }
+
+    /// The centre of each band, in Hz.
+    pub fn hz(&self) -> [f32; BANDS] {
+        self.hz
+    }
+
+    /// The bands `gains` play through: none when flat, which is off.
+    pub fn bands(&self, gains: Gains) -> Vec<Band> {
+        if gains.iter().all(|&db| db == 0.0) {
             return Vec::new();
-        };
+        }
         let band = |(&hz, &db)| Band {
             hz,
             db,
             q: self.width,
         };
-        self.bands.iter().zip(gains).map(band).collect()
+        self.hz.iter().zip(&gains).map(band).collect()
     }
+
+    /// Keeps `gains` as the listener's own preset `name`, after the rest: where it is, from 1.
+    pub fn keep(&mut self, name: String, gains: Gains) -> usize {
+        self.presets.push(Preset {
+            name,
+            gains,
+            own: true,
+        });
+        self.presets.len()
+    }
+
+    /// Deletes preset `i`, from 1, if it is the listener's own; whether it did.
+    pub fn delete(&mut self, i: usize) -> bool {
+        let own = self.get(i).is_some_and(|p| p.own);
+        if own {
+            self.presets.remove(i - 1);
+        }
+        own
+    }
+}
+
+/// `text`'s `key = value` lines, but for comments.
+fn lines(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    let lines = text.lines().map(str::trim).filter(|l| !l.starts_with('#'));
+    lines
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim(), v.trim()))
+}
+
+/// A gain for each band, or none if one is missing or unreadable.
+fn gains(value: &str) -> Option<Gains> {
+    let numbers: Option<Vec<f32>> = value.split(',').map(|n| n.trim().parse().ok()).collect();
+    numbers?.try_into().ok()
 }
 
 #[cfg(test)]
@@ -102,33 +176,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presets_are_read_from_the_file_and_without_one_from_what_slot_ships() {
-        let text = "bands = 100, 1000\nwidth = 0.7\nWarm = 3, -1\nShort = 3\n# A note\n";
-        let eq = Presets::read(text);
-        assert_eq!(
-            eq.names().collect::<Vec<_>>(),
-            ["Warm"],
-            "a preset a gain short left out"
-        );
-        assert_eq!((eq.find("Warm"), eq.find("Gone")), (1, 0));
-        assert_eq!(eq.name(1), Some("Warm"));
-        assert_eq!(eq.name(0), None, "off");
-        let bands = eq.bands(1);
-        assert_eq!(
-            bands[1],
-            Band {
-                hz: 1000.0,
-                db: -1.0,
-                q: 0.7
-            }
-        );
-        assert!(eq.bands(0).is_empty());
+    fn slot_s_presets_come_first_then_the_listener_s_own_from_the_card() {
         let shipped = Presets::read("");
+        let n = shipped.len();
         assert!(
-            shipped.len() >= 3,
+            n >= 3,
             "slot's own: {:?}",
             shipped.names().collect::<Vec<_>>()
         );
-        assert!(shipped.bands(1).len() == 5);
+        assert!(shipped.get(1).is_some_and(|p| !p.own));
+        let own =
+            "bands = 1, 2\nMine = 3, -1, 0, 0, 2.5\nShort = 3\n# A note\nVocal = 1, 1, 1, 1, 1\n";
+        let eq = Presets::read(own);
+        assert_eq!(
+            eq.len(),
+            n + 1,
+            "one short, and one named as slot's, left out"
+        );
+        assert_eq!(eq.find("Mine"), n + 1);
+        assert_eq!(eq.gains(n + 1), [3.0, -1.0, 0.0, 0.0, 2.5]);
+        assert!(eq.get(n + 1).is_some_and(|p| p.own));
+        assert_eq!(eq.gains(0), [0.0; BANDS], "off is flat");
+        assert_eq!((eq.find("Gone"), eq.name(0)), (0, None));
+    }
+
+    #[test]
+    fn flat_plays_through_no_bands_and_the_rest_through_every_band() {
+        let eq = Presets::read("");
+        assert!(eq.bands([0.0; BANDS]).is_empty(), "flat is off");
+        let bands = eq.bands([1.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(bands.len(), BANDS);
+        assert_eq!((bands[0].hz, bands[0].db), (eq.hz()[0], 1.0));
+    }
+
+    #[test]
+    fn the_listener_s_own_are_kept_deleted_and_written_back_but_slot_s_stay() {
+        let mut eq = Presets::read("");
+        let first = eq.len();
+        let at = eq.keep("Custom 1".into(), [2.0, 0.0, -1.5, 0.0, 4.0]);
+        assert_eq!(at, first + 1);
+        let again = Presets::read(&eq.encode());
+        assert_eq!(again, eq, "read back as written");
+        assert!(!eq.delete(1), "slot's stay");
+        assert!(eq.delete(at));
+        assert_eq!(eq.len(), first);
+        assert!(
+            !eq.encode().contains('='),
+            "none of slot's written: {}",
+            eq.encode()
+        );
     }
 }

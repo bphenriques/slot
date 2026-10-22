@@ -35,13 +35,15 @@ pub use face::{
     music_heart_face, music_hint_face, music_letter_face, music_line_face, music_no_art_face,
     music_number_w, music_paragraph_face, music_ring_face, music_row_face, music_row_heart_face,
     music_second_face, music_status_face, music_thumb_blank_face, music_window, Ink, LineInk,
-    MUSIC_STATUS,
+    RowWords, MUSIC_STATUS,
 };
 pub use list::{music_rich_px, music_row_ink, music_row_px, music_row_text_w};
 pub use text_view::TextFaces;
 pub use theme::MusicTheme;
 pub use tint::{music_tint, music_tint_ink, MusicTint};
-pub use tween::{music_eased, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS};
+pub use tween::{
+    music_arrived, music_eased, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS,
+};
 
 // Type.
 /// List type as a share of its row spacing, from Normal: 24 px on 46 px rows, room between them
@@ -101,7 +103,8 @@ const MARQUEE_BEAT_MS: u64 = 40;
 const FIT_MIN: f32 = 0.88;
 
 // Motion: its durations and curve are in `tween`.
-const SLIDE_PX: f32 = 56.0;
+/// How far a new screen slides in from: enough to say which way, not so far it leaves a gap.
+const SLIDE_PX: f32 = 32.0;
 /// The box the letter a list jumped to shows in, and the letter's size.
 const LETTER_BOX: f32 = 96.0;
 const LETTER_PX: f32 = 64.0;
@@ -313,7 +316,7 @@ pub fn draw_music(faces: &MusicFaces, out: &mut Vec<Draw>) {
     match &faces.body {
         BodyFaces::List(list) => list::draw(list, canvas, theme, out),
         BodyFaces::NowPlaying(np) => now_playing::draw(np, faces.motion.art, canvas, theme, out),
-        BodyFaces::Text(text) => text_view::draw(text, canvas, out),
+        BodyFaces::Text(text) => text_view::draw(text, canvas, theme, out),
     }
     // A new body slides in from its side, opaque by halfway so the travel reads; the header
     // and legend stay.

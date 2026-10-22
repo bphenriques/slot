@@ -20,9 +20,21 @@ pub const MUSIC_ART_MS: u64 = 220;
 
 /// How far along an ease `since` ms in, of one over `over` ms: 0 to 1, slot's curve.
 pub fn music_eased(since: u64, over: u64) -> f32 {
+    ease(done(since, over))
+}
+
+/// How far a screen coming in has come, `since` ms into `over`: quick at first, then settling,
+/// as what arrives moves. Slot's curve starts slow, which leaves a new screen all but unseen
+/// for its first frames while its title and hints are already up.
+pub fn music_arrived(since: u64, over: u64) -> f32 {
+    1.0 - (1.0 - done(since, over)).powi(3)
+}
+
+/// How much of `over` ms `since` is, 0 to 1, slowed as `SLOT_MUSIC_SLOW` says.
+fn done(since: u64, over: u64) -> f32 {
     let over = over as f32 * slow();
     if over > 0.0 {
-        ease((since as f32 / over).min(1.0))
+        (since as f32 / over).min(1.0)
     } else {
         1.0
     }
@@ -85,5 +97,16 @@ mod tests {
         t.toward(20.0, 50, 100);
         assert_eq!(t.at(50, 100), half, "no jump");
         assert_eq!(t.at(150, 100), 20.0, "there in the end");
+    }
+
+    #[test]
+    fn a_screen_coming_in_is_most_of_the_way_by_a_third_of_its_time_and_there_at_the_end() {
+        assert_eq!(music_arrived(0, 150), 0.0);
+        assert!(music_arrived(50, 150) > 0.7, "quick at first");
+        assert!(
+            music_eased(50, 150) < 0.25,
+            "where slot's curve has barely begun"
+        );
+        assert_eq!(music_arrived(150, 150), 1.0);
     }
 }
