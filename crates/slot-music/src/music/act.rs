@@ -77,7 +77,7 @@ impl Music {
                 part,
                 chapter,
             } => self.go_book_chapter(book, part, chapter),
-            // Marked with the lid closed, a buzz says so, as nothing is seen.
+            // Marked with the screen off, a buzz says so, as nothing is seen.
             Outcome::Bookmark => {
                 if self.dark {
                     self.buttons.pocket.tick(self.now.at);

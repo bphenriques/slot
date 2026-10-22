@@ -1,6 +1,7 @@
-//! The screen off, with music playing on: the keys a closed lid leaves, the shoulders and
-//! triggers. L1 and R1 change song, as on Now Playing, and held they seek; L2 and R2 play or
-//! pause, as A would, out of reach under the lid, and as a headphone's button does. In a book,
+//! The screen off, by POWER or a closed lid, with music playing on: the keys found blind, the
+//! shoulders and triggers. L1 and R1 change song, as on Now Playing, and held they seek; L2 and
+//! R2 play or pause, as A would, out of reach in a pocket or under a lid, and as a headphone's
+//! button does. In a book,
 //! what is wanted on the go: L1 and R1 jump back or on, to hear again what was missed, and a
 //! trigger held marks the moment.
 
@@ -43,7 +44,7 @@ mod tests {
         assert_eq!(
             act(Press::Tap(Key::A), None),
             Outcome::None,
-            "the rest are under the lid"
+            "the rest are out of reach"
         );
         // A trigger acts as it is let go, so it may yet be one of the two that lock.
         let dark = binds::dark(false);

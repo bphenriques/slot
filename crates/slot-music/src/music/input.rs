@@ -25,7 +25,7 @@ impl Music {
     /// whether they are held, some act as they are let go, and some repeat.
     pub fn input(&mut self, input: Input) -> bool {
         self.stamp();
-        // The pocket combo is for a pocket: Now Playing, or the lid closed; elsewhere the
+        // The pocket combo is for a pocket: Now Playing, or the screen off; elsewhere the
         // shoulders are a list's.
         let pocket = self.dark || self.browser.view() == View::NowPlaying;
         let read = self.buttons.controller.read(input, pocket);
@@ -96,13 +96,13 @@ impl Music {
     }
 
     /// The screen went off or on: off, the music pauses unless set to play on, and only the
-    /// shoulders act, as a closed lid leaves them.
+    /// shoulders act, as a pocket or a closed lid leaves them.
     pub fn set_dark(&mut self, dark: bool) {
         self.stamp();
         self.dark = dark;
         self.let_go();
-        // A lock is for the pocket: set to, the lid shut locks the keys, quietly, as the lid says
-        // it already; the lid opened, the keys are back.
+        // A lock is for the pocket: set to, the screen going off locks the keys, quietly, as its
+        // going off says it already; back on, the keys are back.
         let locks = self.settings.screen_off == ScreenOff::PlayLocked;
         self.buttons.pocket.locked = dark && (locks || self.buttons.pocket.locked);
         if dark && !self.settings.screen_off.plays() {

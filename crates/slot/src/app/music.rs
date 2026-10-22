@@ -144,13 +144,14 @@ impl App {
         true
     }
 
-    /// The lid closed: nothing shows until it opens, though music may play on for hours.
+    /// The screen off, by POWER or the lid: nothing shows until it is back, though music may
+    /// play on for hours.
     pub fn resting(&self) -> bool {
         matches!(self.phase, Phase::Doze { .. })
     }
 
     /// Whether the next frame would show what the last one did, so need not be drawn, the panel
-    /// keeping that one up: the lid closed, or the music screen with nothing new to show and
+    /// keeping that one up: the screen off, or the music screen with nothing new to show and
     /// nothing on its way.
     fn holds_still(&self) -> bool {
         match &self.music_frames.drawn {
@@ -162,7 +163,7 @@ impl App {
                 }
                 still
             }
-            // The lid closed: drawn once so, and then nothing until it opens.
+            // The screen off: drawn once so, and then nothing until it is back.
             Some(Drawn::Rest) => self.resting(),
             _ => false,
         }
@@ -181,7 +182,7 @@ impl App {
     }
 
     /// For how long the loop may rest once the frame up stands, as one just drawn does: none
-    /// unless a frame of slot's own is drawn so, the music's or the lid closed.
+    /// unless a frame of slot's own is drawn so, the music's or the screen off.
     pub fn rest_for(&self) -> Option<Duration> {
         let frames = &self.music_frames;
         let step = match frames.drawn.as_ref()? {
@@ -359,7 +360,7 @@ fn say_busy() {
 }
 
 /// What was last drawn, where it can stay up: the music screen, and when it next moves of
-/// itself, if it does; or the lid closed.
+/// itself, if it does; or the screen off.
 pub(super) enum Drawn {
     Music {
         shown: Box<Shown>,

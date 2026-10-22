@@ -73,8 +73,10 @@ Formats: MP3, AAC and Apple Lossless (`.m4a`, `.m4b`, `.aac`), FLAC, Ogg Vorbis,
 
 ## Pocket and screen off
 
-- Two of L1, R1, L2 and R2 held together on Now Playing, or with the lid closed, lock the other
+- The screen goes off with POWER, or by closing the lid on a device that has one: the same either
+  way.
+- Two of L1, R1, L2 and R2 held together on Now Playing, or with the screen off, lock the other
   keys, or unlock them; a buzz says which.
-- With Screen Off set to Keep Playing, music goes on with the lid closed: L1 and R1 skip (in a
+- With Screen Off set to Keep Playing, music goes on with the screen off: L1 and R1 skip (in a
   book, jump), held they seek; a jump that lands in another chapter buzzes once; L2 and R2 play or pause, held in a book they bookmark. Paused,
   slot powers off after its screen-off time.

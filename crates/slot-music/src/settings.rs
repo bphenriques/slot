@@ -6,7 +6,7 @@ use crate::playback::player::Repeat;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Settings {
     pub repeat: Repeat,
-    /// What the screen going off or the lid shutting does to music playing (`screen_off`).
+    /// What the screen going off, by POWER or a lid shut, does to music playing (`screen_off`).
     pub screen_off: ScreenOff,
     /// Music opens on Now Playing while something plays (`open = playing`), as phones do; else
     /// where it was left (`open = left`).
@@ -40,7 +40,7 @@ pub struct Settings {
     pub help_seen: bool,
 }
 
-/// What the screen going off or the lid shutting does to music playing.
+/// What the screen going off, by POWER or a lid shut, does to music playing.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum ScreenOff {
     /// It pauses (`pause`).
@@ -48,7 +48,7 @@ pub enum ScreenOff {
     Pause,
     /// It plays on, the shoulders still skipping and pausing (`play`).
     Play,
-    /// It plays on, the keys locked until the lid opens, for a pocket (`locked`): as the two
+    /// It plays on, the keys locked until the screen is back, for a pocket (`locked`): as the two
     /// shoulders held do, without them.
     PlayLocked,
 }

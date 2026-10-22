@@ -57,7 +57,7 @@ pub const KEYS: [(&str, &[(&str, &str)]); 6] = [
     ),
     ("Pocket", &[("Two shoulders held", "Lock or unlock")]),
     (
-        "Lid closed",
+        "Screen off",
         &[
             ("L1 / R1", "Skip, or jump in a book"),
             ("L1 / R1 held", "Seek"),

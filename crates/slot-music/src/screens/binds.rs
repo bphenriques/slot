@@ -260,7 +260,7 @@ pub(crate) fn binds(legend: Legend) -> Vec<Bind> {
     binds
 }
 
-/// With the lid closed, the keys it leaves: the shoulders, which seek held, and the triggers,
+/// With the screen off, the keys found blind: the shoulders, which seek held, and the triggers,
 /// which play or pause as they are let go, so either may yet be one of the two that lock; in a
 /// `book`, held, they mark the moment. The rest do nothing, and nothing is hinted.
 pub(crate) fn dark(book: bool) -> Vec<Bind> {
@@ -286,14 +286,14 @@ mod tests {
     use super::*;
     use crate::text;
 
-    /// Every screen's table, and the lid's.
+    /// Every screen's table, and the screen off's.
     fn tables() -> Vec<(String, Vec<Bind>)> {
         let mut all: Vec<(String, Vec<Bind>)> = Legend::all()
             .into_iter()
             .map(|legend| (format!("{legend:?}"), binds(legend)))
             .collect();
-        all.push(("the lid closed".into(), dark(false)));
-        all.push(("the lid closed on a book".into(), dark(true)));
+        all.push(("the screen off".into(), dark(false)));
+        all.push(("the screen off on a book".into(), dark(true)));
         all
     }
 
@@ -334,10 +334,10 @@ mod tests {
     fn a_hint_says_a_hold_only_of_a_key_that_holds_and_a_key_that_holds_says_so() {
         // Held anywhere, as Controls says: B goes home, START pauses or plays.
         let everywhere = [Key::B, Key::Start];
-        // With the lid closed nothing is seen, so nothing is hinted; Controls says it.
+        // With the screen off nothing is seen, so nothing is hinted; Help says it.
         let lit = tables()
             .into_iter()
-            .filter(|(name, _)| !name.starts_with("the lid"));
+            .filter(|(name, _)| !name.starts_with("the screen off"));
         for (name, binds) in lit {
             for bind in binds {
                 let holds = matches!(bind.mode, Mode::Hold | Mode::HoldRepeat);

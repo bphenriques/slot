@@ -1,13 +1,13 @@
 //! The controller as the music takes it: buttons going down and up, read into the keys the
 //! screens know. Two together can be one: any two of the shoulders and triggers are the pocket
-//! combo where it is wanted (Now Playing, and the lid closed), however a hand finds them blind,
+//! combo where it is wanted (Now Playing, and the screen off), however a hand finds them blind,
 //! one finger squeezing a side's pair or one on each; L1 or R1 with SELECT held skips. The
 //! rest are each their own key. What a key then does, tapped or held, is the screens'.
 
 use crate::browse::Key;
 
 /// A button on the controller, as the music takes them; slot keeps its own (MENU, power, the
-/// volume and the lid).
+/// volume, and the lid where there is one).
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Button {
     Up,
