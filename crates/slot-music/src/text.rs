@@ -9,7 +9,7 @@ use crate::playback::fade::Sleep;
 use crate::playback::player::Repeat;
 use crate::screens::binds::binds;
 use crate::screens::Legend;
-use crate::settings::{Setting, Settings};
+use crate::settings::{ScreenOff, Setting, Settings};
 
 pub const MUSIC: &str = "Music";
 pub const NOW_PLAYING: &str = "Now Playing";
@@ -274,7 +274,12 @@ pub fn setting(
     let on_off = |on: bool| on_off(on).to_string();
     let pick = |on: bool, yes: &str, no: &str| if on { yes } else { no }.to_string();
     match setting {
-        Setting::ScreenOff => pick(settings.play_screen_off, "Keep Playing", "Pause"),
+        Setting::ScreenOff => match settings.screen_off {
+            ScreenOff::Pause => "Pause",
+            ScreenOff::Play => "Keep Playing",
+            ScreenOff::PlayLocked => "Play Locked",
+        }
+        .into(),
         Setting::OpenPlaying => on_off(settings.open_playing),
         Setting::SleepTimer => match sleep {
             None => on_off(false),

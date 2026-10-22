@@ -6,9 +6,8 @@ use crate::playback::player::Repeat;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Settings {
     pub repeat: Repeat,
-    /// `screen_off = play` keeps music going with the screen off or the lid shut; `pause`
-    /// (default) pauses it.
-    pub play_screen_off: bool,
+    /// What the screen going off or the lid shutting does to music playing (`screen_off`).
+    pub screen_off: ScreenOff,
     /// Music opens on Now Playing while something plays (`open = playing`), as phones do; else
     /// where it was left (`open = left`).
     pub open_playing: bool,
@@ -39,6 +38,28 @@ pub struct Settings {
     pub log: bool,
     /// Whether Help was shown on the first start (`help = seen`), not to show it again.
     pub help_seen: bool,
+}
+
+/// What the screen going off or the lid shutting does to music playing.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum ScreenOff {
+    /// It pauses (`pause`).
+    #[default]
+    Pause,
+    /// It plays on, the shoulders still skipping and pausing (`play`).
+    Play,
+    /// It plays on, the keys locked until the lid opens, for a pocket (`locked`): as the two
+    /// shoulders held do, without them.
+    PlayLocked,
+}
+
+impl ScreenOff {
+    pub const ALL: [ScreenOff; 3] = [ScreenOff::Pause, ScreenOff::Play, ScreenOff::PlayLocked];
+
+    /// Whether music plays on.
+    pub fn plays(self) -> bool {
+        self != ScreenOff::Pause
+    }
 }
 
 /// A setting the music screens change. The sleep timer is on Now Playing's menu and never
@@ -104,7 +125,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             repeat: Repeat::Off,
-            play_screen_off: false,
+            screen_off: ScreenOff::Pause,
             open_playing: false,
             jump: 30,
             mono: false,
@@ -136,7 +157,7 @@ impl Settings {
     /// Left, Right or A on a setting. The sleep timer is the facade's, not a saved setting.
     pub fn change(&mut self, setting: Setting, by: i32) {
         match setting {
-            Setting::ScreenOff => self.play_screen_off ^= true,
+            Setting::ScreenOff => self.screen_off = cycle(&ScreenOff::ALL, self.screen_off, by),
             Setting::OpenPlaying => self.open_playing ^= true,
             Setting::Mono => self.mono ^= true,
             Setting::Visualizer => self.visualizer ^= true,

@@ -5,7 +5,7 @@ use slot_store::ini;
 
 use super::Store;
 use crate::playback::player::Repeat;
-use crate::settings::{Settings, BOOSTS, FADES, JUMPS};
+use crate::settings::{ScreenOff, Settings, BOOSTS, FADES, JUMPS};
 
 pub const SETTINGS_FILE: &str = "Config/music.txt";
 
@@ -44,7 +44,11 @@ impl Settings {
         };
         Settings {
             repeat: get("repeat").and_then(Repeat::parse).unwrap_or_default(),
-            play_screen_off: is("screen_off", "play"),
+            screen_off: match get("screen_off") {
+                Some(v) if v.eq_ignore_ascii_case("play") => ScreenOff::Play,
+                Some(v) if v.eq_ignore_ascii_case("locked") => ScreenOff::PlayLocked,
+                _ => ScreenOff::Pause,
+            },
             open_playing: is("open", "playing"),
             // Named in music.txt, and found among the presets: `Store::equalizer`.
             eq: 0,
@@ -74,7 +78,14 @@ impl Settings {
         let (crossfade, boost) = (self.crossfade.to_string(), self.boost.to_string());
         let entries = [
             ("repeat", self.repeat.key()),
-            ("screen_off", pick(self.play_screen_off, "play", "pause")),
+            (
+                "screen_off",
+                match self.screen_off {
+                    ScreenOff::Pause => "pause",
+                    ScreenOff::Play => "play",
+                    ScreenOff::PlayLocked => "locked",
+                },
+            ),
             ("open", pick(self.open_playing, "playing", "left")),
             ("jump", jump.as_str()),
             ("mono", pick(self.mono, "on", "off")),
@@ -117,6 +128,29 @@ mod tests {
             "the one changed, beside what was there: {text}"
         );
         assert_eq!(store.settings(), now);
+    }
+
+    #[test]
+    fn screen_off_reads_pause_play_or_locked_and_writes_them_back() {
+        use crate::settings::ScreenOff;
+        for (kept, choice) in [
+            ("pause", ScreenOff::Pause),
+            ("play", ScreenOff::Play),
+            ("locked", ScreenOff::PlayLocked),
+        ] {
+            let read = Settings::decode(&format!("screen_off = {kept}"));
+            assert_eq!(read.screen_off, choice, "{kept}");
+            let written = read.entries();
+            assert!(
+                written.contains(&("screen_off", kept.to_string())),
+                "{kept}"
+            );
+        }
+        assert_eq!(
+            Settings::decode("").screen_off,
+            ScreenOff::Pause,
+            "pauses unless set"
+        );
     }
 
     #[test]

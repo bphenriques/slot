@@ -527,7 +527,7 @@ impl Music {
 
     /// Whether music carries on with the screen off (`screen_off = play`).
     pub fn plays_screen_off(&self) -> bool {
-        self.settings.play_screen_off
+        self.settings.screen_off.plays()
     }
 
     /// Shows `notice` in the corner for a moment.

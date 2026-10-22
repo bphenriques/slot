@@ -2127,3 +2127,31 @@ fn the_visualizer_asks_for_the_levels_only_while_they_are_seen_and_shows_them_as
     rig.keys(&[Button::B]);
     assert!(asked(&mut rig, false), "away from Now Playing, no more");
 }
+
+#[test]
+fn set_to_play_locked_the_lid_shut_locks_the_keys_and_opened_gives_them_back() {
+    use crate::settings::ScreenOff;
+    let mut rig = Rig::new(&["Music/X/A/01 one.mp3", "Music/X/A/02 two.mp3"]);
+    rig.keys(&[Button::A]);
+    rig.music.settings.screen_off = ScreenOff::Play;
+    rig.music.set_dark(true);
+    assert!(
+        !rig.music.buttons.pocket.locked,
+        "plays on, the shoulders still its"
+    );
+    rig.music.set_dark(false);
+    rig.music.settings.screen_off = ScreenOff::PlayLocked;
+    rig.music.set_dark(true);
+    assert!(
+        rig.music.buttons.pocket.locked,
+        "shut, locked, with no combo"
+    );
+    rig.told();
+    rig.keys(&[Button::R1, Button::R2]);
+    assert_eq!(rig.told(), [], "nothing changes in a pocket");
+    rig.music.set_dark(false);
+    assert!(
+        !rig.music.buttons.pocket.locked,
+        "opened, the keys are back"
+    );
+}

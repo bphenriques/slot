@@ -1,8 +1,10 @@
 # Music player settings. Remove ".example" from the name to use this file. The Music Settings
 # page (Music > Settings) changes the same values.
 
-# What turning the screen off (POWER or closing the lid) does to music: pause, or play on.
-# Playing on keeps the device awake until the music stops, then it powers off as usual.
+# What turning the screen off (POWER or closing the lid) does to music: pause, play on (play),
+# or play on with the keys locked until the screen is back (locked), so nothing changes in a
+# pocket. Music Settings shows these as Pause, Keep Playing and Play Locked. Playing on keeps the
+# device awake until the music stops, then it powers off as usual.
 screen_off = pause
 
 # Where Music opens from slot's menu: playing (Now Playing, while something plays) or left (where

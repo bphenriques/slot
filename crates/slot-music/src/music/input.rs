@@ -7,6 +7,7 @@ use super::Music;
 use crate::browse::keys::{Keys, Mode};
 use crate::browse::{Key, View};
 use crate::screens;
+use crate::settings::ScreenOff;
 use std::time::Instant;
 
 /// The buttons as the music reads them: those down, the key acting (tapped, held or
@@ -99,9 +100,9 @@ impl Music {
         self.stamp();
         self.dark = dark;
         self.let_go();
-        // A lock is for the pocket: the lid opened, the keys are back.
-        if !dark {
-            self.buttons.pocket.locked = false;
-        }
+        // A lock is for the pocket: set to, the lid shut locks the keys, quietly, as the lid says
+        // it already; the lid opened, the keys are back.
+        let locks = self.settings.screen_off == ScreenOff::PlayLocked;
+        self.buttons.pocket.locked = dark && (locks || self.buttons.pocket.locked);
     }
 }
