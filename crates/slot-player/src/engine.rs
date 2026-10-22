@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use crate::eq::Equalizer;
 use crate::level::Leveling;
+use crate::spectrum::{Analyser, Timeline};
 use crate::track::Track;
 use crate::{Command, Event, PlayState};
 use crate::{Status, Work};
@@ -127,6 +128,10 @@ struct Snapshot {
     sampled: Option<Instant>,
     sounding: bool,
     work: Work,
+    /// Of all written, the frames as of `sampled`; and the spectrum of what was written, by
+    /// where each window ends, with it on.
+    total: u64,
+    timeline: Option<Timeline>,
 }
 
 impl Snapshot {
@@ -140,6 +145,12 @@ impl Snapshot {
         } else {
             at
         }
+    }
+
+    /// Of all written, the frames heard by `now`, as `heard_by` counts them of a file.
+    fn heard_of_all(&self, now: Instant) -> u64 {
+        let file = self.heard_by(now) as u64;
+        self.total.saturating_sub(self.queued) + file.saturating_sub(self.heard)
     }
 
     /// Frames heard by `now`: by the last write, and, playing, what the device has played of the
@@ -168,6 +179,10 @@ pub(crate) fn status(shared: &Shared) -> Status {
         len: if s.open { s.len } else { 0.0 },
         sounding: s.sounding,
         work: s.work,
+        spectrum: s
+            .timeline
+            .filter(|_| s.state == PlayState::Playing)
+            .and_then(|t| t.at(s.heard_of_all(Instant::now()))),
     }
 }
 
@@ -391,6 +406,9 @@ struct Writer<O: Output> {
     /// The work it has done, for the performance log.
     work: Work,
     chunk: Vec<f32>,
+    /// Of all written, the frames; and, the spectrum on, what analyses it and what it found.
+    total: u64,
+    spectrum: Option<(Analyser, Timeline)>,
 }
 
 impl<O: Output> Writer<O> {
@@ -417,6 +435,8 @@ impl<O: Output> Writer<O> {
             hushed: None,
             work: Work::default(),
             chunk: vec![0.0; CHUNK * usize::from(CHANNELS)],
+            total: 0,
+            spectrum: None,
         }
     }
 
@@ -526,6 +546,11 @@ impl<O: Output> Writer<O> {
             Command::Mono(on) => self.mono = on,
             Command::Boost(by) => self.boost = by.max(0.0),
             Command::Equalizer(bands) => self.eq.set(bands),
+            Command::Spectrum(on) => {
+                if on != self.spectrum.is_some() {
+                    self.spectrum = on.then(|| (Analyser::new(), Timeline::default()));
+                }
+            }
             Command::Crossfade(secs) => self.tracks.fade = secs.max(0.0),
             Command::Level(leveling) => {
                 let Tracks { now, next, .. } = &mut self.tracks;
@@ -679,6 +704,10 @@ impl<O: Output> Writer<O> {
             None => self.counted().heard_by(now) as u64,
             Some(_) => 0,
         };
+        self.total += CHUNK as u64;
+        if let Some((analyser, timeline)) = &mut self.spectrum {
+            analyser.take(&self.chunk, rate, self.total, timeline);
+        }
         self.written += of_now;
         self.queued = self.output.delay().min(self.written.saturating_sub(said));
         self.sampled = Some(now);
@@ -780,6 +809,8 @@ impl<O: Output> Writer<O> {
                 sampled: self.sampled,
                 sounding: self.sounding,
                 work: self.work,
+                total: self.total,
+                timeline: self.spectrum.as_ref().map(|(_, t)| *t),
             },
             None => Snapshot {
                 state: self.state,

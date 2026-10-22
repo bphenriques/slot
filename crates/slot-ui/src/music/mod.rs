@@ -43,9 +43,9 @@ pub use tint::{music_tint, music_tint_ink, MusicTint};
 pub use tween::{music_eased, MusicTween, MUSIC_ART_MS, MUSIC_GLIDE_MS, MUSIC_SLIDE_MS};
 
 // Type.
-/// List type as a share of its row spacing, from Normal: 24 px on 44 px rows. Small and Large
-/// scale from it through their row counts.
-const LIST_TYPE_PER_ROW: f32 = 24.0 / 44.0;
+/// List type as a share of its row spacing, from Normal: 24 px on 46 px rows, room between them
+/// to read. Small and Large scale from it through their row counts.
+const LIST_TYPE_PER_ROW: f32 = 24.0 / 46.0;
 /// Now Playing's second lines, against its main type.
 const SECOND_PX: f32 = MENU_PX * 0.8;
 /// Titles, counts and Now Playing's time.
@@ -57,12 +57,14 @@ const STATUS_PX: f32 = 26.0;
 /// The header sits in the middle of the band slot's volume and status use at the top, as slot's
 /// own top row does, so the volume shows over it whole rather than across it.
 const TITLE_Y: f32 = (PLATE_H - SMALL_H as f32) / 2.0;
-const ROWS_Y: f32 = 60.0;
+/// Rows start just under the header, the room left given to the space between them.
+const ROWS_Y: f32 = 48.0;
 const BAR_INSET: f32 = 4.0;
 /// The room a row's heart takes from its text.
 const MUSIC_HEART_ROOM: u32 = 40;
 const LEGEND_Y: f32 = 427.0;
-const PROGRESS_Y: f32 = 50.0;
+/// The thin bar of album pictures being made, just under the header, above the rows.
+const PROGRESS_Y: f32 = 42.0;
 const PROGRESS_H: f32 = 3.0;
 pub const ART_BOX: u32 = 240;
 /// A list row's album thumbnail, square, inside the highlight of a two-line row (five a page),
@@ -208,15 +210,14 @@ pub struct NowPlayingFaces {
     /// What the square shows until a picture comes, or with none: a note, or a book.
     pub no_art: Option<MusicFace>,
     pub status: Vec<MusicFace>,
+    /// The visualizer's bars behind it all, from the bass up, each 0 to 1 of their height.
+    pub bars: Vec<f32>,
     /// A book's speed when not as recorded: a word, padded as text is, after the state symbols.
     pub speed: Option<MusicFace>,
     pub progress: Option<f32>,
     /// Bookmarks along the bar, 0 to 1.
     pub marks: Vec<f32>,
     pub place: Option<MusicFace>,
-    /// A mark before the place saying whose it is: a book's, where it is the time the book has
-    /// left beside the chapter's.
-    pub place_mark: Option<MusicFace>,
     pub time: Option<MusicFace>,
     /// The track after this one, under the picture.
     pub next: Option<MusicFace>,

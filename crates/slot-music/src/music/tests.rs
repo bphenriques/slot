@@ -2103,3 +2103,27 @@ fn a_start_menu_hints_a_change_only_on_a_row_that_changes() {
     rig.to("Sleep Timer");
     assert!(changes(&rig), "the sleep timer changes");
 }
+
+#[test]
+fn the_visualizer_asks_for_the_levels_only_while_they_are_seen_and_shows_them_as_bars() {
+    use slot_player::BANDS;
+    let mut rig = Rig::new(&BOOK[2..]);
+    rig.keys(&[Button::A]);
+    let asked = |rig: &mut Rig, on| rig.told().contains(&Command::Spectrum(on));
+    assert!(!asked(&mut rig, true), "off, never asked");
+    rig.music.settings.visualizer = true;
+    rig.frames(FRAME);
+    assert!(asked(&mut rig, true), "on Now Playing, asked");
+    assert_eq!(rig.now_playing().bars, None, "none given yet");
+    rig.fake.0.borrow_mut().status.spectrum = Some([255; BANDS]);
+    rig.frames(FRAME);
+    assert_eq!(
+        rig.now_playing().bars,
+        Some([31; BANDS]),
+        "the loudest, the tallest"
+    );
+    let due = rig.music.due_in().expect("woken for the bars");
+    assert!(due <= Duration::from_millis(35), "as a film moves: {due:?}");
+    rig.keys(&[Button::B]);
+    assert!(asked(&mut rig, false), "away from Now Playing, no more");
+}

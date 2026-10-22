@@ -16,6 +16,8 @@ pub struct Settings {
     pub jump: u32,
     /// Both sides alike (`mono = on`), for one ear or one speaker; slot's player only.
     pub mono: bool,
+    /// Now Playing's background moves with what is heard (`visualizer = on`), faintly.
+    pub visualizer: bool,
     /// Songs brought to one loudness from their ReplayGain (`leveling = on`): an album's as a
     /// whole when played in order, each song's when shuffled; slot's player only.
     pub leveling: bool,
@@ -47,6 +49,7 @@ pub enum Setting {
     OpenPlaying,
     Jump,
     Mono,
+    Visualizer,
     Equalizer,
     Crossfade,
     Leveling,
@@ -67,7 +70,12 @@ impl Setting {
 
     /// The Sound page's, slot's player's alone. Songs always follow on with no gap, as on
     /// Apple Music: nothing is lost by it.
-    pub const MUSIC: [Setting; 3] = [Setting::Crossfade, Setting::Leveling, Setting::Mono];
+    pub const MUSIC: [Setting; 4] = [
+        Setting::Crossfade,
+        Setting::Leveling,
+        Setting::Mono,
+        Setting::Visualizer,
+    ];
 
     /// The Audiobooks page's: the jump, then what slot's player alone does for a voice.
     pub const BOOKS: [Setting; 2] = [Setting::Jump, Setting::Boost];
@@ -100,6 +108,7 @@ impl Default for Settings {
             open_playing: false,
             jump: 30,
             mono: false,
+            visualizer: false,
             leveling: false,
             crossfade: 0,
             eq: 0,
@@ -130,6 +139,7 @@ impl Settings {
             Setting::ScreenOff => self.play_screen_off ^= true,
             Setting::OpenPlaying => self.open_playing ^= true,
             Setting::Mono => self.mono ^= true,
+            Setting::Visualizer => self.visualizer ^= true,
             Setting::Crossfade => self.crossfade = cycle(&FADES, self.crossfade, by),
             Setting::SkipSilence => self.skip_silence ^= true,
             Setting::Boost => self.boost = cycle(&BOOSTS, self.boost, by),

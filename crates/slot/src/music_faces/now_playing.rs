@@ -30,6 +30,7 @@ pub(super) fn faces(
     glyphs: Glyphs,
     now: Millis,
 ) -> NowPlayingFaces {
+    let bars = body.bar_heights();
     let scroll = Some(text.scroll.ms((None, body.title.clone()), now));
     let width = music_text_width(true, canvas);
     let lines = [
@@ -90,10 +91,10 @@ pub(super) fn faces(
         no_art: Some(glyphs.no_art[usize::from(body.book)]),
         status,
         speed,
+        bars,
         progress: body.progress,
         marks: body.marks,
         place,
-        place_mark: body.book.then_some(glyphs.blank[1]),
         time,
         next,
         tint,

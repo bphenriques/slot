@@ -235,6 +235,17 @@ pub struct NowPlayingBody {
     /// A book's speed, worded, when it is not as recorded: shown beside the state symbols, as
     /// repeat and shuffle are for music.
     pub speed: Option<String>,
+    /// With the visualizer on, the bars behind it all, from the bass up, each 0 to 31.
+    pub bars: Option<slot_player::Bands>,
+}
+
+impl NowPlayingBody {
+    /// The bars' heights, each 0 to 1 of the tallest; none with the visualizer off.
+    pub fn bar_heights(&self) -> Vec<f32> {
+        let top = f32::from(crate::music::BAR_STEPS - 1);
+        let bars = self.bars.iter().flatten();
+        bars.map(|&b| f32::from(b) / top).collect()
+    }
 }
 
 /// Whether music plays, how it repeats, whether the queue is shuffled, and whether the song is
@@ -496,6 +507,9 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
         (View::Lyrics, _) => lyrics::steps_in(music),
         _ => None,
     };
+    // The bars, while there are: they move with every frame.
+    let bars =
+        (view == View::NowPlaying && music.bars().is_some()).then_some(crate::music::FRAME_S);
     // The countdown in Now Playing's corner, in seconds rounded up.
     let left = music
         .transport
@@ -503,5 +517,5 @@ pub(crate) fn steps_in(music: &Music) -> Option<f64> {
         .remaining(music.now.at)
         .filter(|_| view == View::NowPlaying);
     let sleep = left.and_then(|left| whole_in(-left.as_secs_f64(), 1.0));
-    [song, sleep].into_iter().flatten().reduce(f64::min)
+    [song, sleep, bars].into_iter().flatten().reduce(f64::min)
 }

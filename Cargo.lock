@@ -2909,6 +2909,7 @@ dependencies = [
  "lofty",
  "log",
  "rubato",
+ "rustfft",
  "symphonia",
  "symphonia-adapter-libopus",
  "tempfile",

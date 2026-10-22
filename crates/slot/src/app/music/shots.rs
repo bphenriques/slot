@@ -343,7 +343,8 @@ fn tag(path: &Path, title: &str, artist: &str, album: &str, n: usize, year: u32,
     tag.save_to_path(path, WriteOptions::default()).unwrap();
 }
 
-/// A minute of silence, mono at 8 kHz.
+/// A minute of a few soft tones swelling and fading in turn over a hush of noise, mono at 8 kHz:
+/// something for the visualizer to show across its bands.
 fn wav(path: &Path) {
     let (rate, secs) = (8_000u32, 60u32);
     let data = rate * secs * 2;
@@ -360,7 +361,22 @@ fn wav(path: &Path) {
     b.extend_from_slice(&16u16.to_le_bytes());
     b.extend_from_slice(b"data");
     b.extend_from_slice(&data.to_le_bytes());
-    b.resize(44 + data as usize, 0);
+    // A small generator of noise, the same every run: a linear congruential one.
+    let mut seed = 1u32;
+    for n in 0..rate * secs {
+        let t = n as f32 / rate as f32;
+        let sample: f32 = [110.0, 220.0, 440.0, 880.0, 1760.0, 3000.0]
+            .iter()
+            .enumerate()
+            .map(|(k, hz)| {
+                let swell = 0.5 + 0.5 * (std::f32::consts::TAU * t * (0.4 + 0.3 * k as f32)).sin();
+                0.1 * swell * (std::f32::consts::TAU * hz * t).sin()
+            })
+            .sum();
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let sample = sample + 0.3 * (seed as f32 / u32::MAX as f32 - 0.5);
+        b.extend_from_slice(&((sample * 32_767.0) as i16).to_le_bytes());
+    }
     std::fs::write(path, b).unwrap();
 }
 
@@ -705,6 +721,21 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     keep(s, "34-advanced");
     s.open("Experimental");
     keep(s, "35-experimental");
+    // The visualizer on, behind a song.
+    home(s);
+    s.open("Library");
+    s.open("Albums");
+    s.open("Blue Hours");
+    s.open("Opening Night");
+    home(s);
+    s.open("Settings");
+    s.open("Music");
+    s.to("Visualizer");
+    s.tap(Btn::Right);
+    keep(s, "35b-settings-visualizer");
+    s.tap(Btn::Select);
+    s.wait(600);
+    keep(s, "38-visualizer");
 }
 
 /// Keeps the screen as it is this moment, for what lasts only a moment (a notice, a letter,

@@ -58,7 +58,7 @@ notes are in the [changelog](CHANGELOG.md).
   a library sorted into folders still shows on the shelf.
 - **Music and audiobook player.** QUICK MENU > MUSIC plays what is in `Music/` and
   `Audiobooks/`, offline. Browse by artist, album, song, genre, year or folder, with album art
-  and `.m3u` playlists; play gapless, with Volume Leveling, an equalizer and synced lyrics. Books
+  and `.m3u` playlists; play gapless, with Volume Leveling, an equalizer, synced lyrics and an optional visualizer. Books
   keep their place, speed, chapters and bookmarks. Close the lid and it plays on, the shoulders
   still skipping and pausing. MP3, AAC, ALAC, FLAC, Ogg Vorbis, Opus and WAV.
 
@@ -103,7 +103,7 @@ The music player:
 </p>
 
 <p align="center">
-<img src=".github/resources/screenshots/music-15-queue.png" width="48%" alt="The queue, the song playing marked on its cover">
+<img src=".github/resources/screenshots/music-38-visualizer.png" width="48%" alt="Now Playing with the visualizer on: faint bars behind it, moving with the music">
 <img src=".github/resources/screenshots/music-26-book.png" width="48%" alt="An audiobook playing: the chapter, the next one, and the time the book has left">
 </p>
 

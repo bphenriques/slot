@@ -11,6 +11,7 @@ mod decode;
 mod engine;
 mod eq;
 mod level;
+mod spectrum;
 mod stretch;
 mod track;
 
@@ -21,6 +22,7 @@ use std::sync::Arc;
 pub use engine::Output;
 pub use eq::Band;
 pub use level::Leveling;
+pub use spectrum::{Bands, BANDS};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum PlayState {
@@ -66,6 +68,9 @@ pub enum Command {
     Boost(f32),
     /// The equalizer's bands, after the files are mixed; none plays as recorded.
     Equalizer(Vec<Band>),
+    /// Whether to tell the levels of what is heard, band by band, for a visualizer: off, it
+    /// costs nothing.
+    Spectrum(bool),
 }
 
 /// What a player tells slot.
@@ -103,6 +108,8 @@ pub struct Status {
     pub sounding: bool,
     /// What the writer has done since it began.
     pub work: Work,
+    /// Playing with the spectrum on, the levels of what is heard now, band by band.
+    pub spectrum: Option<Bands>,
 }
 
 /// The writer's work since it began, in nanoseconds of its own thread's time, never its waiting:

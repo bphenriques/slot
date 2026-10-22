@@ -30,7 +30,7 @@ pub fn music_rich_px() -> (u32, u32) {
 const ONE_LINE_ROWS: f32 = 8.0;
 
 /// The gap between a two-line row's lines, their type to type.
-const LINE_GAP: f32 = 2.0;
+const LINE_GAP: f32 = 4.0;
 
 /// How far a two-line row's lines are lifted, of the name's type: a name in capitals leaves
 /// its room below the baseline blank, so the pair, centred by type, would look low.

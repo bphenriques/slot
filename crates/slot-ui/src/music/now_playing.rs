@@ -21,6 +21,8 @@ pub(super) fn draw(
     theme: &MusicTheme,
     out: &mut Vec<Draw>,
 ) {
+    let ink = MusicTint::bar_ink(np.tint.as_ref(), art_in, theme);
+    draw_bars(&np.bars, ink, canvas, theme, out);
     draw_art(np, art_in, theme, out);
     let pad = MENU_PAD as f32;
     let (left, right) = (text_left(true) as f32, canvas.w - QUICK_EDGE);
@@ -52,7 +54,6 @@ pub(super) fn draw(
         push(out, tex, x, (middle - h as f32 / 2.0).round(), w, h);
         x -= STATUS_GAP;
     }
-    let ink = MusicTint::bar_ink(np.tint.as_ref(), art_in, theme);
     draw_progress(
         left,
         bar,
@@ -78,18 +79,49 @@ pub(super) fn draw(
         push(out, tex, left - pad, small, w, h);
     }
     if let Some((tex, w, h)) = np.place {
-        let x = right + pad - w as f32;
-        push(out, tex, x, small, w, h);
-        // Its mark a gap before its ink, centred on it.
-        if let Some((mtex, mw, mh)) = np.place_mark {
-            let y = (small + (h as f32 - mh as f32) / 2.0).round();
-            push(out, mtex, x + pad - STATUS_GAP - mw as f32, y, mw, mh);
-        }
+        push(out, tex, right + pad - w as f32, small, w, h);
     }
     // Up Next, midway between the picture and the hints.
     if let Some((tex, w, h)) = np.next {
         let y = ((NP_TOP + ART_BOX as f32 + LEGEND_Y - h as f32) / 2.0).round();
         push(out, tex, canvas.centred(w as f32).round(), y, w, h);
+    }
+}
+
+/// How tall the tallest bar stands, of the screen; the gap between bars; a bar's brighter top.
+const BARS_H: f32 = 0.6;
+const BAR_GAP: f32 = 3.0;
+const BAR_TOP: f32 = 3.0;
+
+/// The visualizer's bars behind it all, the bass at the left, rising from the bottom in the
+/// bar's ink, faint, each with a brighter top, as a level meter has.
+fn draw_bars(bars: &[f32], ink: [f32; 4], canvas: Canvas, theme: &MusicTheme, out: &mut Vec<Draw>) {
+    let pitch = canvas.w / bars.len().max(1) as f32;
+    let tallest = canvas.h * BARS_H;
+    for (i, &level) in bars.iter().enumerate() {
+        let h = (tallest * level.clamp(0.0, 1.0)).round();
+        if h < 1.0 {
+            continue;
+        }
+        let x = (i as f32 * pitch).round();
+        let w = ((i + 1) as f32 * pitch).round() - x - BAR_GAP;
+        let y = canvas.h - h;
+        let faint = |alpha: f32| [ink[0], ink[1], ink[2], alpha];
+        out.push(Draw::Rect {
+            x,
+            y,
+            w,
+            h,
+            colour: faint(theme.bars),
+        });
+        let top = BAR_TOP.min(h);
+        out.push(Draw::Rect {
+            x,
+            y,
+            w,
+            h: top,
+            colour: faint(2.0 * theme.bars),
+        });
     }
 }
 
@@ -163,34 +195,46 @@ mod tests {
     }
 
     #[test]
-    fn a_book_s_time_left_has_its_mark_just_before_it_and_clear_of_the_chapter_s_time() {
-        let (time, place, mark) = (TexId::from_raw(1), TexId::from_raw(2), TexId::from_raw(3));
-        let pad = MENU_PAD;
-        let np = NowPlayingFaces {
-            time: Some((time, 110 + 2 * pad, 20)),
-            place: Some((place, 150 + 2 * pad, 20)),
-            place_mark: Some((mark, 22, 22)),
+    fn the_bars_stand_behind_it_all_as_tall_as_their_level_and_silence_draws_none() {
+        let canvas = Canvas::FRAMED;
+        let np = |bars: Vec<f32>| NowPlayingFaces {
+            bars,
+            no_art: Some((TexId::from_raw(1), 96, 96)),
             ..NowPlayingFaces::default()
         };
         let mut out = Vec::new();
-        draw(&np, 0.0, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
-        let at = |id| {
-            out.iter()
-                .find_map(|d| match *d {
-                    Draw::Tex { tex, x, w, .. } if tex == id => Some((x, x + w)),
-                    _ => None,
-                })
-                .expect("drawn")
-        };
-        let pad = pad as f32;
-        let ((_, time_end), (place_start, _), (mark_start, mark_end)) =
-            (at(time), at(place), at(mark));
-        assert_eq!(
-            mark_end,
-            place_start + pad - STATUS_GAP,
-            "a gap before its ink"
+        draw(
+            &np(vec![0.0, 1.0, 0.5]),
+            1.0,
+            canvas,
+            &MusicTheme::dark(),
+            &mut out,
         );
-        assert!(mark_start > time_end - pad, "clear of the chapter's time");
+        let heights: Vec<f32> = out
+            .iter()
+            .take_while(|d| matches!(d, Draw::Rect { .. }))
+            .filter_map(|d| match *d {
+                Draw::Rect { h, y, .. } if y + h == canvas.h => Some(h),
+                _ => None,
+            })
+            .collect();
+        let tallest = (canvas.h * BARS_H).round();
+        assert_eq!(
+            heights,
+            [tallest, (tallest / 2.0).round()],
+            "first drawn, from the bottom"
+        );
+        let mut quiet = Vec::new();
+        draw(
+            &np(vec![0.0; 3]),
+            1.0,
+            canvas,
+            &MusicTheme::dark(),
+            &mut quiet,
+        );
+        let mut none = Vec::new();
+        draw(&np(Vec::new()), 1.0, canvas, &MusicTheme::dark(), &mut none);
+        assert_eq!(quiet, none, "silence draws nothing");
     }
 
     #[test]

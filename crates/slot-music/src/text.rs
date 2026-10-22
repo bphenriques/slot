@@ -203,6 +203,7 @@ pub fn row(row: Row, view: View) -> Option<&'static str> {
             Setting::OpenPlaying => "Open on Now Playing",
             Setting::Jump => "Jump Length",
             Setting::Mono => "Mono Audio",
+            Setting::Visualizer => "Visualizer",
             Setting::Equalizer => "Equalizer",
             Setting::Crossfade => "Crossfade",
             Setting::SkipSilence => "Skip Silence",
@@ -281,6 +282,7 @@ pub fn setting(
             Some(Sleep::End) => pick(book, "End of Chapter", "End of Song"),
         },
         Setting::Mono => on_off(settings.mono),
+        Setting::Visualizer => on_off(settings.visualizer),
         Setting::SkipSilence => on_off(settings.skip_silence),
         Setting::PerfLog => on_off(settings.perf),
         Setting::Equalizer => eq.map_or_else(|| on_off(false), str::to_string),
@@ -357,8 +359,7 @@ pub fn notice(notice: &Notice) -> String {
 }
 
 /// How long the whole book has left to play, in the words the sleep timer uses: 2 h 59 min left,
-/// 12 min left, marked as the book's beside the chapter's time; a minute started counts whole, so
-/// it never says none while some is left.
+/// 12 min left; a minute started counts whole, so it never says none while some is left.
 pub fn book_left(secs: f64) -> String {
     let minutes = (secs.max(0.0) / 60.0).ceil() as u64;
     match (minutes / 60, minutes % 60) {

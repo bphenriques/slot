@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use slot_player::{Command, Event, Handle, Output, PlayState, Status};
+use slot_player::{Command, Event, Handle, Output, PlayState, Status, BANDS};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -1041,4 +1041,32 @@ fn the_equalizer_cuts_a_band_after_the_mix_and_none_plays_as_recorded() {
     let less = peak(vec![cut]);
     let db = 20.0 * (less / flat).log10();
     assert!((db + 12.0).abs() < 1.0, "12 dB down at the band: {db}");
+}
+
+#[test]
+fn with_the_spectrum_on_the_status_tells_the_levels_heard_and_off_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let low = wav_of(dir.path(), "low.wav", 3.0, 48_000, 2, tone(100.0, 48_000));
+    let (handle, _capture) = player(Some(1.0));
+    handle.send(play(&low, 0.0));
+    settle(&handle, |s| s.state == PlayState::Playing && s.at > 0.2);
+    assert_eq!(handle.status().spectrum, None, "off, nothing told");
+    handle.send(Command::Spectrum(true));
+    let on = settle(&handle, |s| {
+        s.spectrum.is_some_and(|b| b.iter().any(|&l| l > 0))
+    });
+    let bands = on.spectrum.unwrap();
+    let loudest = (0..BANDS).max_by_key(|&b| bands[b]).unwrap();
+    assert!(
+        loudest < 6,
+        "100 Hz, in the bass: band {loudest} of {bands:?}"
+    );
+    handle.send(Command::Pause);
+    settle(&handle, |s| {
+        s.state == PlayState::Paused && s.spectrum.is_none()
+    });
+    handle.send(Command::Resume);
+    settle(&handle, |s| s.spectrum.is_some());
+    handle.send(Command::Spectrum(false));
+    settle(&handle, |s| s.spectrum.is_none());
 }

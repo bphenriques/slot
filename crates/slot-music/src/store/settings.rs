@@ -53,6 +53,7 @@ impl Settings {
                 .filter(|j| JUMPS.contains(j))
                 .unwrap_or(30),
             mono: is("mono", "on"),
+            visualizer: is("visualizer", "on"),
             // Once track or album, chosen now by how the queue plays.
             leveling: get("leveling").is_some_and(|v| !v.eq_ignore_ascii_case("off")),
             crossfade: number("crossfade", &FADES),
@@ -77,6 +78,7 @@ impl Settings {
             ("open", pick(self.open_playing, "playing", "left")),
             ("jump", jump.as_str()),
             ("mono", pick(self.mono, "on", "off")),
+            ("visualizer", pick(self.visualizer, "on", "off")),
             ("leveling", pick(self.leveling, "on", "off")),
             ("crossfade", crossfade.as_str()),
             ("skip_silence", pick(self.skip_silence, "on", "off")),

@@ -19,6 +19,10 @@ repeat = off
 # Audio.
 mono = off
 
+# Faint bars behind Now Playing that move with the music: on or off. Music Settings shows it as
+# Visualizer; while it shows, the screen is drawn more often, which uses a little more battery.
+visualizer = off
+
 # Songs brought to one loudness from their ReplayGain tags: on or off. An album keeps its own
 # loudness when played in order; shuffled, each song is levelled. Music Settings shows it as Volume
 # Leveling. Songs always follow on with no gap.

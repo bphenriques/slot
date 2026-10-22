@@ -175,6 +175,7 @@ pub(crate) fn screen(music: &Music, book: BookId, track: TrackId) -> Screen {
         next: next_chapter(music, book, part).map(|t| text::up_next_chapter(&t)),
         book: true,
         speed: (speed != 1.0).then(|| text::speed(speed)),
+        bars: music.bars(),
     };
     Screen::new(
         text::NOW_PLAYING,

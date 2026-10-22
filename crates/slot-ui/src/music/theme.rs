@@ -22,6 +22,8 @@ pub struct MusicTheme {
     pub lift: f32,
     /// How strongly a heart shows off the highlight, as values are dim.
     pub heart_dim: f32,
+    /// How strongly the visualizer's bars show behind Now Playing: faint, so it stays readable.
+    pub bars: f32,
 }
 
 impl MusicTheme {
@@ -37,6 +39,7 @@ impl MusicTheme {
             wash: 0.12,
             lift: 0.25,
             heart_dim: 0.55,
+            bars: 0.14,
         }
     }
 
@@ -54,6 +57,8 @@ impl MusicTheme {
             wash: 0.16,
             lift: 0.25,
             heart_dim: 0.55,
+            // Ink shows more on paper than light does on black.
+            bars: 0.1,
         }
     }
 

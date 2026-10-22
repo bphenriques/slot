@@ -40,6 +40,7 @@ fn music_settings_flip_with_left_and_right() {
             on("Crossfade", "Off"),
             on("Volume Leveling", "Off"),
             on("Mono Audio", "Off"),
+            on("Visualizer", "Off"),
         ]
     );
     sound.press(&own_cx, Key::B);

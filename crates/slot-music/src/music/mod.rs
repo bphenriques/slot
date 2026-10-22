@@ -17,6 +17,7 @@ mod perf;
 mod pocket;
 mod read_ahead;
 mod transport;
+mod visualizer;
 mod worker;
 
 use std::path::{Path, PathBuf};
@@ -32,6 +33,7 @@ use crate::lyrics::Lyrics;
 use crate::playback::player::Player;
 use crate::playback::recent::Recent;
 pub(crate) use read_ahead::ReadAhead;
+pub(crate) use visualizer::{BAR_STEPS, FRAME_S};
 
 use crate::integrations::scrobbler::Scrobbler;
 use crate::settings::Settings;
@@ -167,6 +169,7 @@ pub struct Music {
     pub(crate) recent: Recent,
     /// The equalizer's presets, from the card.
     pub(crate) equalizer: Presets,
+    pub(crate) visualizer: visualizer::Visualizer,
     /// What the scrobbler log was told of the song playing.
     scrobbler: Scrobbler,
     /// The screen is off: only the shoulders act.
@@ -258,6 +261,7 @@ impl Music {
             recent: Recent::default(),
             equalizer,
             scrobbler: Scrobbler::default(),
+            visualizer: Default::default(),
             dark: false,
         }
     }
@@ -299,6 +303,7 @@ impl Music {
         }
         self.read_chapters();
         self.tell_sound();
+        self.tell_visualizer(status.spectrum);
         self.keep_queue();
         if !self.dark {
             self.show_art(game);
