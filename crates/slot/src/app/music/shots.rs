@@ -12,8 +12,8 @@ use std::time::Duration;
 use slot_gfx::{Canvas, Draw, TexId};
 use slot_input::{Btn, RawEvent};
 use slot_music::{Body, Handle, Music};
+use slot_music_ui::{ART_BOX, THUMB_PX};
 use slot_store::Appearance;
-use slot_ui::music::{ART_BOX, THUMB_PX};
 
 use super::super::{App, Phase};
 use crate::music_faces::{MusicText, Textures};
@@ -515,7 +515,7 @@ impl Screen {
         }
         self.text.sync(&mut self.app, &mut self.textures);
         let mut draws = Vec::new();
-        slot_ui::music::draw_music(&self.app.music_faces, &mut draws);
+        slot_music_ui::draw_music(&self.app.music_faces, &mut draws);
         let canvas = self.app.music_faces.canvas;
         let rgba = raster(&draws, &self.textures, canvas);
         Shot {
@@ -655,7 +655,8 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     s.app.music_button(RawEvent::Up(Btn::R1));
     s.app.music_button(RawEvent::Up(Btn::L1));
     s.wait(100);
-    keep_now(s, keep, "18-locked");
+    // Locked stays in the corner until unlocked: the screen is let settle first.
+    keep(s, "18-locked");
     s.app.music_button(RawEvent::Down(Btn::L1));
     s.app.music_button(RawEvent::Down(Btn::R1));
     s.wait(700);
@@ -772,6 +773,11 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     keep(s, "40-new-preset");
     s.tap(Btn::Y);
     keep(s, "41-equalizer-own");
+    // The menus, each led by what plays, or the book to continue.
+    home(s);
+    keep(s, "01b-music-playing");
+    s.open("Audiobooks");
+    keep(s, "23b-audiobooks-continue");
 }
 
 /// Keeps the screen as it is this moment, for what lasts only a moment (a notice, a letter,

@@ -371,8 +371,15 @@ pub(crate) fn left_at(cx: &Context, rows: &[Row], book: BookId) -> usize {
 /// an album's own list, say, which numbers its songs instead.
 pub(crate) fn album(cx: &Context, view: View, row: Row) -> Option<AlbumId> {
     let lib = cx.lib;
-    if !view.rich() {
-        return None;
+    match row {
+        // A menu's lead row shows its picture in any list.
+        Row::NowPlaying if leads(cx, row) => {
+            let playing = cx.queue.tracks.get(cx.queue.at);
+            return playing.map(|&t| lib.tracks[t].album);
+        }
+        Row::Continue => return books::latest(lib, cx.shelf).map(|b| lib.books[b].album),
+        _ if !view.rich() => return None,
+        _ => {}
     }
     match row {
         Row::Album(a) => Some(a),
@@ -384,12 +391,36 @@ pub(crate) fn album(cx: &Context, view: View, row: Row) -> Option<AlbumId> {
     }
 }
 
-/// A row as shown. The playing track shows the play symbol in place of its number.
+/// Whether `row` leads its menu, set on two lines with its picture, as the rows of a list of
+/// albums are: what plays, under Now Playing or Resume, and the book to continue.
+pub(crate) fn leads(cx: &Context, row: Row) -> bool {
+    match row {
+        Row::NowPlaying => !idle(cx.queue),
+        Row::Continue => true,
+        _ => false,
+    }
+}
+
+/// What plays, as a lead row names it below: the song and who sings it, or the book and who
+/// wrote it.
+fn playing_name(cx: &Context) -> String {
+    let lib = cx.lib;
+    match (cx.book, cx.queue.tracks.get(cx.queue.at)) {
+        (Some(book), _) => book_name(lib, book),
+        (None, Some(&t)) => text::name_by(&lib.tracks[t].title, &lib.tracks[t].artist),
+        (None, None) => String::new(),
+    }
+}
+
+fn book_name(lib: &Library, book: BookId) -> String {
+    let album = &lib.albums[lib.books[book].album];
+    text::name_by(&album.name, &lib.artists[album.artist].name)
+}
+
+/// A row as shown. What plays is marked in its number's place, the number's room kept so its
+/// name stays in line with the rest.
 pub(crate) fn label(cx: &Context, view: View, row: Row) -> RowText {
     let mut text = describe(cx, view, row);
-    if text.playing {
-        text.before.clear();
-    }
     text.action = fixed(view).contains(&row);
     // Its thumbnail, once read.
     text.album = album(cx, view, row).filter(|&a| cx.thumbs.iter().any(|t| t.album == a));
@@ -415,16 +446,25 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
                 faint: lib.tracks_by_title.is_empty(),
                 ..RowText::plain(text::SHUFFLE_LIBRARY)
             },
-            (false, true) => RowText::plain(text::NOW_PLAYING),
-            (false, false) => RowText::plain(text::RESUME),
+            (false, playing) => RowText {
+                after: playing_name(cx),
+                // Marked on its picture as what plays is in a list, playing or paused.
+                playing: true,
+                ..RowText::plain(if playing {
+                    text::NOW_PLAYING
+                } else {
+                    text::RESUME
+                })
+            },
         },
         Row::Artist(a) => RowText::plain(&lib.artists[a].name),
         Row::Author(a) => RowText::plain(&lib.artists[a].name),
-        // Continue lit, as an action is, then the book it plays on, dim.
+        // Continue, then the book it plays on and who wrote it, below.
         Row::Continue => RowText {
             after: books::latest(lib, cx.shelf)
-                .map(|b| lib.albums[lib.books[b].album].name.clone())
+                .map(|b| book_name(lib, b))
                 .unwrap_or_default(),
+            playing: cx.book.is_some() && cx.book == books::latest(lib, cx.shelf),
             ..RowText::plain(text::CONTINUE)
         },
         // Favorites is worded here; the rest are named by their files.
@@ -484,10 +524,12 @@ fn describe(cx: &Context, view: View, row: Row) -> RowText {
             ..RowText::plain(&lib.albums[a].name)
         },
         Row::Album(a) => RowText::plain(&lib.albums[a].name),
+        // The book playing marked, as a song playing is.
         Row::Book(b) => {
             let album = &lib.albums[lib.books[b].album];
             RowText {
                 after: lib.artists[album.artist].name.clone(),
+                playing: cx.book == Some(b),
                 ..RowText::plain(&album.name)
             }
         }
@@ -617,6 +659,21 @@ pub(crate) fn value(cx: &Context, row: Row) -> Option<String> {
         Row::Open(View::Artists) => count(cx.lib.music_artists.len()),
         Row::Open(View::Albums) => count(cx.lib.albums_by_name.len()),
         Row::Open(View::Genres) => count(cx.lib.genres.len()),
+        Row::Open(View::Years) => {
+            let mut decades: Vec<u32> = cx
+                .lib
+                .albums_by_year
+                .iter()
+                .map(|&a| decade(cx.lib, a))
+                .collect();
+            decades.dedup();
+            count(decades.len())
+        }
+        // As a file browser counts a folder: what is in it, folders and songs.
+        Row::Open(View::Folder(f)) => {
+            let folder = &cx.lib.folders[f];
+            count(folder.folders.len() + folder.tracks.len())
+        }
         Row::Genre(g) => count(cx.lib.genres[g].albums.len()),
         Row::Decade(d) => count(in_decade(cx.lib, d).len()),
         Row::Open(View::BookList(list)) => count(books::listed(cx.lib, cx.shelf, list).len()),

@@ -15,6 +15,7 @@ music-perf = ["slot-music/perf"]
 [dependencies]
 slot-labels = { path = "../slot-labels" }
 slot-music = { path = "../slot-music" }
+slot-music-ui = { path = "../slot-music-ui" }
 slot-achievements = { path = "../slot-achievements" }
 slot-gfx = { path = "../slot-gfx", default-features = false }
 slot-input = { path = "../slot-input" }

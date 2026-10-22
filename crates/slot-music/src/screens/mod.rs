@@ -189,8 +189,9 @@ pub struct TextBody {
     pub lines: Vec<String>,
     pub lit: Option<Option<usize>>,
     pub focus: usize,
-    /// How far into the song, 0 to 1.
+    /// How far into the song, 0 to 1, and its time, as Now Playing says it.
     pub progress: Option<f32>,
+    pub time: Option<String>,
 }
 
 /// A page of rows with one highlighted.
@@ -219,6 +220,13 @@ pub struct ListBody {
     /// Its rows are two lines, the name over who made it (`after`); and start with their album's
     /// thumbnail, or room for it until it is read.
     pub two_lines: bool,
+    /// Its first row leads it, on two lines beside its picture, its name's `after` below.
+    pub lead: bool,
+    /// How many action rows (Play All) lead its first page, whose room two-line rows keep on
+    /// every page so they look alike on each.
+    pub actions: usize,
+    /// What plays is paused, and its mark says so.
+    pub paused: bool,
     pub thumbs: bool,
     /// Its rows are books: a thumbnail not read, or with no picture, shows a book, not a note.
     pub books: bool,

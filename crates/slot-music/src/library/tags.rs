@@ -24,14 +24,14 @@ pub struct Tags {
     pub secs: u32,
 }
 
-/// The tags of the song at `path`, skipping its pictures, and its length when `timed`; none
-/// when it has none or cannot be read.
-pub fn read(path: &Path, timed: bool) -> Tags {
+/// The tags of the song at `path`, skipping its pictures, and how long it plays, for the queue's
+/// time left and how far into a book; none when it has none or cannot be read.
+pub fn read(path: &Path) -> Tags {
     let tagged = Probe::open(path).and_then(|p| {
         p.options(
             ParseOptions::new()
                 .read_cover_art(false)
-                .read_properties(timed),
+                .read_properties(true),
         )
         .read()
     });

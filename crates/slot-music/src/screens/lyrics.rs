@@ -59,12 +59,18 @@ pub(crate) fn following(b: &Browser, now: Instant) -> bool {
         .is_none_or(|at| now.saturating_duration_since(at) >= FOLLOW_AFTER)
 }
 
-/// Seconds until the lyrics show the song moved on, as `screen` shows them: the bar's next step,
-/// while it plays; timed, the next line sung, and, scrolled by hand, when they follow it again.
+/// Seconds until the lyrics show the song moved on, as `screen` shows them: the bar's next step
+/// and its time's next second, while it plays; timed, the next line sung, and, scrolled by hand, when they follow it again.
 pub(crate) fn steps_in(music: &Music) -> Option<f64> {
     let lyrics = music.lyrics_now()?;
     let playing = music.player.state() == PlayState::Playing;
+    // The bar's next step, and its time's next second.
+    let rate = f64::from(music.player.speed());
+    let time = playing
+        .then(|| super::whole_in(music.player.time().0, rate))
+        .flatten();
     let bar = playing.then(|| now_playing::bar_in(music)).flatten();
+    let bar = [bar, time].into_iter().flatten().reduce(f64::min);
     if !lyrics.timed() {
         return bar;
     }
@@ -87,7 +93,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
     let title = match music.player.current() {
         Some(t) => {
             let track = &music.library.tracks[t];
-            text::lyrics_of(&track.title, &track.artist)
+            text::name_by(&track.title, &track.artist)
         }
         None => return Screen::message(text::LYRICS, text::NOTHING_PLAYING),
     };
@@ -106,8 +112,9 @@ pub(crate) fn screen(music: &Music) -> Screen {
         // Timed, the line sung is lit and the rest dim; plain, all is to be read.
         lit: lyrics.timed().then_some(sung),
         focus,
-        // How far into the song, as a thin bar under the title, as the list's picture bar is.
+        // How far into the song, as Now Playing has it: a bar, and its time below.
         progress: super::fraction(at, len),
+        time: (len > 0.0).then(|| text::elapsed(at, len)),
     };
     let legend = super::legend(&music.browser, &music.context());
     // Timed lyrics say so, as they follow the song.

@@ -1,7 +1,7 @@
 //! The settings on the card, `Config/music.txt`: `key = value` lines, which a person may edit
 //! and comment, so a change writes its one key and leaves the rest as it was.
 
-use slot_store::ini;
+use super::file;
 
 use std::path::Path;
 
@@ -36,7 +36,7 @@ impl Store {
 /// rather than the whole file over again for each.
 /// The folders `text` names, from `root`.
 fn dirs(root: &Path, text: &str) -> Dirs {
-    let file = ini::parse(text);
+    let file = file::parse(text);
     let get = |key: &str, or: &'static str| {
         let set = file.get(key).map(|v| v.trim()).filter(|v| !v.is_empty());
         set.unwrap_or(or).to_string()
@@ -57,7 +57,7 @@ pub fn changes(now: &Settings, was: &Settings) -> Vec<(&'static str, String)> {
 impl Settings {
     /// What `text` sets; anything missing or unknown is its default.
     pub fn decode(text: &str) -> Settings {
-        let file = ini::parse(text);
+        let file = file::parse(text);
         let get = |key: &str| file.get(key).map(String::as_str);
         let is = |key: &str, value: &str| get(key).is_some_and(|v| v.eq_ignore_ascii_case(value));
         // One of `choices`, or the first.

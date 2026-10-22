@@ -1,16 +1,16 @@
 //! The music screens' textures: lines of text, list rows, symbols, and the window a long line
 //! scrolls through. Each is drawn in a theme's colours.
 
-use super::slot::{
+use super::chrome::Layout;
+use super::chrome::{
     arrows_hint_coloured, arrows_hint_width, blit, cap_width, draw_centred, fit, hint_coloured,
-    hint_width, label_font, line_width, render_svg, symbols_font, UndoFace, CAP, MENU_H, MENU_PAD,
+    hint_width, label_font, line_width, render_svg, symbols_font, Bitmap, CAP, MENU_H, MENU_PAD,
     MENU_PX,
 };
 use super::{
     MusicTheme, FIT_MIN, LETTER_BOX, LETTER_PX, MARQUEE_BEAT_MS, MARQUEE_REST_MS, MARQUEE_STEP,
     NO_ART_PX, PART_GAP, RING_PX, RING_STROKE, SECOND_PX, SMALL_H, SMALL_PX, STATUS_PX,
 };
-use crate::text::Layout;
 
 /// The music screens' inks, as slot's quick menu sets them, and one more; a theme says their
 /// colours:
@@ -46,12 +46,12 @@ pub const MUSIC_STATUS: [char; 5] = [
 const CARETS: [char; 2] = ['\u{f0d9}', '\u{f0da}'];
 const CARET_PX: f32 = 24.0;
 
-pub fn music_status_face(glyph: char, theme: &MusicTheme) -> UndoFace {
+pub fn music_status_face(glyph: char, theme: &MusicTheme) -> Bitmap {
     glyph_face(glyph, STATUS_PX, MENU_H, theme.lit)
 }
 
 /// A caret beside a setting's value: left, or `right`.
-pub fn music_caret_face(right: bool, theme: &MusicTheme) -> UndoFace {
+pub fn music_caret_face(right: bool, theme: &MusicTheme) -> Bitmap {
     glyph_face(CARETS[usize::from(right)], CARET_PX, MENU_H, theme.lit)
 }
 
@@ -69,31 +69,31 @@ const BOOK: &str =
     0 0,0 6,22H18Z";
 
 /// A favorite's heart, beside the state symbols.
-pub fn music_heart_face(theme: &MusicTheme) -> UndoFace {
+pub fn music_heart_face(theme: &MusicTheme) -> Bitmap {
     icon(HEART, STATUS_PX, MENU_H, theme.lit)
 }
 
 /// What Now Playing's square shows with no picture, as players have it: a note, or a `book`.
-pub fn music_no_art_face(book: bool, theme: &MusicTheme) -> UndoFace {
+pub fn music_no_art_face(book: bool, theme: &MusicTheme) -> Bitmap {
     let path = if book { BOOK } else { NOTE };
     icon(path, NO_ART_PX, NO_ART_PX.round() as u32, theme.dim)
 }
 
 /// What a list's empty thumbnail shows, as Now Playing's square does, at its size.
-pub fn music_thumb_blank_face(book: bool, theme: &MusicTheme) -> UndoFace {
+pub fn music_thumb_blank_face(book: bool, theme: &MusicTheme) -> Bitmap {
     let path = if book { BOOK } else { NOTE };
     let px = super::THUMB_PX as f32 * 0.5;
     icon(path, px, px.round() as u32, theme.dim)
 }
 
 /// A favorite's heart at the right of a list row, sized to the row's type.
-pub fn music_row_heart_face(menu: bool, per_page: usize, theme: &MusicTheme) -> UndoFace {
+pub fn music_row_heart_face(menu: bool, per_page: usize, theme: &MusicTheme) -> Bitmap {
     let px = super::music_row_px(menu, per_page);
     icon(HEART, px * 0.8, (px + 12.0).ceil() as u32, theme.lit)
 }
 
 /// The shape `path` `px` across, in `ink`, centred in a face `h` tall.
-fn icon(path: &str, px: f32, h: u32, ink: [u8; 3]) -> UndoFace {
+fn icon(path: &str, px: f32, h: u32, ink: [u8; 3]) -> Bitmap {
     let [r, g, b] = ink;
     let svg = format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="{path}" fill="#{r:02x}{g:02x}{b:02x}"/></svg>"##
@@ -103,17 +103,12 @@ fn icon(path: &str, px: f32, h: u32, ink: [u8; 3]) -> UndoFace {
     if let Some(icon) = render_svg(&svg, side, side) {
         blit(&mut rgba, side, &icon, side, side, 0, (h - side) / 2);
     }
-    UndoFace { rgba, w: side, h }
+    Bitmap { rgba, w: side, h }
 }
 
 /// A line at full length, set a little smaller to fit `fit_w` if that is enough; wider ones
 /// scroll through `music_window`.
-pub fn music_line_face(
-    text: &str,
-    ink: LineInk,
-    fit_w: u32,
-    theme: &MusicTheme,
-) -> Option<UndoFace> {
+pub fn music_line_face(text: &str, ink: LineInk, fit_w: u32, theme: &MusicTheme) -> Option<Bitmap> {
     let (px, h) = match ink {
         LineInk::Small => (SMALL_PX, SMALL_H),
         LineInk::Second => (SECOND_PX, MENU_H),
@@ -132,7 +127,7 @@ pub fn music_line_face(
 
 /// A two-line row's second line: who made it, dim, `px` high and in its own case, a level under
 /// the name above; as tall as a row's face is for its size, so the two stack alike.
-pub fn music_second_face(text: &str, px: f32, fit_w: u32, theme: &MusicTheme) -> Option<UndoFace> {
+pub fn music_second_face(text: &str, px: f32, fit_w: u32, theme: &MusicTheme) -> Option<Bitmap> {
     let h = (px + 2.0 * ROW_FACE_PAD).ceil() as u32;
     fitted(fit_w, px, |px| {
         Some(padded(&[set(text, theme.dim, px, h, true)?]))
@@ -147,7 +142,7 @@ pub fn music_paragraph_face(
     px: f32,
     width: u32,
     theme: &MusicTheme,
-) -> Option<UndoFace> {
+) -> Option<Bitmap> {
     let font = label_font()?;
     if text.trim().is_empty() {
         return None;
@@ -163,7 +158,7 @@ pub fn music_paragraph_face(
     let w = (widest.fold(0.0, f32::max).ceil() as u32 + 2).min(width);
     let mut rgba = vec![0u8; (w * h * 4) as usize];
     draw_centred(&mut rgba, w, h, &layout, theme.ink(ink));
-    Some(UndoFace { rgba, w, h })
+    Some(Bitmap { rgba, w, h })
 }
 
 /// The most lines one paragraph wraps to.
@@ -199,7 +194,7 @@ pub fn music_row_face(
     px: f32,
     fit_w: u32,
     theme: &MusicTheme,
-) -> Option<UndoFace> {
+) -> Option<Bitmap> {
     let RowWords {
         icon,
         before,
@@ -214,9 +209,16 @@ pub fn music_row_face(
     };
     let (name, context) = (theme.ink(ink), theme.ink(context));
     fitted(fit_w, px, |px| {
-        let parts: Vec<UndoFace> = [
-            icon.map(|g| glyph_face(g, px * 0.9, h, name)),
-            run(before, context, px, h),
+        // A mark stands in a number's place, in its room, so the name keeps in line.
+        let number = run(before, context, px, h);
+        let mark = icon.map(|g| glyph_face(g, px * 0.9, h, name));
+        let (mark, number) = match (mark, number) {
+            (Some(mark), Some(room)) => (Some(centred_in(mark, room.w)), None),
+            other => other,
+        };
+        let parts: Vec<Bitmap> = [
+            mark,
+            number,
             set(text, name, px, h, cased),
             set(after, context, px, h, true),
         ]
@@ -229,7 +231,7 @@ pub fn music_row_face(
 
 /// `build` at `px`, or a few sizes down when that fits it in `w`: a line that nearly fits
 /// scrolling a few pixels looks broken.
-fn fitted(w: u32, px: f32, build: impl Fn(f32) -> Option<UndoFace>) -> Option<UndoFace> {
+fn fitted(w: u32, px: f32, build: impl Fn(f32) -> Option<Bitmap>) -> Option<Bitmap> {
     let face = build(px)?;
     if face.w <= w {
         return Some(face);
@@ -245,7 +247,7 @@ fn fitted(w: u32, px: f32, build: impl Fn(f32) -> Option<UndoFace>) -> Option<Un
 }
 
 /// The letter a list jumped to, large, for the box in the middle of the screen.
-pub fn music_letter_face(letter: char, theme: &MusicTheme) -> Option<UndoFace> {
+pub fn music_letter_face(letter: char, theme: &MusicTheme) -> Option<Bitmap> {
     run(
         &letter.to_string(),
         theme.ground,
@@ -256,7 +258,7 @@ pub fn music_letter_face(letter: char, theme: &MusicTheme) -> Option<UndoFace> {
 
 /// The ring that fills as a key is held, round from the top: its track `faint`, the part
 /// held `done` (0 to 1) in `ink`. Let go before it closes, and nothing happens.
-pub fn music_ring_face(done: f32, ink: [u8; 3], theme: &MusicTheme) -> UndoFace {
+pub fn music_ring_face(done: f32, ink: [u8; 3], theme: &MusicTheme) -> Bitmap {
     let side = RING_PX;
     let centre = side as f32 / 2.0;
     let outer = centre - 1.0;
@@ -272,7 +274,7 @@ pub fn music_ring_face(done: f32, ink: [u8; 3], theme: &MusicTheme) -> UndoFace 
         px[..3].copy_from_slice(if turn <= done { &ink } else { &theme.faint });
         px[3] = (cover * 255.0).round() as u8;
     }
-    UndoFace {
+    Bitmap {
         rgba,
         w: side,
         h: side,
@@ -291,7 +293,7 @@ pub fn music_cap_ring_face(
     done: f32,
     ink: [u8; 3],
     theme: &MusicTheme,
-) -> UndoFace {
+) -> Bitmap {
     let caps = match key {
         Some(key) => cap_width(key),
         None => arrows_hint_width("") - (hint_width("A", "") - cap_width("A")),
@@ -313,12 +315,12 @@ pub fn music_cap_ring_face(
         px[..3].copy_from_slice(if turn <= done { &ink } else { &theme.faint });
         px[3] = (cover * 255.0).round() as u8;
     }
-    UndoFace { rgba, w, h }
+    Bitmap { rgba, w, h }
 }
 
 /// A button hint in the theme: slot's, with its key caps filled in `lit` and lettered in the
 /// ground, so they read on a light screen too. `None` is the Left and Right arrows.
-pub fn music_hint_face(key: Option<&str>, label: &str, theme: &MusicTheme) -> UndoFace {
+pub fn music_hint_face(key: Option<&str>, label: &str, theme: &MusicTheme) -> Bitmap {
     let (mut face, caps) = match key {
         Some(key) => (hint_coloured(key, label, theme.lit), cap_width(key)),
         None => {
@@ -335,7 +337,7 @@ pub fn music_hint_face(key: Option<&str>, label: &str, theme: &MusicTheme) -> Un
 /// Slot draws a cap as a light fill with dark lettering, blended between; this keeps each
 /// pixel's blend and puts `fill` and `letter` in their places. Only opaque pixels in the first
 /// `caps` columns are caps.
-fn recolour_caps(face: &mut UndoFace, caps: u32, fill: [u8; 3], letter: [u8; 3]) {
+fn recolour_caps(face: &mut Bitmap, caps: u32, fill: [u8; 3], letter: [u8; 3]) {
     let w = face.w as usize;
     let cap_pixels = |rgba: &[u8]| -> Vec<usize> {
         (0..rgba.len() / 4)
@@ -389,7 +391,7 @@ fn marquee_travel(overflow: u32) -> u64 {
 }
 
 /// Columns `x` to `x + w` of `face`: the visible part of a long line.
-pub fn music_window(face: &UndoFace, x: u32, w: u32) -> UndoFace {
+pub fn music_window(face: &Bitmap, x: u32, w: u32) -> Bitmap {
     let x = x.min(face.w.saturating_sub(w));
     let w = w.min(face.w);
     let mut rgba = Vec::with_capacity((w * face.h * 4) as usize);
@@ -415,7 +417,7 @@ pub fn music_window(face: &UndoFace, x: u32, w: u32) -> UndoFace {
             }
         }
     }
-    UndoFace { rgba, w, h: face.h }
+    Bitmap { rgba, w, h: face.h }
 }
 
 /// How far a cut line's edge fades out, in pixels.
@@ -438,9 +440,9 @@ pub fn marquee_offset(overflow: u32, ms: u64) -> u32 {
 }
 
 /// A symbol from the icon font in `ink`, `px` high, centred in a face `h` tall.
-fn glyph_face(glyph: char, px: f32, h: u32, ink: [u8; 3]) -> UndoFace {
+fn glyph_face(glyph: char, px: f32, h: u32, ink: [u8; 3]) -> Bitmap {
     let Some(font) = symbols_font() else {
-        return UndoFace {
+        return Bitmap {
             rgba: Vec::new(),
             w: 0,
             h: 0,
@@ -457,17 +459,17 @@ fn glyph_face(glyph: char, px: f32, h: u32, ink: [u8; 3]) -> UndoFace {
             rgba[at..at + 4].copy_from_slice(&[ink[0], ink[1], ink[2], a]);
         }
     }
-    UndoFace { rgba, w, h }
+    Bitmap { rgba, w, h }
 }
 
 /// Unpadded text in `ink`, `px` high in a face `h` tall, in capitals as slot sets its labels.
-fn run(text: &str, ink: [u8; 3], px: f32, h: u32) -> Option<UndoFace> {
+fn run(text: &str, ink: [u8; 3], px: f32, h: u32) -> Option<Bitmap> {
     set(text, ink, px, h, false)
 }
 
 /// As `run`, or, `cased`, in the case it is written in: a second line under a name, set apart
 /// from it as players set an artist under a title.
-fn set(text: &str, ink: [u8; 3], px: f32, h: u32, cased: bool) -> Option<UndoFace> {
+fn set(text: &str, ink: [u8; 3], px: f32, h: u32, cased: bool) -> Option<Bitmap> {
     let font = label_font()?;
     if text.is_empty() {
         return None;
@@ -484,7 +486,7 @@ fn set(text: &str, ink: [u8; 3], px: f32, h: u32, cased: bool) -> Option<UndoFac
     let w = set_w(font, &layout);
     let mut rgba = vec![0u8; (w * h * 4) as usize];
     draw_centred(&mut rgba, w, h, &layout, ink);
-    Some(UndoFace { rgba, w, h })
+    Some(Bitmap { rgba, w, h })
 }
 
 /// How wide `layout` is set, a pixel either side for glyphs that reach past their advance.
@@ -512,7 +514,23 @@ pub fn music_number_w(number: &str, px: f32) -> u32 {
 /// The blank above and below a row's type in its face, so rows of any size centre alike.
 pub(super) const ROW_FACE_PAD: f32 = 6.0;
 
-fn padded(parts: &[UndoFace]) -> UndoFace {
+/// `face` centred across `w`, as wide as what it stands in for, if wider than it.
+fn centred_in(face: Bitmap, w: u32) -> Bitmap {
+    let w = w.max(face.w);
+    let mut rgba = vec![0u8; (w * face.h * 4) as usize];
+    blit(
+        &mut rgba,
+        w,
+        &face.rgba,
+        face.w,
+        face.h,
+        (w - face.w) / 2,
+        0,
+    );
+    Bitmap { rgba, w, h: face.h }
+}
+
+fn padded(parts: &[Bitmap]) -> Bitmap {
     let h = parts.iter().map(|p| p.h).max().unwrap_or(MENU_H);
     let gaps = PART_GAP * (parts.len() as u32).saturating_sub(1);
     let w = parts.iter().map(|p| p.w).sum::<u32>() + gaps + 2 * MENU_PAD;
@@ -522,7 +540,7 @@ fn padded(parts: &[UndoFace]) -> UndoFace {
         blit(&mut rgba, w, &p.rgba, p.w, p.h, x, (h - p.h) / 2);
         x += p.w + PART_GAP;
     }
-    UndoFace { rgba, w, h }
+    Bitmap { rgba, w, h }
 }
 
 #[cfg(test)]
@@ -531,12 +549,12 @@ mod tests {
 
     #[test]
     fn a_cut_line_fades_out_at_an_edge_with_more_beyond_it_and_only_there() {
-        let face = UndoFace {
+        let face = Bitmap {
             rgba: vec![255; 200 * 2 * 4],
             w: 200,
             h: 2,
         };
-        let alpha = |f: &UndoFace, x: u32| f.rgba[(x * 4 + 3) as usize];
+        let alpha = |f: &Bitmap, x: u32| f.rgba[(x * 4 + 3) as usize];
         let start = music_window(&face, 0, 120);
         assert_eq!(alpha(&start, 0), 255, "its start, nothing before it");
         assert!(alpha(&start, 119) < 16, "faded where it goes on");
@@ -570,6 +588,23 @@ mod tests {
             px(ring.w / 2, ring.h / 2)[3],
             0,
             "the cap itself left clear"
+        );
+    }
+
+    #[test]
+    fn a_mark_stands_in_its_number_s_room_so_the_name_keeps_in_line() {
+        let theme = MusicTheme::dark();
+        let row = |icon| RowWords {
+            icon,
+            before: "01",
+            ..RowWords::name("A")
+        };
+        let face = |icon| music_row_face(row(icon), Ink::Lit, 24.0, u32::MAX, &theme).unwrap();
+        let mark = MUSIC_STATUS[0];
+        assert_eq!(
+            face(Some(mark)).w,
+            face(None).w,
+            "as wide, the name where it was"
         );
     }
 
@@ -700,7 +735,7 @@ mod tests {
 
     #[test]
     fn a_window_is_the_columns_it_names_and_never_reads_past_the_line() {
-        let face = UndoFace {
+        let face = Bitmap {
             rgba: (0..2 * 5 * 4).map(|i| i as u8).collect(),
             w: 5,
             h: 2,
@@ -724,7 +759,7 @@ mod tests {
 
     #[test]
     fn parts_sit_side_by_side_inside_the_padding() {
-        let part = |w| UndoFace {
+        let part = |w| Bitmap {
             rgba: vec![255; (w * 2 * 4) as usize],
             w,
             h: 2,

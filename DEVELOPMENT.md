@@ -15,7 +15,7 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 | `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (symphonia decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
 | `crates/slot-player/soundtouch` | SoundTouch 2.3.2 sources (LGPL-2.1), built by `build.rs` with `cc`. |
 | `crates/slot-music/src/store` | Everything kept on the card: one writer, each file's format (`Kept`). |
-| `crates/slot-ui/src/music` | The kit that draws: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour). |
+| `crates/slot-music-ui` | The kit that draws, needing no frontend: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour). |
 | `crates/slot/src/music_faces`, `crates/slot/src/app/music.rs` | The frontend glue: textures, animation (`motion.rs`), input routing. |
 | `music/` | `README.md` (what the screens cannot say: the card's files, how it plays), `music.txt.example`, `music-eq.txt`. |
 
@@ -37,11 +37,11 @@ level following music's fades.
 ## Build, test, lint
 
 ```sh
-nix-shell --run "cargo test -p slot-music -p slot-ui -p slot-input -p slot-player"
+nix-shell --run "cargo test -p slot-music -p slot-music-ui -p slot-ui -p slot-input -p slot-player"
 nix-shell --run "cargo test -p slot --no-default-features --features slot/device --lib"
 nix-shell --run "cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings"
-nix-shell --run "cargo clippy -p slot-music -p slot-ui -p slot-input -p slot-player --tests -- -D warnings"
-nix-shell --run "cargo fmt -p slot-music -p slot-ui -p slot -p slot-player"
+nix-shell --run "cargo clippy -p slot-music -p slot-music-ui -p slot-ui -p slot-input -p slot-player --tests -- -D warnings"
+nix-shell --run "cargo fmt -p slot-music -p slot-music-ui -p slot -p slot-player"
 git checkout -- crates/slot/tests/prefetch.rs   # fmt touches this upstream file; keep it as upstream has it
 ```
 
@@ -101,8 +101,8 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 
 - Simple, idiomatic, succinct, composable; YAGNI; familiar UX (look at how common players do it).
 - Every user-visible word in `crates/slot-music/src/text.rs`; every colour and level in
-  `crates/slot-ui/src/music/theme.rs`. No literals elsewhere.
-- Logic emits values (`Outcome`, `Notice`, `Legend`); `slot-ui` and the frontend only draw.
+  `crates/slot-music-ui/src/theme.rs`. No literals elsewhere.
+- Logic emits values (`Outcome`, `Notice`, `Legend`); `slot-music-ui` and the frontend only draw.
 - Buttons: a tap does one thing, a hold another, shown as "Tap (Held)"; hints never change
   while held (the corner ring shows the hold). START menus hold only what no button does.
   Put any key change in Settings › Help (`text.rs`'s `KEYS`); `music/README.md` only says what

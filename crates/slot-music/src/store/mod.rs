@@ -5,6 +5,7 @@
 //! music, and the workers that make them keep them.
 
 pub mod equalizer;
+pub mod file;
 pub mod playlists;
 pub mod queue;
 pub mod recent;
@@ -170,7 +171,7 @@ fn whole(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    slot_store::atomic_write(path, text.as_bytes())
+    file::write_whole(path, text.as_bytes())
         .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
 }
 
@@ -192,7 +193,7 @@ fn set_key(path: &Path, key: &str, value: &str) -> std::io::Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    whole(path, &slot_store::ini::set(&was, key, Some(value))?)
+    whole(path, &file::set(&was, key, value)?)
 }
 
 #[cfg(test)]
@@ -211,7 +212,7 @@ mod tests {
         store.append("log.txt", "#head\n", "two\n".into());
         store.flush();
         assert_eq!(store.read("Config/a.txt"), "two");
-        let b = slot_store::ini::parse(&store.read("Config/b.txt"));
+        let b = file::parse(&store.read("Config/b.txt"));
         assert_eq!((b["x"].as_str(), b["y"].as_str()), ("1", "2"));
         assert_eq!(store.read("Config/none.txt"), "", "nothing there");
         assert_eq!(

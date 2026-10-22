@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use crate::library::sort::sort_key;
-use slot_store::is_hidden;
+use crate::store::file::is_hidden;
 
 use super::Store;
 use crate::library::playlists::Playlist;

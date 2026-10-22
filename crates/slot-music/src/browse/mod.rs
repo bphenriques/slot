@@ -23,7 +23,8 @@ use std::time::Instant;
 pub const MENU_ROWS: usize = 7;
 /// Rows on a page of a list: the library's lists and the queue.
 pub const LIST_ROWS: usize = 8;
-/// Rows on a page of a list of two lines a row, with room round each line.
+/// Rows on a page of a list of two lines a row, with room round each line, beside the room
+/// Play All takes on its first; one more in a list with none, as the queue.
 pub const RICH_ROWS: usize = 5;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -406,6 +407,8 @@ pub struct Page {
     /// albums, books, songs from across albums.
     pub two_lines: bool,
     pub thumbs: bool,
+    /// Its first row leads it, on two lines beside its picture: what plays, the book to continue.
+    pub lead: bool,
 }
 
 struct Level {
@@ -609,6 +612,7 @@ impl Browser {
                 })
                 .collect(),
             two_lines: two_lines(cx.lib, view),
+            lead: span.start == 0 && rows.first().is_some_and(|&r| rows::leads(cx, r)),
             thumbs: view.rich(),
             pages: page_of(cx.lib, view, rows.len().saturating_sub(1)) + 1,
             item: at.checked_sub(fixed).map(|i| i + 1),
@@ -733,7 +737,7 @@ pub fn per_page(lib: &Library, view: View) -> usize {
     if view.is_menu() {
         MENU_ROWS
     } else if two_lines(lib, view) {
-        RICH_ROWS
+        RICH_ROWS + usize::from(rows::fixed(view).is_empty())
     } else {
         LIST_ROWS
     }

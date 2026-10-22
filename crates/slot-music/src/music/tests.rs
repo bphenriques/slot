@@ -2297,7 +2297,13 @@ fn timed_lyrics_say_synced_and_both_kinds_show_how_far_into_the_song_seen_as_it_
         rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
         rig.heard(60.0, 240.0);
         rig.music.browser.push(View::Lyrics, 0);
-        rig.wait(500);
+        // The worker's answer, as it reads them, rather than waited on.
+        let t = rig.music.player.current().unwrap();
+        let read = crate::lyrics::read(&rig.music.library.tracks[t].path);
+        let generation = rig.music.generation;
+        rig.music
+            .update(Msg::Worker(generation, Done::Lyrics(t, read)));
+        rig.frames(FRAME);
         let screen = rig.screen();
         let corner = if synced { text::SYNCED } else { "" };
         assert_eq!(screen.corner, corner, "{lrc}");
@@ -2306,9 +2312,13 @@ fn timed_lyrics_say_synced_and_both_kinds_show_how_far_into_the_song_seen_as_it_
         };
         let done = body.progress.expect("the song's bar");
         assert!((done - 0.25).abs() < 0.01, "a quarter in: {done}");
-        // The bar moves a thousandth at a time, and the screen with it: no finer.
+        assert_eq!(body.time, Some(text::elapsed(60.0, 240.0)), "and its time");
+        // The bar moves a thousandth at a time and the time a second, the screen with them.
         let seen = seen_changes(&mut rig, 10);
-        assert!(seen > 0 && seen <= 42 + 2, "{lrc}: {seen} changes in 10 s");
+        assert!(
+            seen > 0 && seen <= 42 + 10 + 2,
+            "{lrc}: {seen} changes in 10 s"
+        );
     }
 }
 
@@ -2336,4 +2346,90 @@ fn the_queue_says_how_long_it_has_left_beside_where_the_cursor_is() {
     );
     let due = rig.music.due_in().expect("woken for the next minute");
     assert!(due <= Duration::from_millis(60_001), "{due:?}");
+}
+
+#[test]
+fn the_music_menu_leads_with_what_plays_on_two_lines_beside_its_picture() {
+    let mut rig = Rig::new(&["Music/Abba/Gold/01 one.mp3", "Music/Abba/Gold/02 two.mp3"]);
+    let menu = |rig: &Rig| match rig.screen().body {
+        Body::List(list) => list,
+        body => panic!("the Music menu: {body:?}"),
+    };
+    let first = menu(&rig);
+    assert!(
+        !first.lead,
+        "Shuffle Library, with nothing to resume, is one line"
+    );
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
+    rig.hold(Button::B, 600);
+    let playing = menu(&rig);
+    assert!(playing.lead);
+    let row = &playing.rows[0];
+    assert_eq!(
+        (row.text.as_str(), row.after.as_str()),
+        (text::NOW_PLAYING, "one · Abba")
+    );
+    let album = rig.music.library.tracks[rig.music.player.current().unwrap()].album;
+    let asked = rig.music.pictures.wanted.contains(&album);
+    assert!(asked, "its album's thumbnail asked for");
+    rig.hold(Button::Start, 600);
+    assert_eq!(
+        menu(&rig).rows[0].text,
+        text::RESUME,
+        "paused, Resume, still leading"
+    );
+    assert!(menu(&rig).lead);
+}
+
+#[test]
+fn what_plays_is_marked_playing_or_paused_in_the_queue_and_on_the_music_menu() {
+    let mut rig = Rig::new(&["Music/Abba/Gold/01 one.mp3", "Music/Abba/Gold/02 two.mp3"]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
+    let list = |rig: &Rig| match rig.screen().body {
+        Body::List(list) => list,
+        body => panic!("a list: {body:?}"),
+    };
+    rig.keys(&[Button::Select]);
+    assert_eq!(rig.music.browser.view(), View::Queue);
+    let queue = list(&rig);
+    assert!(queue.rows[0].playing && !queue.paused, "marked, playing");
+    rig.hold(Button::Start, 600);
+    assert!(list(&rig).paused, "paused, and its mark says so");
+    rig.hold(Button::B, 600);
+    let menu = list(&rig);
+    assert!(
+        menu.lead && menu.rows[0].playing && menu.paused,
+        "the same on the Music menu"
+    );
+}
+
+#[test]
+fn lists_with_no_songs_yet_say_so_rather_than_offer_play_all() {
+    let mut rig = Rig::new(&["Music/Abba/Gold/01 one.mp3"]);
+    rig.to("Playlists");
+    rig.keys(&[Button::A]);
+    for (row, says) in [
+        (text::FAVORITES, text::NO_FAVORITES),
+        (text::RECENTLY_PLAYED, text::NOTHING_PLAYED),
+    ] {
+        rig.to(row);
+        rig.keys(&[Button::A]);
+        let screen = rig.screen();
+        assert_eq!(
+            (screen.title.as_str(), screen.body),
+            (row, Body::Message(says.into()))
+        );
+        rig.keys(&[Button::B]);
+    }
+}
+
+#[test]
+fn the_book_playing_is_marked_in_its_list_as_a_song_playing_is() {
+    let mut rig = Rig::new(&BOOK);
+    rig.play_book();
+    rig.keys(&[Button::B]);
+    let Body::List(list) = rig.screen().body else {
+        panic!("All Books");
+    };
+    assert!(list.rows[0].playing, "{:?}", list.rows[0]);
 }

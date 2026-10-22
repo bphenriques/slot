@@ -16,7 +16,6 @@ mod footer;
 mod hud;
 mod icon;
 mod link_art;
-pub mod music;
 mod plate;
 mod polaroids;
 mod power_menu;

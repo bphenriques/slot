@@ -4,9 +4,9 @@
 use super::Textures;
 use slot_input::Millis;
 use slot_music::{AlbumId, Art, ListBody, RowText};
-use slot_ui::music::{
+use slot_music_ui::{
     music_half_w, music_number_w, music_rich_px, music_row_ink, music_row_px, music_row_text_w,
-    music_text_width, Ink, ListFaces, MusicFace,
+    music_text_width, Ink, ListFaces, MusicFace, MUSIC_STATUS,
 };
 use slot_ui::Canvas;
 
@@ -28,27 +28,32 @@ pub(super) fn faces(
         .ms((Some(selected), focus.unwrap_or_default()), now);
     let bar = text.motion.bar(&body.rows, selected, now);
     let row_px = music_row_px(body.menu, body.per_page) as u32;
-    // Two-line rows: the name at a list's usual size, and who made it a size down, dim, below.
+    // Two-line rows: the name at a list's usual size, and who made it a size down, dim, below;
+    // a menu's lead row, its rows' size and a size down.
     let (row_px, second_px) = if body.two_lines {
         music_rich_px()
     } else {
-        (row_px, 0)
+        (row_px, (row_px as f32 * 0.8).round() as u32)
     };
     let width = music_text_width(false, canvas);
     let hearts: Vec<bool> = body.rows.iter().map(|r| r.favorite).collect();
     let thumbs = thumbs(text, compositor, &body.rows, arts);
-    // In a list with thumbnails, what plays is marked on its thumbnail, its name kept in line.
-    let playing = body
-        .thumbs
-        .then(|| body.rows.iter().position(|r| r.playing))
-        .flatten();
     let head = body.rows.iter().take_while(|r| r.action).count();
+    // A list's rows past their action rows have thumbnails, and a menu's lead row.
+    let thumbed = |i: usize| (body.thumbs && i >= head) || (body.lead && i == 0);
+    // What plays is marked on its thumbnail, where it has one, its name kept in line.
+    let playing = body
+        .rows
+        .iter()
+        .enumerate()
+        .position(|(i, r)| r.playing && thumbed(i));
     let value_w = music_half_w(canvas);
     let mut values = Vec::with_capacity(body.values.len());
     for (i, value) in body.values.into_iter().enumerate() {
         // Dim, lit on the highlighted row, as in the quick menu.
         let spec = Spec::Row {
             text: RowText::plain(value.unwrap_or_default()),
+            icon: None,
             ink: if i == selected { Ink::Lit } else { Ink::Dim },
             px: row_px,
         };
@@ -61,9 +66,8 @@ pub(super) fn faces(
     let mut indents = Vec::with_capacity(body.rows.len());
     let mut rows = Vec::with_capacity(body.rows.len());
     for (i, mut row) in body.rows.into_iter().enumerate() {
-        row.playing &= !body.thumbs;
-        let second =
-            (body.two_lines && !row.after.is_empty()).then(|| std::mem::take(&mut row.after));
+        let two = body.two_lines || (body.lead && i == 0);
+        let second = (two && !row.after.is_empty()).then(|| std::mem::take(&mut row.after));
         // Under the name, past the row's number, as players set a compilation's songs.
         indents.push(if body.two_lines {
             music_number_w(&row.before, row_px as f32)
@@ -72,7 +76,7 @@ pub(super) fn faces(
         });
         seconds.push(second.and_then(|after| {
             let spec = Spec::Second(after, second_px);
-            let width = music_row_text_w(width, false, 0, body.thumbs);
+            let width = music_row_text_w(width, false, 0, thumbed(i));
             text.seconds
                 .sync(compositor, text.theme, i, spec, width, None)
         }));
@@ -80,9 +84,12 @@ pub(super) fn faces(
         // tells.
         let ink = music_row_ink(row.faint, i == selected);
         let value = values.get(i).copied().flatten().map_or(0, |(_, w, _)| w);
-        let width = music_row_text_w(width, row.favorite, value, body.thumbs && i >= head);
+        let width = music_row_text_w(width, row.favorite, value, thumbed(i));
+        // What plays is marked before its name where it has no picture to mark it on.
+        let icon = (row.playing && !thumbed(i)).then_some(MUSIC_STATUS[usize::from(body.paused)]);
         let spec = Spec::Row {
             text: row,
+            icon,
             ink,
             px: row_px,
         };
@@ -112,13 +119,15 @@ pub(super) fn faces(
         hearts,
         heart,
         two_lines: body.two_lines,
+        actions: body.actions,
         indents,
         thumbed: body.thumbs,
+        lead: body.lead,
         thumbs,
         seconds,
-        blank: body.thumbs.then_some(glyphs.blank[usize::from(body.books)]),
+        blank: (body.thumbs || body.lead).then_some(glyphs.blank[usize::from(body.books)]),
         playing,
-        play: body.thumbs.then_some(glyphs.status[0]),
+        play: (body.thumbs || body.lead).then_some(glyphs.status[usize::from(body.paused)]),
     }
 }
 
@@ -168,6 +177,7 @@ pub(super) fn message(
     let scroll = text.scroll.ms((None, line.clone()), now);
     let spec = Spec::Row {
         text: RowText::plain(line),
+        icon: None,
         ink: Ink::Lit,
         px: music_row_px(true, 1) as u32,
     };

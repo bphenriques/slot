@@ -457,6 +457,7 @@ fn a_song_s_own_tags_name_it_file_it_and_say_how_long_it_plays() {
     );
     let part = lib.tracks.iter().find(|t| t.book.is_some()).unwrap();
     assert_eq!(part.secs, 1.0, "a second long");
+    assert_eq!(song.secs, 1.0, "a song too, for the queue's time left");
 }
 
 #[test]
@@ -692,7 +693,7 @@ fn a_cache_from_before_genres_keeps_when_songs_came_in_and_has_their_tags_read_a
     );
     let text = std::fs::read_to_string(&cache).unwrap();
     assert!(
-        text.starts_with("#SLOT-LIBRARY 5\n"),
+        text.starts_with("#SLOT-LIBRARY 6\n"),
         "written in the new layout"
     );
 }
@@ -897,4 +898,30 @@ fn a_folder_counts_its_songs_however_deep_and_shows_its_first_album_s_picture() 
     );
     let row = label(&cx, view, Row::Folder(abba));
     assert_eq!((row.text.as_str(), row.after.as_str()), ("Abba", "3 songs"));
+}
+
+#[test]
+fn a_cache_from_before_songs_were_timed_has_their_tags_read_again_once() {
+    let (d, _) = library(&["X/A/01 one.mp3"]);
+    let (progress, dirs) = (
+        crate::Progress::default(),
+        crate::library::Dirs::on(d.path()),
+    );
+    crate::scan_library(d.path(), &dirs, false, &progress);
+    let cache = d.path().join(crate::CACHE_FILE);
+    let text = std::fs::read_to_string(&cache).unwrap();
+    let (_, rows) = text.split_once('\n').unwrap();
+    let old = format!(
+        "#SLOT-LIBRARY 5\n{}",
+        rows.replace("\t\t\t\t\t", "\tCached\t\t\t\t")
+    );
+    std::fs::write(&cache, old).unwrap();
+    let (lib, changed) = crate::scan_library(d.path(), &dirs, false, &progress);
+    assert_eq!(
+        (lib.tracks[0].title.as_str(), changed),
+        ("one", true),
+        "read again"
+    );
+    let (_, changed) = crate::scan_library(d.path(), &dirs, false, &progress);
+    assert!(!changed, "and then kept");
 }

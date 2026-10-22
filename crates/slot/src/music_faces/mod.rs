@@ -11,7 +11,8 @@ mod text_view;
 use slot_gfx::{Compositor, TexId};
 use slot_input::Millis;
 use slot_music::{text, AlbumId, Body, Legend, RowText};
-use slot_ui::music::{
+use slot_music_ui::Bitmap;
+use slot_music_ui::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_half_w, music_header_title_w, music_heart_face, music_hint_face, music_letter_face,
     music_line_face, music_no_art_face, music_paragraph_face, music_ring_face, music_row_face,
@@ -19,7 +20,6 @@ use slot_ui::music::{
     music_tint_ink, music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme,
     RowWords, MUSIC_RING_STEPS, MUSIC_STATUS,
 };
-use slot_ui::UndoFace;
 
 use crate::app::App;
 use motion::Motion;
@@ -32,8 +32,10 @@ type Ring = (u8, [u8; 3], Option<Option<&'static str>>);
 #[derive(Clone, PartialEq)]
 enum Spec {
     Line(String, LineInk),
+    /// A list row, its mark before its name, if any: what plays, playing or paused.
     Row {
         text: RowText,
+        icon: Option<char>,
         ink: Ink,
         px: u32,
     },
@@ -53,17 +55,21 @@ impl Spec {
     }
 
     /// The face in `theme`, fitted to `width` when a little smaller is enough.
-    fn face(&self, width: u32, theme: &MusicTheme) -> Option<UndoFace> {
+    fn face(&self, width: u32, theme: &MusicTheme) -> Option<Bitmap> {
         match self {
             Spec::Line(text, ink) => music_line_face(text, *ink, width, theme),
             Spec::Paragraph { text, ink, px } => {
                 music_paragraph_face(text, *ink, *px as f32, width, theme)
             }
             Spec::Second(text, px) => music_second_face(text, *px as f32, width, theme),
-            Spec::Row { text, ink, px } => {
-                let icon = text.playing.then_some(MUSIC_STATUS[0]);
+            Spec::Row {
+                text,
+                icon,
+                ink,
+                px,
+            } => {
                 let words = RowWords {
-                    icon,
+                    icon: *icon,
                     before: &text.before,
                     text: &text.text,
                     after: &text.after,
@@ -81,7 +87,7 @@ impl Spec {
 struct Line {
     /// What the face is of, and the width and theme it was drawn to.
     spec: Option<(Spec, u32, MusicTheme)>,
-    full: Option<UndoFace>,
+    full: Option<Bitmap>,
     tex: Option<TexId>,
     /// The face's size, and the window of it uploaded.
     size: Option<(u32, u32)>,
@@ -186,7 +192,7 @@ impl<K: PartialEq> Styled<K> {
         compositor: &mut dyn Textures,
         key: K,
         theme: MusicTheme,
-        draw: impl FnOnce(&K, &MusicTheme) -> Vec<UndoFace>,
+        draw: impl FnOnce(&K, &MusicTheme) -> Vec<Bitmap>,
     ) -> &[MusicFace] {
         let key = Some((key, theme));
         if self.key != key {
@@ -222,7 +228,7 @@ struct Glyphs {
 }
 
 impl Glyphs {
-    fn draw(theme: &MusicTheme) -> Vec<UndoFace> {
+    fn draw(theme: &MusicTheme) -> Vec<Bitmap> {
         let carets = [false, true].map(|right| music_caret_face(right, theme));
         let status = MUSIC_STATUS.map(|g| music_status_face(g, theme));
         let rest = [music_heart_face(theme)];
@@ -426,11 +432,14 @@ impl MusicText {
         };
         let legend = self.legend(compositor, screen.legend);
         // A key held to act fills a ring around its hint's cap, or in the corner where it has
-        // none; Now Playing tints it from the album picture, as it does the bar.
-        let ink = match (&screen.body, &self.art) {
-            (Body::NowPlaying(_), Some(art)) => music_tint_ink(art.tint, &theme),
-            _ => theme.lit,
+        // none; Now Playing and the lyrics tint it from the album picture, as they do their bar.
+        let tint = match (&screen.body, &self.art) {
+            (Body::NowPlaying(_) | Body::Text(_), Some(art)) => {
+                Some(music_tint_ink(art.tint, &theme))
+            }
+            _ => None,
         };
+        let ink = tint.unwrap_or(theme.lit);
         let ring = screen.hold.and_then(|hold| {
             let step = (hold.done * MUSIC_RING_STEPS).round() as u8;
             let hints = text::legend(screen.legend);
@@ -467,7 +476,7 @@ impl MusicText {
                 BodyFaces::List(list::message(self, compositor, canvas, line, now))
             }
             Body::Text(body) => {
-                BodyFaces::Text(text_view::faces(self, compositor, canvas, body, now))
+                BodyFaces::Text(text_view::faces(self, compositor, canvas, body, tint, now))
             }
             Body::NowPlaying(body) => BodyFaces::NowPlaying(now_playing::faces(
                 self, app, compositor, canvas, body, glyphs, now,
@@ -502,7 +511,7 @@ impl MusicText {
 
 /// A legend's hints in `theme`, worded by `slot_music::text`. They hold still while a key is
 /// held: the ring around the key's cap shows the hold.
-fn hint_faces(legend: Legend, theme: &MusicTheme) -> impl Iterator<Item = UndoFace> + '_ {
+fn hint_faces(legend: Legend, theme: &MusicTheme) -> impl Iterator<Item = Bitmap> + '_ {
     text::legend(legend).into_iter().map(move |hint| {
         let key = (hint.key != text::ARROWS).then_some(hint.key);
         music_hint_face(key, &hint.label(), theme)
@@ -512,6 +521,16 @@ fn hint_faces(legend: Legend, theme: &MusicTheme) -> impl Iterator<Item = UndoFa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_music_menu_sits_where_slot_s_quick_menu_would() {
+        use slot_ui::{quick_row_top, QuickRow};
+        let first = QuickRow::MAIN[0];
+        assert_eq!(
+            slot_music_ui::music_menu_top(QuickRow::MAIN.len()),
+            quick_row_top(first, &[]).round()
+        );
+    }
 
     #[test]
     fn a_line_scrolls_from_its_start_when_its_text_changes_and_on_while_it_stands() {
@@ -537,7 +556,7 @@ mod tests {
         let wide: Vec<String> = Legend::all()
             .into_iter()
             .filter_map(|legend| {
-                let faces: Vec<UndoFace> = hint_faces(legend, &MusicTheme::dark()).collect();
+                let faces: Vec<Bitmap> = hint_faces(legend, &MusicTheme::dark()).collect();
                 let gaps = LEGEND_GAP as u32 * (faces.len() as u32).saturating_sub(1);
                 let w = faces.iter().map(|f| f.w).sum::<u32>() + gaps;
                 (w as f32 > Canvas::FRAMED.w).then(|| format!("{legend:?} is {w} px"))
@@ -550,7 +569,7 @@ mod tests {
 #[cfg(test)]
 mod help_tests {
     use super::*;
-    use slot_ui::music::{music_row_px, music_text_width, Ink};
+    use slot_music_ui::{music_row_px, music_text_width, Ink};
     use slot_ui::Canvas;
 
     /// Help is read, not picked from: a line wider than a row would scroll forever, and keep the
@@ -588,6 +607,9 @@ mod help_tests {
             text::no_music("Music"),
             text::no_books("Audiobooks"),
             text::NO_BOOKMARKS.to_string(),
+            text::NOTHING_PLAYED.to_string(),
+            text::NO_FAVORITES.to_string(),
+            text::NO_SONGS.to_string(),
             text::NO_LYRICS.to_string(),
             text::QUEUE_EMPTY.to_string(),
             text::NOTHING_PLAYING.to_string(),

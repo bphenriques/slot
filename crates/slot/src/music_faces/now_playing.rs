@@ -5,7 +5,7 @@
 use super::Textures;
 use slot_input::Millis;
 use slot_music::{NowPlayingBody, Repeat, Status};
-use slot_ui::music::{
+use slot_music_ui::{
     music_half_w, music_text_width, music_tint, LineInk, MusicFace, MusicTint, NowPlayingFaces,
 };
 use slot_ui::Canvas;

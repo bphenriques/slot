@@ -21,7 +21,7 @@ impl Store {
     /// The equalizer's presets, and which `music.txt` names: 0, off, if none or one gone.
     pub fn equalizer(&self) -> (Presets, usize) {
         let presets = Presets::read(&self.read(EQ_FILE));
-        let settings = slot_store::ini::parse(&self.read(SETTINGS_FILE));
+        let settings = super::file::parse(&self.read(SETTINGS_FILE));
         let on = settings.get("eq").map_or(0, |name| presets.find(name));
         (presets, on)
     }

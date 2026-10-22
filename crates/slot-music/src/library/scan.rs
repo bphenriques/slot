@@ -7,17 +7,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
-use slot_store::is_hidden;
+use crate::store::file::is_hidden;
 
 use crate::library::tags::{self, Tags};
 use crate::library::{is_audio, Dirs, Library, Record};
 use crate::store::playlists::PLAYLISTS_DIR;
 
 pub const CACHE_FILE: &str = "Config/music-library.tsv";
-/// The cache's first line; a cache in another layout is read as empty, but for the one before,
-/// read for when each song came in and to show at once, its songs' tags read again for genre.
-const HEADER: &str = "#SLOT-LIBRARY 5";
-const BEFORE_GENRE: &str = "#SLOT-LIBRARY 4";
+/// The cache's first line; a cache in another layout is read as empty, but for those before,
+/// read for when each song came in and to show at once, its songs' tags read again: for genre
+/// (4), and for how long songs play, once read only for books (5).
+const HEADER: &str = "#SLOT-LIBRARY 6";
+const BEFORE: [&str; 2] = ["#SLOT-LIBRARY 4", "#SLOT-LIBRARY 5"];
 /// Folders this deep are not looked in, so a link to a folder above cannot go round forever.
 const MAX_DEPTH: usize = 8;
 
@@ -95,8 +96,7 @@ pub fn scan(root: &Path, dirs: &Dirs, full: bool, progress: &Progress) -> (Libra
                     read += 1;
                     progress.step();
                     Record {
-                        // A book's parts are timed, for how far into it the listener is.
-                        tags: guarded(&path, || tags::read(&path, path.starts_with(books))),
+                        tags: guarded(&path, || tags::read(&path)),
                         added: known.map_or(now, |r| r.added),
                         path,
                         modified,
@@ -203,13 +203,13 @@ fn write_cache(root: &Path, records: &[Record]) {
     }
 }
 
-/// The songs the cache has, and whether it is the layout before genres, its tags to read again.
+/// The songs the cache has, and whether it is of a layout before, its tags to read again.
 fn read_cache(root: &Path) -> (HashMap<PathBuf, Record>, bool) {
     let text = std::fs::read_to_string(root.join(CACHE_FILE)).unwrap_or_default();
     let mut lines = text.lines();
     let stale = match lines.next() {
         Some(HEADER) => false,
-        Some(BEFORE_GENRE) => true,
+        Some(line) if BEFORE.contains(&line) => true,
         _ => return (HashMap::new(), false),
     };
     let records = lines

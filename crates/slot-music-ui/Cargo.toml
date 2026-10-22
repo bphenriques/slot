@@ -1,0 +1,21 @@
+[package]
+name = "slot-music-ui"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The kit that draws a slot_music::Screen's parts. It knows neither the music nor the frontend:
+# it makes faces and a draw list (`slot-gfx`'s) for whatever host shows them.
+[dependencies]
+fontdue = { workspace = true }
+resvg = { workspace = true }
+usvg = { workspace = true }
+slot-gfx = { path = "../slot-gfx", default-features = false }
+
+[dev-dependencies]
+slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
+
+[lints.clippy]
+match_bool = "warn"
+undocumented_unsafe_blocks = "warn"

@@ -144,6 +144,10 @@ pub const CHAPTERS: &str = "Chapters";
 pub const BOOKMARKS: &str = "Bookmarks";
 pub const FOLDERS: &str = "Folders";
 pub const NO_BOOKMARKS: &str = "No bookmarks yet";
+/// What Recently Played, Favorites and a playlist say with no songs in them yet.
+pub const NOTHING_PLAYED: &str = "Nothing played yet";
+pub const NO_FAVORITES: &str = "No favorites yet";
+pub const NO_SONGS: &str = "No songs yet";
 /// The lyrics' corner, when they are timed and follow the song.
 pub const SYNCED: &str = "Synced";
 pub const EQUALIZER: &str = "Equalizer";
@@ -450,9 +454,9 @@ pub fn sleeping(left: Option<Duration>) -> String {
     }
 }
 
-/// The lyrics' header: the song and who sings it, as Up Next names them; the song alone when
-/// its artist is not known.
-pub fn lyrics_of(title: &str, artist: &str) -> String {
+/// A name and who made it, as Up Next names them: the lyrics' header, and what plays under Now
+/// Playing and Continue; the name alone when who made it is not known.
+pub fn name_by(title: &str, artist: &str) -> String {
     if artist.is_empty() {
         title.into()
     } else {

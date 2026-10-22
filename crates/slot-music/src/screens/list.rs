@@ -199,8 +199,28 @@ pub(crate) fn screen(music: &Music) -> Screen {
     } else if !books && lib.tracks_by_title.is_empty() {
         let line = text::no_music(&folder(&music.scan.dirs.music));
         Screen::message(text::title(view).unwrap_or(text::MUSIC), &line)
+    } else if let Some((title, line)) = nothing_yet(music, view) {
+        Screen::message(&title, line)
     } else {
         rows_screen(music)
+    }
+}
+
+/// A list of songs with none in it yet, which says so rather than offer Play All of nothing:
+/// its title, and what it says.
+fn nothing_yet(music: &Music, view: View) -> Option<(String, &'static str)> {
+    let lib = &music.library;
+    match view {
+        View::RecentlyPlayed if music.recent.tracks.is_empty() => {
+            Some((text::RECENTLY_PLAYED.into(), text::NOTHING_PLAYED))
+        }
+        View::Playlist(0) if lib.playlists.first().is_some_and(|p| p.tracks.is_empty()) => {
+            Some((text::FAVORITES.into(), text::NO_FAVORITES))
+        }
+        View::Playlist(p) if lib.playlists.get(p).is_some_and(|p| p.tracks.is_empty()) => {
+            Some((lib.playlists[p].name.clone(), text::NO_SONGS))
+        }
+        _ => None,
     }
 }
 
@@ -234,8 +254,11 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         lifted: false,
         readonly: false,
         two_lines: page.two_lines,
+        lead: page.lead,
+        actions: crate::browse::rows::fixed(view).len(),
+        paused: !cx.queue.playing,
         thumbs: page.thumbs,
-        books: matches!(view, View::BookList(_) | View::Author(_)),
+        books: matches!(view, View::BookList(_) | View::Author(_) | View::Books),
         titled: view != View::Main,
     };
     Screen {

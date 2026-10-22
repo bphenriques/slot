@@ -8,7 +8,7 @@
 
 use std::sync::OnceLock;
 
-use super::slot::ease;
+use super::chrome::ease;
 
 /// The highlight gliding to the next row.
 pub const MUSIC_GLIDE_MS: u64 = 90;

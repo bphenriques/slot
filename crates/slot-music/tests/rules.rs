@@ -28,6 +28,11 @@ fn sources(dir: &str) -> Vec<PathBuf> {
         }
     }
     let root = crates().join(dir);
+    // A rule over a folder since moved would check nothing, and pass.
+    assert!(
+        root.exists(),
+        "{dir} is gone: the rule checks nothing there"
+    );
     if root.is_file() {
         return vec![root];
     }
@@ -128,7 +133,7 @@ fn words_are_text_rs_s() {
     // The music's, its kit's and its glue's: what slot's own screens say is slot's.
     let dirs = [
         "slot-music/src",
-        "slot-ui/src/music",
+        "slot-music-ui/src",
         "slot/src/music_faces",
         "slot/src/app/music.rs",
     ];
@@ -143,7 +148,7 @@ fn words_are_text_rs_s() {
 #[test]
 fn colours_are_theme_rs_s() {
     let colour = |line: &str| line.contains("[0x");
-    let dirs = ["slot-ui/src/music", "slot/src/music_faces"];
+    let dirs = ["slot-music-ui/src", "slot/src/music_faces"];
     let found = breaches(&dirs, &["theme.rs"], colour, &[]);
     assert!(
         found.is_empty(),
@@ -155,7 +160,7 @@ fn colours_are_theme_rs_s() {
 #[test]
 fn motion_is_tween_rs_s() {
     let time = |line: &str| line.contains("Duration::from_");
-    let dirs = ["slot-ui/src/music", "slot/src/music_faces"];
+    let dirs = ["slot-music-ui/src", "slot/src/music_faces"];
     let found = breaches(&dirs, &["tween.rs"], time, &[]);
     assert!(
         found.is_empty(),
@@ -277,13 +282,13 @@ fn each_layer_knows_only_the_one_below() {
     );
     assert_eq!(
         uses("slot-music"),
-        ["slot-player", "slot-store"],
-        "nor draws"
+        ["slot-player"],
+        "nor draws, nor needs the frontend's files"
     );
-    let ui = uses("slot-ui");
-    assert!(
-        !ui.iter().any(|d| d == "slot-music" || d == "slot-player"),
-        "the kit draws and decides nothing: {ui:?}"
+    assert_eq!(
+        uses("slot-music-ui"),
+        ["slot-gfx"],
+        "the kit draws and decides nothing, and needs no frontend but its draw list"
     );
 }
 
@@ -344,7 +349,7 @@ fn the_log_is_told_one_way() {
     let dirs = [
         "slot-music/src",
         "slot-player/src",
-        "slot-ui/src/music",
+        "slot-music-ui/src",
         "slot/src/music_faces",
     ];
     let mut found = breaches(&dirs, &owners, prints, &[]);

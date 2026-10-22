@@ -231,7 +231,8 @@ fn rows_name_their_context_dim_and_mark_what_plays() {
     b.press(&cx(&lib, queue, settings), Key::A);
     let page = b.page(&cx(&lib, queue, settings));
     let row = &page.rows[1];
-    assert_eq!((row.before.as_str(), row.text.as_str()), ("", "Cryin"));
+    // Its number kept, for the mark to stand in its room, the name in line with the rest.
+    assert_eq!((row.before.as_str(), row.text.as_str()), ("03", "Cryin"));
     assert!(row.playing && row.after.is_empty());
     assert!(page.rows[0].action && !row.action && !page.rows[0].playing);
 }
@@ -245,8 +246,8 @@ fn the_main_screen_counts_what_its_rows_lead_to() {
     let values: Vec<Option<&str>> = page.values.iter().map(Option::as_deref).collect();
     assert_eq!(
         values,
-        [Some("1"), Some("2"), Some("2"), None],
-        "Library: Artists, Albums, Songs, Folders; no Genres or Years with none tagged"
+        [Some("1"), Some("2"), Some("2"), Some("1")],
+        "Library: Artists, Albums, Songs, and Folders by what is in it; no Genres or Years with none tagged"
     );
 }
 

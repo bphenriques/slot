@@ -2,7 +2,7 @@
 //! from its top; the state symbols, bar, time and queue place sit on its bottom. The next track
 //! is centred below, above the hints.
 
-use super::slot::{push, Canvas, Draw, MENU_PAD, QUICK_EDGE};
+use super::chrome::{push, Canvas, Draw, MENU_PAD, QUICK_EDGE};
 
 /// A bookmark's tick on the bar: its width, and how far it stands above and below.
 const MARK_W: f32 = 2.0;
@@ -90,7 +90,7 @@ pub(super) fn draw(
 
 /// The room left between the bars and the state symbols under them; the gap between bars; a
 /// bar's brighter top.
-const BARS_ROOM: f32 = 12.0;
+const BARS_ROOM: f32 = 18.0;
 const BAR_GAP: f32 = 2.0;
 const BAR_TOP: f32 = 2.0;
 

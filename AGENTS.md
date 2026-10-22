@@ -11,7 +11,7 @@ Layers, each knowing only the one below it:
 |---|---|---|
 | `slot-player` | Playing files: decode, resample, speed, gain, gapless, ALSA. `Command` in; its `Status` (state, place, length, whether still heard) read each frame; `Event` out only for what happens (an end, going on into the next, a failure, the device lost, the player gone); behind `Handle`. | Albums, books, queues, screens. |
 | `slot-music` | The player's behaviour: library, queue, books, lyrics, keys, settings, and every screen as data (`Screen`). Every word in `text.rs`; every file it keeps on the card in `store/`. | Drawing, textures, colours. |
-| `slot-ui::music` | The kit that draws a `Screen`'s parts: faces, list, Now Playing, text view, `tween`, every colour in `theme.rs`. | Behaviour, state. |
+| `slot-music-ui` | The kit that draws a `Screen`'s parts: faces, list, Now Playing, text view, `tween`, every colour in `theme.rs`; its own fonts and hints, drawn as `slot-gfx`'s draw list. | Behaviour, state, the frontend. |
 | `slot::music_faces`, `slot::app::music` | Glue: a `Screen` into the kit's faces each frame; keys into `slot-music`. | Decisions the layers above make. |
 
 `Screen` is the only contract between behaviour and drawing. New behaviour goes in `slot-music`
@@ -30,7 +30,7 @@ with tests; new looks go in the kit. Upstream slot's own files change only at on
   each file a `Kept` type (`encode`/`decode`, tested on text) written off the frame loop by the
   one `Store`. The library scan, its cache and the album pictures keep their own files.
 - No literal words outside `slot-music/src/text.rs`, no literal colours outside
-  `slot-ui/src/music/theme.rs`, no motion outside `slot-ui/src/music/tween.rs`'s curve and
+  `slot-music-ui/src/theme.rs`, no motion outside `slot-music-ui/src/tween.rs`'s curve and
   durations.
 - Keys: a tap does one thing, a hold another, hinted "Tap (Held)"; a START menu holds only what
   no key does. Each screen's keys are one table, as niri declares its binds
@@ -97,7 +97,7 @@ State has one owner, and threads share no mutable state, only messages:
 ## Check before you finish
 
 ```sh
-nix-shell --run "cargo fmt -p slot-music -p slot-ui -p slot -p slot-player"
+nix-shell --run "cargo fmt -p slot-music -p slot-music-ui -p slot -p slot-player"
 nix-shell --run "task check:music"
 ```
 

@@ -4,7 +4,7 @@
 
 use slot_input::Millis;
 use slot_music::{RowText, Screen};
-use slot_ui::music::{
+use slot_music_ui::{
     marquee_start, music_arrived, music_eased, MusicMotion, MusicTween, MUSIC_ART_MS,
     MUSIC_GLIDE_MS, MUSIC_SLIDE_MS,
 };

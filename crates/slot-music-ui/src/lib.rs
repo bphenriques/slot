@@ -16,20 +16,21 @@
 
 #![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
 
+mod chrome;
 mod face;
 mod list;
 mod now_playing;
-mod slot;
 mod text_view;
 mod theme;
 mod tint;
 mod tween;
 
-use slot::{
+use chrome::{
     centred_hints, push, Canvas, Draw, TexId, CAP, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H,
     PLATE_H, QUICK_EDGE,
 };
 
+pub use chrome::Bitmap;
 pub use face::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_heart_face, music_hint_face, music_letter_face, music_line_face, music_no_art_face,
@@ -37,7 +38,7 @@ pub use face::{
     music_second_face, music_status_face, music_thumb_blank_face, music_window, Ink, LineInk,
     RowWords, MUSIC_STATUS,
 };
-pub use list::{music_rich_px, music_row_ink, music_row_px, music_row_text_w};
+pub use list::{music_menu_top, music_rich_px, music_row_ink, music_row_px, music_row_text_w};
 pub use text_view::TextFaces;
 pub use theme::MusicTheme;
 pub use tint::{music_tint, music_tint_ink, MusicTint};
@@ -194,11 +195,16 @@ pub struct ListFaces {
     /// Whether the rows are two lines, and each one's second line: who made it, starting past
     /// its row's number, under the name.
     pub two_lines: bool,
+    /// How many action rows lead the list's first page: two-line rows keep their room on each.
+    pub actions: usize,
     pub seconds: Vec<Option<MusicFace>>,
     pub indents: Vec<u32>,
     /// Whether the rows start with their album's thumbnail, and each one's, once read.
     pub thumbed: bool,
     pub thumbs: Vec<Option<MusicFace>>,
+    /// Whether the first row leads, taller, on two lines beside its thumbnail: what plays, the
+    /// book to continue.
+    pub lead: bool,
     /// What an empty thumbnail shows, dim: a note, or a book.
     pub blank: Option<MusicFace>,
     /// The row playing, in a list with thumbnails, and the play mark drawn on its thumbnail

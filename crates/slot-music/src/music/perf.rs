@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Where the log goes, from the card's root, and how often a line is written.
 pub(crate) const PERF_FILE: &str = "Logs/music-perf.log";
@@ -163,7 +163,7 @@ fn line(
         "{} {secs:.0}s {what} | {:.0} fps, {:.0} drawn | music {poll}us (max {poll_max}) screen {screen}us \
          (max {screen_max}) compare {compare}us (max {compare_max}) draw {glue}us (max {glue_max}) | opened {opened} | sound {} | player {player} | clock {} | cpu {} \
          | rss {} MB",
-        slot_store::stamp_now(),
+        stamp(SystemTime::now()),
         frames as f64 / secs,
         drawn as f64 / secs,
         sound(),
@@ -295,9 +295,38 @@ fn thread_ticks(stat: &str) -> Option<(String, u64)> {
     Some((name, user + system))
 }
 
+/// When a line was written, in UTC as the card's other logs stamp it: 2026-10-22_14-05-09.
+fn stamp(at: SystemTime) -> String {
+    let secs = at
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    // Days into a civil date, as Howard Hinnant's `civil_from_days` has it.
+    let z = secs.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (
+        doy - (153 * mp + 2) / 5 + 1,
+        if mp < 10 { mp + 3 } else { mp - 9 },
+    );
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    let rem = secs.rem_euclid(86_400);
+    let (h, min, s) = (rem / 3600, rem / 60 % 60, rem % 60);
+    format!("{y:04}-{m:02}-{d:02}_{h:02}-{min:02}-{s:02}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_is_stamped_with_its_civil_date_and_time_in_utc() {
+        let at = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        assert_eq!(stamp(at), "2023-11-14_22-13-20");
+        assert_eq!(stamp(UNIX_EPOCH), "1970-01-01_00-00-00");
+    }
 
     #[test]
     fn the_player_s_work_is_told_as_shares_of_a_core_since_the_last_line() {
