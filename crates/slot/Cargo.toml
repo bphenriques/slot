@@ -14,9 +14,9 @@ music-perf = ["mute/perf"]
 
 [dependencies]
 slot-labels = { path = "../slot-labels" }
-mute = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
-mute-ui = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
-mute-view = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
+mute = { git = "https://github.com/bphenriques/mute-player", rev = "5135190213f18c23da9cdb02b5f8137f2207f86e" }
+mute-ui = { git = "https://github.com/bphenriques/mute-player", rev = "5135190213f18c23da9cdb02b5f8137f2207f86e" }
+mute-view = { git = "https://github.com/bphenriques/mute-player", rev = "5135190213f18c23da9cdb02b5f8137f2207f86e" }
 slot-achievements = { path = "../slot-achievements" }
 slot-gfx = { path = "../slot-gfx", default-features = false }
 slot-input = { path = "../slot-input" }
@@ -35,6 +35,6 @@ png = { workspace = true }
 
 [dev-dependencies]
 lofty.workspace = true
-mute-audio = { git = "https://github.com/bphenriques/mute-player", rev = "066fa159d05ebfa19e501df6bf00ff8419c511ad" }
+mute-audio = { git = "https://github.com/bphenriques/mute-player", rev = "5135190213f18c23da9cdb02b5f8137f2207f86e" }
 slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
 tempfile = { workspace = true }

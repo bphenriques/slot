@@ -31,6 +31,10 @@ one-line hooks.
 
 ## Working on mute from here
 
+mute is checked out beside this, as `../mute-player`. Work on the player starts there, with its
+`AGENTS.md`: the change, its tests and the screenshots it draws; this repo then moves its `rev`.
+The card's `music.txt.example` and `music-eq.txt.example` come from that revision's `music/`.
+
 To try a change to mute in slot before it is pushed, point Cargo at a checkout of it, in a
 `.cargo/config.toml` kept out of git:
 

@@ -13,7 +13,6 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 |---|---|
 | mute ([mute-player](https://github.com/bphenriques/mute-player)) | The player, as crates at the revision `crates/slot/Cargo.toml` pins: `mute-audio` (plays files), `mute` (behaviour, every screen as data, the card's files), `mute-ui` (the kit that draws), `mute-view` (a screen into the kit's faces, and the screenshot tour). Its layout, rules and tests are in its own `README.md` and `AGENTS.md`. |
 | `crates/slot/src/music_faces.rs`, `crates/slot/src/app/music.rs` | slot as mute's host: the view's textures and draws into its compositor; input routing; the screen off, power, volume and the lid. |
-| `music/` | `music.txt.example` and `music-eq.txt`, put on the card as examples, as mute has them; `README.md` and the notes, as mute's, kept for this fork's history. |
 
 Upstream files touched: `task footprint` lists them, as changed from upstream's. Keep those
 diffs small. `crates/slot/src/audio/line_out.rs` is ours, new beside upstream's sound: the codec's

@@ -1619,7 +1619,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "mute"
 version = "0.1.0"
-source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+source = "git+https://github.com/bphenriques/mute-player?rev=5135190213f18c23da9cdb02b5f8137f2207f86e#5135190213f18c23da9cdb02b5f8137f2207f86e"
 dependencies = [
  "image",
  "libc",
@@ -1631,7 +1631,7 @@ dependencies = [
 [[package]]
 name = "mute-audio"
 version = "0.1.0"
-source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+source = "git+https://github.com/bphenriques/mute-player?rev=5135190213f18c23da9cdb02b5f8137f2207f86e#5135190213f18c23da9cdb02b5f8137f2207f86e"
 dependencies = [
  "cc",
  "libc",
@@ -1647,7 +1647,7 @@ dependencies = [
 [[package]]
 name = "mute-ui"
 version = "0.1.0"
-source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+source = "git+https://github.com/bphenriques/mute-player?rev=5135190213f18c23da9cdb02b5f8137f2207f86e#5135190213f18c23da9cdb02b5f8137f2207f86e"
 dependencies = [
  "fontdue",
  "resvg",
@@ -1657,7 +1657,7 @@ dependencies = [
 [[package]]
 name = "mute-view"
 version = "0.1.0"
-source = "git+https://github.com/bphenriques/mute-player?rev=066fa159d05ebfa19e501df6bf00ff8419c511ad#066fa159d05ebfa19e501df6bf00ff8419c511ad"
+source = "git+https://github.com/bphenriques/mute-player?rev=5135190213f18c23da9cdb02b5f8137f2207f86e#5135190213f18c23da9cdb02b5f8137f2207f86e"
 dependencies = [
  "mute",
  "mute-ui",

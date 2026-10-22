@@ -7,6 +7,12 @@ vars:
   GPSP_COMMIT: 7b2dd37394e2822110cacef321e9bb291a305b77
   EXFATPROGS_VERSION: 1.4.3
   EXFATPROGS_SHA256: 4b5052cba6ff9f6dcb1c63eeeac328620472c5b0b3caf3d38e4ada50e75469d3
+  # mute's `music/` (the examples a card gets), in the checkout Cargo keeps of its pinned revision.
+  MUTE_MUSIC:
+    sh: >-
+      cargo metadata --format-version 1 --locked |
+      jq -r '.packages[] | select(.name == "mute") | .manifest_path' |
+      xargs dirname | xargs -I{} realpath {}/../../music
   SLOT_IN_PROCESS: >-
     --test bios --test core --test core_options --test e2e --test emu --test gb_palette_recolour --test gpsp
     --test link_ui --test mgba_gb_link --test mgba_link --test render_colour_correction
@@ -454,8 +460,8 @@ tasks:
           CMD: ./target-device/device/slot --init-root {{.OUT}}
       - cp target-device/device/slot {{.OUT}}/System/slot
       - cp target-device/device/slot-services {{.OUT}}/System/
-      - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example {{.OUT}}/Config/
-      - cp music/music-eq.txt {{.OUT}}/Config/music-eq.txt.example
+      - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example {{.MUTE_MUSIC}}/music.txt.example {{.OUT}}/Config/
+      - cp {{.MUTE_MUSIC}}/music-eq.txt {{.OUT}}/Config/music-eq.txt.example
       - mkdir {{.OUT}}/System/slot-net
       - cp vendor/slot-net/iw vendor/slot-net/*.so.* {{.OUT}}/System/slot-net/
       - cp -R card/System/* {{.OUT}}/System/
@@ -524,8 +530,8 @@ tasks:
       - "{{.ADB}} push licenses '{{.SD}}/System/'"
       - "{{.ADB}} push vendor/exfatprogs-{{.EXFATPROGS_VERSION}}.tar.gz '{{.SD}}/System/licenses/'"
       - "{{.ADB}} push target-device/device/slot-services '{{.SD}}/System/slot-services'"
-      - "{{.ADB}} push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example music/music.txt.example '{{.SD}}/Config/'"
-      - "{{.ADB}} push music/music-eq.txt '{{.SD}}/Config/music-eq.txt.example'"
+      - "{{.ADB}} push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example {{.MUTE_MUSIC}}/music.txt.example '{{.SD}}/Config/'"
+      - "{{.ADB}} push {{.MUTE_MUSIC}}/music-eq.txt '{{.SD}}/Config/music-eq.txt.example'"
       - "{{.ADB}} shell mkdir -p '{{.SD}}/System/slot-net'"
       - "{{.ADB}} push vendor/slot-net/iw vendor/slot-net/*.so.* '{{.SD}}/System/slot-net/'"
       - "{{.ADB}} push vendor/slot-net/licenses/. '{{.SD}}/System/licenses/'"
