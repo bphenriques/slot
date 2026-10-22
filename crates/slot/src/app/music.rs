@@ -7,7 +7,7 @@ use std::time::Duration;
 use slot_gfx::Draw;
 use slot_input::{Action, Btn, Millis, RawEvent};
 use slot_music::{AlbumId, Art, Button, Input, Music, Screen};
-use slot_music_ui::{MusicFaces, MusicTheme};
+use slot_music_ui::MusicTheme;
 use slot_store::Shader;
 use slot_ui::QuickRow;
 
@@ -76,7 +76,7 @@ impl App {
 
     /// The music screen.
     pub(super) fn draw_music(&self, out: &mut Vec<slot_ui::Draw>) {
-        slot_music_ui::draw_music(&self.music_faces, out);
+        out.extend(self.music_faces.iter().copied());
     }
 
     /// Powering off: what the music keeps on the card is written first.
@@ -257,8 +257,9 @@ impl App {
         MusicTheme::of(self.light())
     }
 
-    pub fn set_music_faces(&mut self, faces: MusicFaces) {
-        self.music_faces = faces;
+    /// What the music screen draws, as slot draws it.
+    pub fn set_music_draws(&mut self, draws: Vec<Draw>) {
+        self.music_faces = draws;
     }
 
     /// For the performance log: how long the music screen took to draw.
@@ -374,9 +375,6 @@ pub(super) enum Drawn {
 fn still<T: PartialEq>(then: &T, wake: Option<Millis>, shown: &T, now: Millis) -> bool {
     wake.is_none_or(|at| now < at) && then == shown
 }
-
-#[cfg(test)]
-mod shots;
 
 #[cfg(test)]
 mod tests {

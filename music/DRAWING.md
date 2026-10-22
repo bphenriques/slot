@@ -25,7 +25,7 @@ Ghostty's renderer (`src/renderer/Thread.zig`, `generic.zig`) is the model:
   to catch up.
 
 We already have two of these. The faces are kept, built again only when their line changes
-(`music_faces`, by `Spec`), as ghostty keeps rows. And unseen means nothing: the lid closed draws
+(`slot-music-view`, by `Spec`), as ghostty keeps rows. And unseen means nothing: the lid closed draws
 nothing (`App::resting`).
 
 ## How it is done

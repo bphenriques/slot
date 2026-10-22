@@ -459,7 +459,7 @@ pub struct App {
     radio: Box<dyn RadioJobs>,
     state_writer: crate::state_writer::StateWriter,
     music: Option<slot_music::Music>,
-    music_faces: slot_music_ui::MusicFaces,
+    music_faces: Vec<slot_ui::Draw>,
     music_on_wake: bool,
     music_frames: music::Frames,
 }
@@ -643,7 +643,7 @@ impl App {
             last_led: None,
             powering_off: false,
             music: None,
-            music_faces: slot_music_ui::MusicFaces::default(),
+            music_faces: Vec::new(),
             music_on_wake: false,
             music_frames: music::Frames::default(),
         }

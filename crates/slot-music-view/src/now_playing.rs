@@ -2,16 +2,16 @@
 //! long; the album picture and its colour; the state symbols; the queue place, time and the
 //! next track.
 
+use super::Millis;
 use super::Textures;
-use slot_input::Millis;
 use slot_music::{NowPlayingBody, Repeat, Status};
+use slot_music_ui::Canvas;
 use slot_music_ui::{
     music_half_w, music_text_width, music_tint, LineInk, MusicFace, MusicTint, NowPlayingFaces,
 };
-use slot_ui::Canvas;
 
 use super::{put, Glyphs, MusicText, Spec};
-use crate::app::App;
+use slot_music::Art;
 
 /// An album picture on the GPU, and its colour for Dynamic Color.
 #[derive(Copy, Clone)]
@@ -23,7 +23,7 @@ pub(super) struct Picture {
 
 pub(super) fn faces(
     text: &mut MusicText,
-    app: &App,
+    playing: Option<&Art>,
     compositor: &mut dyn Textures,
     canvas: Canvas,
     body: NowPlayingBody,
@@ -79,7 +79,7 @@ pub(super) fn faces(
         text.lines
             .sync(compositor, text.theme, 6, Spec::small(speed), half, None)
     });
-    let art = art(text, app, compositor, now);
+    let art = art(text, playing, compositor, now);
     let tint = art.map(|p| MusicTint {
         now: p.tint,
         was: text.art_was.map(|w| w.tint),
@@ -105,12 +105,12 @@ pub(super) fn faces(
 /// the first on a screen still coming in, there at once, as it comes in with the screen.
 fn art(
     text: &mut MusicText,
-    app: &App,
+    playing: Option<&Art>,
     compositor: &mut dyn Textures,
     now: Millis,
 ) -> Option<Picture> {
     // None, the last is let go, so the next does not fade in over it.
-    let Some(a) = app.music_art() else {
+    let Some(a) = playing else {
         let gone = [text.art.take(), text.art_was.take()];
         text.art_free
             .extend(gone.into_iter().flatten().map(|p| p.face.0));

@@ -11,8 +11,9 @@ Layers, each knowing only the one below it:
 |---|---|---|
 | `slot-player` | Playing files: decode, resample, speed, gain, gapless, ALSA. `Command` in; its `Status` (state, place, length, whether still heard) read each frame; `Event` out only for what happens (an end, going on into the next, a failure, the device lost, the player gone); behind `Handle`. | Albums, books, queues, screens. |
 | `slot-music` | The player's behaviour: library, queue, books, lyrics, keys, settings, and every screen as data (`Screen`). Every word in `text.rs`; every file it keeps on the card in `store/`. | Drawing, textures, colours. |
-| `slot-music-ui` | The kit that draws a `Screen`'s parts: faces, list, Now Playing, text view, `tween`, every colour in `theme.rs`; its own fonts and hints, drawn as `slot-gfx`'s draw list. | Behaviour, state, the frontend. |
-| `slot::music_faces`, `slot::app::music` | Glue: a `Screen` into the kit's faces each frame; keys into `slot-music`. | Decisions the layers above make. |
+| `slot-music-ui` | The kit that draws a `Screen`'s parts: faces, list, Now Playing, text view, `tween`, every colour in `theme.rs`; its own fonts and hints, and a draw list of its own for any host. | Behaviour, state, the frontend. |
+| `slot-music-view` | The music screen as the kit draws it, for any host: each frame's `Screen` into the kit's faces, the textures kept, the motion (`motion.rs`); and the screenshot tour (`tests/shots.rs`). | Hosts: a device, a window, slot. |
+| `slot::music_faces`, `slot::app::music` | slot as the host: the view's faces into its compositor's textures and draws; keys into `slot-music`. | Decisions the layers above make. |
 
 `Screen` is the only contract between behaviour and drawing. New behaviour goes in `slot-music`
 with tests; new looks go in the kit. Upstream slot's own files change only at one-line hooks.

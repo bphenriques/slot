@@ -1,14 +1,14 @@
 //! A list page's faces: the rows, their values, favorites' hearts, and the highlight. A message
 //! is a lone row.
 
+use super::Millis;
 use super::Textures;
-use slot_input::Millis;
 use slot_music::{AlbumId, Art, ListBody, RowText};
+use slot_music_ui::Canvas;
 use slot_music_ui::{
     music_half_w, music_number_w, music_rich_px, music_row_ink, music_row_px, music_row_text_w,
     music_text_width, Ink, ListFaces, MusicFace, MUSIC_STATUS,
 };
-use slot_ui::Canvas;
 
 use super::{Glyphs, MusicText, Spec};
 

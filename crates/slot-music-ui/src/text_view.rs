@@ -97,9 +97,7 @@ mod tests {
     #[test]
     fn the_focus_sits_in_the_middle_and_what_will_not_fit_is_left_out() {
         let faces = TextFaces {
-            lines: (0..40)
-                .map(|i| Some((TexId::from_raw(i), 200, 30)))
-                .collect(),
+            lines: (0..40).map(|i| Some((TexId(i), 200, 30))).collect(),
             focus: 20.0,
             ..TextFaces::default()
         };
@@ -108,7 +106,7 @@ mod tests {
         assert!(!out.is_empty() && out.len() < 40, "only those in the room");
         let mid = (ROWS_Y + LEGEND_Y) / 2.0;
         let focus = out.iter().find_map(|d| match d {
-            Draw::Tex { tex, y, .. } if *tex == TexId::from_raw(20) => Some(*y),
+            Draw::Tex { tex, y, .. } if *tex == TexId(20) => Some(*y),
             _ => None,
         });
         let y = focus.expect("the focus is drawn");
@@ -119,20 +117,18 @@ mod tests {
     fn followed_lines_fade_the_further_from_the_middle_and_the_song_s_bar_is_drawn() {
         let alpha_of = |fade: bool| {
             let faces = TextFaces {
-                lines: (0..9)
-                    .map(|i| Some((TexId::from_raw(i), 200, 30)))
-                    .collect(),
+                lines: (0..9).map(|i| Some((TexId(i), 200, 30))).collect(),
                 focus: 4.0,
                 fade,
                 progress: Some(0.5),
                 tint: Some([10, 200, 30]),
-                time: Some((TexId::from_raw(99), 120, 26)),
+                time: Some((TexId(99), 120, 26)),
             };
             let mut out = Vec::new();
             draw(&faces, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
             let alpha = |i| {
                 out.iter().find_map(|d| match *d {
-                    Draw::Tex { tex, alpha, .. } if tex == TexId::from_raw(i) => Some(alpha),
+                    Draw::Tex { tex, alpha, .. } if tex == TexId(i) => Some(alpha),
                     _ => None,
                 })
             };
@@ -143,7 +139,7 @@ mod tests {
                 _ => None,
             });
             let tops = |d: &Draw, id: usize| match *d {
-                Draw::Tex { tex, y, h, .. } if tex == TexId::from_raw(id) => Some((y, h)),
+                Draw::Tex { tex, y, h, .. } if tex == TexId(id) => Some((y, h)),
                 _ => None,
             };
             let time = out.iter().find_map(|d| tops(d, 99));

@@ -1,16 +1,16 @@
-//! The music screen's textures. Lines are drawn once at full length and shown through a
-//! window, so long ones scroll: the highlighted row in a list, every line on Now Playing.
-
-#![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
+//! The music screen as the kit draws it: a `slot_music::Screen` made into the kit's faces each
+//! frame, the textures kept and drawn again only when their line changes, and what moves (a
+//! screen coming in, the highlight, rows, a picture fading in) moving. Lines are drawn once at
+//! full length and shown through a window, so long ones scroll: the highlighted row in a list,
+//! every line on Now Playing. It knows no host: a host gives it a `Frame` and somewhere to put
+//! textures, and shows the faces it gives back.
 
 mod list;
 mod motion;
 mod now_playing;
 mod text_view;
 
-use slot_gfx::{Compositor, TexId};
-use slot_input::Millis;
-use slot_music::{text, AlbumId, Body, Legend, RowText};
+use slot_music::{text, AlbumId, Art, Body, Legend, RowText, Screen};
 use slot_music_ui::Bitmap;
 use slot_music_ui::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
@@ -20,9 +20,23 @@ use slot_music_ui::{
     music_tint_ink, music_window, BodyFaces, Ink, LineInk, MusicFace, MusicFaces, MusicTheme,
     RowWords, MUSIC_RING_STEPS, MUSIC_STATUS,
 };
+use slot_music_ui::{Canvas, TexId};
 
-use crate::app::App;
 use motion::Motion;
+
+/// A moment, in milliseconds, on whatever clock the host keeps.
+pub type Millis = u64;
+
+/// What a frame of the music screen is drawn from, as its host has it: the screen, the album
+/// picture playing and the thumbnails its list shows, the colours, the room, and the time.
+pub struct Frame<'a> {
+    pub screen: Screen,
+    pub art: Option<&'a Art>,
+    pub thumbs: &'a [Art],
+    pub theme: MusicTheme,
+    pub canvas: Canvas,
+    pub now: Millis,
+}
 
 /// A held key's ring as drawn: how far round, in what ink, around which hint's cap (the
 /// arrows' for `Some(None)`), or in the corner.
@@ -137,21 +151,11 @@ impl Line {
     }
 }
 
-/// Where the music's faces go: textures on the GPU, through slot's compositor; or, in the tests,
-/// pixels kept to draw a screenshot from without a device.
+/// Where the music's faces go: textures on a GPU, through the host; or, in the tests, pixels
+/// kept to draw a screenshot from without a device.
 pub trait Textures {
     fn create_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> TexId;
     fn update_texture(&mut self, id: TexId, w: u32, h: u32, rgba: &[u8]);
-}
-
-impl Textures for Compositor {
-    fn create_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> TexId {
-        Compositor::create_texture(self, w, h, rgba)
-    }
-
-    fn update_texture(&mut self, id: TexId, w: u32, h: u32, rgba: &[u8]) {
-        Compositor::update_texture(self, id, w, h, rgba);
-    }
 }
 
 /// Uploads into `tex`, made on first use.
@@ -372,21 +376,27 @@ impl MusicText {
         faces.iter().map(|&(id, w, _)| (id, w)).collect()
     }
 
-    pub fn sync(&mut self, app: &mut App, compositor: &mut dyn Textures) {
-        let began = std::time::Instant::now();
-        if self.draw(app, compositor) {
-            app.note_music_draw(began.elapsed());
-        }
+    /// The music screen is hidden: it comes in afresh when it is shown again.
+    pub fn hide(&mut self) {
+        self.motion.hide();
     }
 
-    /// Draws the music screen, when it is shown: true when it was.
-    fn draw(&mut self, app: &mut App, compositor: &mut dyn Textures) -> bool {
-        let Some(screen) = app.music_screen() else {
-            self.motion.hide();
-            app.music_hidden();
-            return false;
-        };
-        let now = app.now();
+    /// The faces of `frame`, their textures put into `compositor` as they change; and when the
+    /// screen next moves of itself, if it does: the next frame while anything is on its way,
+    /// else the soonest scrolling line's next step, else not until something changes.
+    pub fn faces(
+        &mut self,
+        frame: Frame,
+        compositor: &mut dyn Textures,
+    ) -> (MusicFaces, Option<Millis>) {
+        let Frame {
+            screen,
+            art,
+            thumbs,
+            theme,
+            canvas,
+            now,
+        } = frame;
         for lines in [
             &mut self.header,
             &mut self.lines,
@@ -395,7 +405,6 @@ impl MusicText {
         ] {
             lines.begin();
         }
-        let (canvas, theme) = (app.canvas(), app.music_theme());
         self.theme = theme;
         self.motion.show(&screen, now);
         let glyphs = Glyphs::of(
@@ -465,13 +474,7 @@ impl MusicText {
         });
         let body = match screen.body {
             Body::List(body) => BodyFaces::List(list::faces(
-                self,
-                compositor,
-                canvas,
-                body,
-                glyphs,
-                app.music_thumbs(),
-                now,
+                self, compositor, canvas, body, glyphs, thumbs, now,
             )),
             Body::Message(line) => {
                 BodyFaces::List(list::message(self, compositor, canvas, line, now))
@@ -480,10 +483,10 @@ impl MusicText {
                 BodyFaces::Text(text_view::faces(self, compositor, canvas, body, tint, now))
             }
             Body::NowPlaying(body) => BodyFaces::NowPlaying(now_playing::faces(
-                self, app, compositor, canvas, body, glyphs, now,
+                self, art, compositor, canvas, body, glyphs, now,
             )),
         };
-        app.set_music_faces(MusicFaces {
+        let faces = MusicFaces {
             title,
             corner,
             legend,
@@ -493,9 +496,7 @@ impl MusicText {
             theme,
             letter,
             ring,
-        });
-        // When it next moves of itself: next frame while anything is on its way, else at the
-        // soonest scrolling line's next step, else not until something changes.
+        };
         let next = [&self.header, &self.lines, &self.values, &self.paragraphs]
             .into_iter()
             .filter_map(Lines::next)
@@ -505,8 +506,7 @@ impl MusicText {
         } else {
             next.map(|ms| now + ms)
         };
-        app.music_drawn(wake);
-        true
+        (faces, wake)
     }
 }
 
@@ -522,16 +522,6 @@ fn hint_faces(legend: Legend, theme: &MusicTheme) -> impl Iterator<Item = Bitmap
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_music_menu_sits_where_slot_s_quick_menu_would() {
-        use slot_ui::{quick_row_top, QuickRow};
-        let first = QuickRow::MAIN[0];
-        assert_eq!(
-            slot_music_ui::music_menu_top(QuickRow::MAIN.len()),
-            quick_row_top(first, &[]).round()
-        );
-    }
 
     #[test]
     fn a_line_scrolls_from_its_start_when_its_text_changes_and_on_while_it_stands() {
@@ -550,7 +540,7 @@ mod tests {
         // Begun between beats, it counts from the beat before, to step with the rest.
         assert_eq!(scroll.ms((None, "Up Next: One".into()), 4530), 10);
     }
-    use slot_ui::{Canvas, LEGEND_GAP};
+    use slot_music_ui::LEGEND_GAP;
 
     #[test]
     fn every_music_legend_fits_across_the_screen() {
@@ -571,7 +561,6 @@ mod tests {
 mod help_tests {
     use super::*;
     use slot_music_ui::{music_row_px, music_text_width, Ink};
-    use slot_ui::Canvas;
 
     /// Help is read, not picked from: a line wider than a row would scroll forever, and keep the
     /// screen drawing while Help is open.
@@ -579,7 +568,7 @@ mod help_tests {
     fn every_line_of_help_fits_a_row() {
         let (theme, px) = (MusicTheme::dark(), music_row_px(false, 8));
         // The narrowest canvas a list is laid out on: a 4:3 panel's, 640 wide.
-        let room = music_text_width(false, Canvas::of((640, 480)));
+        let room = music_text_width(false, Canvas::FRAMED);
         let wide: Vec<String> = (0..text::help_len())
             .filter_map(|i| {
                 let (name, after, cased) = match text::help(i)? {
@@ -603,7 +592,7 @@ mod help_tests {
     #[test]
     fn every_message_in_place_of_a_list_fits_the_screen() {
         let (theme, px) = (MusicTheme::dark(), music_row_px(true, 1));
-        let room = music_text_width(false, Canvas::of((640, 480)));
+        let room = music_text_width(false, Canvas::FRAMED);
         let lines = [
             text::no_music("Music"),
             text::no_books("Audiobooks"),

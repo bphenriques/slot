@@ -94,10 +94,10 @@ tasks:
       The music player's checks, as AGENTS.md lists them: format, lint, tests (the rules among
       them), then how far slot's own files have moved from upstream's, to keep to hooks
     cmds:
-      - cargo fmt -p slot-music -p slot-music-ui -p slot-ui -p slot -p slot-player -- --check
-      - cargo clippy -p slot-music -p slot-music-ui -p slot-ui -p slot-input -p slot-player --tests -- -D warnings
+      - cargo fmt -p slot-music -p slot-music-ui -p slot-music-view -p slot-ui -p slot -p slot-player -- --check
+      - cargo clippy -p slot-music -p slot-music-ui -p slot-music-view -p slot-ui -p slot-input -p slot-player --tests -- -D warnings
       - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
-      - cargo test -p slot-music -p slot-music-ui -p slot-ui -p slot-input -p slot-player
+      - cargo test -p slot-music -p slot-music-ui -p slot-music-view -p slot-ui -p slot-input -p slot-player
       - cargo clippy -p slot-music -p slot-player --features slot-music/perf --tests -- -D warnings
       - cargo test -p slot-music -p slot-player --features slot-music/perf
       - cargo test -p slot --no-default-features --features slot/device --lib
@@ -107,10 +107,10 @@ tasks:
 
   shots:
     desc: >-
-      Pictures of the music screens, light and dark, drawn without a device by slot's own faces
-      and kit (crates/slot/src/app/music/shots.rs), into target/shots for review
+      Pictures of the music screens, light and dark, drawn without a device by the view and the
+      kit (crates/slot-music-view/tests/shots.rs), into target/shots for review
     cmds:
-      - cargo test -q -p slot --no-default-features --features slot/device --lib shots -- --ignored
+      - cargo test -q -p slot-music-view --test shots -- --ignored
       - 'echo "pictures in target/shots"'
 
   licenses:music:
@@ -158,7 +158,7 @@ tasks:
       - >-
         git diff --stat upstream/pvaibhav-improvements --
         crates/slot/src crates/slot-input/src crates/slot-ui/src crates/slot-gfx/src
-        ':!crates/slot/src/music_faces' ':!crates/slot/src/app/music.rs' ':!crates/slot/src/app/music' ':!crates/slot/src/audio/line_out.rs'
+        ':!crates/slot/src/music_faces.rs' ':!crates/slot/src/app/music.rs' ':!crates/slot/src/audio/line_out.rs'
 
   test:card:
     desc: Test the scripts slot ships on the card, off-device

@@ -2,7 +2,7 @@
 //! highlight glides, rows slide to new places as the list changes, and a new album picture fades
 //! in.
 
-use slot_input::Millis;
+use super::Millis;
 use slot_music::{Body, RowText, Screen};
 use slot_music_ui::{
     marquee_start, music_arrived, music_eased, MusicMotion, MusicTween, MUSIC_ART_MS,

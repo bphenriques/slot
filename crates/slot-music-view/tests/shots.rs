@@ -1,22 +1,17 @@
-//! The music screen without a device: slot's own faces, drawn by its own kit, put into pixels
-//! here instead of the GPU, so a test can look at what a screen shows, and `task shots` can
-//! keep a picture of each for a person (or an agent) to review.
+//! The music screen without a device: the view's faces, drawn by the kit, put into pixels here
+//! instead of a GPU, so a test can look at what a screen shows, and `task shots` can keep a
+//! picture of each for a person (or an agent) to review.
 //!
-//! The music runs as slot runs it, on a card made for the test, with a player that plays into
-//! silence at the speed a device would; the screen is drawn as the compositor would draw it,
-//! a straight alpha blend of each texture and rectangle in turn.
+//! The music runs as a host runs it, on a card made for the test, with a player that plays into
+//! silence at the speed a device would; the screen is drawn as a compositor would draw it, a
+//! straight alpha blend of each texture and rectangle in turn.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use slot_gfx::{Canvas, Draw, TexId};
-use slot_input::{Btn, RawEvent};
-use slot_music::{Body, Handle, Music};
-use slot_music_ui::{ART_BOX, THUMB_PX};
-use slot_store::Appearance;
-
-use super::super::{App, Phase};
-use crate::music_faces::{MusicText, Textures};
+use slot_music::{Body, Button, Handle, Input, Music};
+use slot_music_ui::{Canvas, Draw, MusicTheme, TexId, ART_BOX, THUMB_PX};
+use slot_music_view::{Frame, MusicText, Textures};
 
 /// Textures kept as their pixels, for drawing a screen on the CPU.
 #[derive(Default)]
@@ -25,12 +20,12 @@ struct Pixels(Vec<(u32, u32, Vec<u8>)>);
 impl Textures for Pixels {
     fn create_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> TexId {
         self.0.push((w, h, rgba.to_vec()));
-        TexId::from_raw(self.0.len() - 1)
+        TexId(self.0.len() - 1)
     }
 
     fn update_texture(&mut self, id: TexId, w: u32, h: u32, rgba: &[u8]) {
-        if let Some(i) = (0..self.0.len()).find(|&i| TexId::from_raw(i) == id) {
-            self.0[i] = (w, h, rgba.to_vec());
+        if let Some(texture) = self.0.get_mut(id.0) {
+            *texture = (w, h, rgba.to_vec());
         }
     }
 }
@@ -62,15 +57,15 @@ impl Shot {
     }
 }
 
-/// `draws` onto a canvas, as the compositor draws them: each texture or rectangle, tinted by its
+/// `draws` onto a canvas, as a compositor draws them: each texture or rectangle, tinted by its
 /// colour, laid over what is there by its alpha. A texture is sampled at the nearest pixel.
 fn raster(draws: &[Draw], textures: &Pixels, canvas: Canvas) -> Vec<u8> {
     let (w, h) = (canvas.w as u32, canvas.h as u32);
     let mut out = vec![0u8; (w * h * 4) as usize];
     let white = (1, 1, vec![255u8; 4]);
     for draw in draws {
-        let (x, y, dw, dh, tex, colour, turn, uv) = match *draw {
-            Draw::Rect { x, y, w, h, colour } => (x, y, w, h, &white, colour, 0.0, WHOLE),
+        let (x, y, dw, dh, (tw, th, pixels), colour) = match *draw {
+            Draw::Rect { x, y, w, h, colour } => (x, y, w, h, &white, colour),
             Draw::Tex {
                 x,
                 y,
@@ -78,81 +73,14 @@ fn raster(draws: &[Draw], textures: &Pixels, canvas: Canvas) -> Vec<u8> {
                 h,
                 tex,
                 alpha,
-            } => (
-                x,
-                y,
-                w,
-                h,
-                texture(textures, tex),
-                [1.0, 1.0, 1.0, alpha],
-                0.0,
-                WHOLE,
-            ),
-            Draw::Part {
-                x,
-                y,
-                w,
-                h,
-                tex,
-                alpha,
-                uv,
-            } => (
-                x,
-                y,
-                w,
-                h,
-                texture(textures, tex),
-                [1.0, 1.0, 1.0, alpha],
-                0.0,
-                uv,
-            ),
-            Draw::Turned {
-                x,
-                y,
-                w,
-                h,
-                tex,
-                alpha,
-                turn,
-            } => (
-                x,
-                y,
-                w,
-                h,
-                texture(textures, tex),
-                [1.0, 1.0, 1.0, alpha],
-                turn,
-                WHOLE,
-            ),
-            Draw::Game | Draw::Shot { .. } => continue,
+            } => (x, y, w, h, texture(textures, tex), [1.0, 1.0, 1.0, alpha]),
         };
-        let (tw, th, pixels) = tex;
-        let (cos, sin) = (turn.cos(), turn.sin());
-        let mid = (x + dw / 2.0, y + dh / 2.0);
-        // Turned about its middle, it may reach past its own box: every pixel it could touch.
-        let reach = (dw.hypot(dh) / 2.0).ceil();
-        let (x0, y0) = (
-            (mid.0 - reach).max(0.0) as u32,
-            (mid.1 - reach).max(0.0) as u32,
-        );
-        let (x1, y1) = (
-            (mid.0 + reach).min(w as f32) as u32,
-            (mid.1 + reach).min(h as f32) as u32,
-        );
+        let (x0, y0) = (x.max(0.0) as u32, y.max(0.0) as u32);
+        let (x1, y1) = ((x + dw).min(w as f32) as u32, (y + dh).min(h as f32) as u32);
         for py in y0..y1 {
             for px in x0..x1 {
-                // Back from the screen to the quad: undo the turn about the middle.
-                let (lx, ly) = (px as f32 + 0.5 - mid.0, py as f32 + 0.5 - mid.1);
-                let (qx, qy) = (
-                    cos * lx + sin * ly + dw / 2.0,
-                    -sin * lx + cos * ly + dh / 2.0,
-                );
-                if qx < 0.0 || qy < 0.0 || qx >= dw || qy >= dh {
-                    continue;
-                }
-                let u = uv[0] + qx / dw * uv[2];
-                let v = uv[1] + qy / dh * uv[3];
-                let (sx, sy) = ((u * *tw as f32) as u32, (v * *th as f32) as u32);
+                let (qx, qy) = (px as f32 + 0.5 - x, py as f32 + 0.5 - y);
+                let (sx, sy) = ((qx / dw * *tw as f32) as u32, (qy / dh * *th as f32) as u32);
                 if sx >= *tw || sy >= *th {
                     continue;
                 }
@@ -171,12 +99,11 @@ fn raster(draws: &[Draw], textures: &Pixels, canvas: Canvas) -> Vec<u8> {
     out
 }
 
-/// A whole texture, as the compositor samples one that is not cropped.
-const WHOLE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
-
 fn texture(textures: &Pixels, id: TexId) -> &(u32, u32, Vec<u8>) {
-    let i = (0..textures.0.len()).find(|&i| TexId::from_raw(i) == id);
-    &textures.0[i.expect("a texture the screen was given")]
+    textures
+        .0
+        .get(id.0)
+        .expect("a texture the screen was given")
 }
 
 /// Where the sound goes: nowhere, at the pace a device takes it, so a song plays for as long
@@ -215,9 +142,19 @@ fn silent() -> Handle {
 /// A card to look at, as a listener's might be: albums by a few artists, invented, tagged as a
 /// tagger would (title, artist, album, number, year, genre) with a cover drawn for each; a
 /// compilation of several artists; a song with timed lyrics; and a book of three parts.
+/// An album on the card: its artist, name, year and genre, two colours for its cover, and its
+/// songs.
+type Album = (
+    &'static str,
+    &'static str,
+    u32,
+    &'static str,
+    [[u8; 3]; 2],
+    &'static [&'static str],
+);
+
 fn card(root: &Path) {
-    // Artist, album, year, genre, two colours for its cover, and its songs.
-    let albums: [(&str, &str, u32, &str, [[u8; 3]; 2], &[&str]); 7] = [
+    let albums: [Album; 7] = [
         (
             "Aurora Lane",
             "Northern Lights",
@@ -406,12 +343,14 @@ fn cover(path: &Path, [from, to]: [[u8; 3]; 2]) {
     png.write_header().unwrap().write_image_data(&px).unwrap();
 }
 
-/// slot with the music on screen, on a card of its own.
+/// The music on screen, on a card of its own, as a host shows it.
 struct Screen {
-    app: App,
-    text: MusicText,
+    music: Music,
+    view: MusicText,
     textures: Pixels,
-    /// When slot started, for its clock, which the frontend moves on each frame.
+    /// The light theme, else the dark.
+    light: bool,
+    /// When it started, for the clock the view moves on.
     began: std::time::Instant,
     /// How many frames a screenshot draws first, for what moves into place to arrive.
     settle: u32,
@@ -422,13 +361,12 @@ impl Screen {
     fn new(fill: impl FnOnce(&Path)) -> Screen {
         let card = tempfile::tempdir().unwrap();
         fill(card.path());
-        let mut app = App::new(Vec::new());
-        app.set_panel((640, 480));
-        app.music = Some(Music::spawn(card.path(), ART_BOX, THUMB_PX, silent));
-        app.phase = Phase::Music;
+        let mut music = Music::spawn(card.path(), ART_BOX, THUMB_PX, silent);
+        music.open();
         let mut screen = Screen {
-            app,
-            text: MusicText::default(),
+            music,
+            view: MusicText::default(),
+            light: false,
             textures: Pixels::default(),
             began: std::time::Instant::now(),
             settle: 40,
@@ -439,51 +377,57 @@ impl Screen {
         screen
     }
 
-    /// Lets `ms` go by, frame by frame, as slot does: its clock on, then the music polled.
+    /// Lets `ms` go by, frame by frame, as a host does: the music polled each.
     fn wait(&mut self, ms: u64) {
         for _ in 0..ms / 16 {
-            self.app
-                .tick_ms(self.began.elapsed().as_millis() as slot_input::Millis);
-            self.app.poll_music();
+            self.music.poll(false);
             std::thread::sleep(Duration::from_millis(16));
         }
     }
 
-    fn tap(&mut self, btn: Btn) {
-        self.app.music_button(RawEvent::Down(btn));
+    fn down(&mut self, button: Button) {
+        self.music.input(Input::Down(button));
+    }
+
+    fn up(&mut self, button: Button) {
+        self.music.input(Input::Up(button));
+    }
+
+    fn tap(&mut self, button: Button) {
+        self.down(button);
         self.wait(48);
-        self.app.music_button(RawEvent::Up(btn));
+        self.up(button);
         self.wait(96);
     }
 
-    fn hold(&mut self, btn: Btn, ms: u64) {
-        self.app.music_button(RawEvent::Down(btn));
+    fn hold(&mut self, button: Button, ms: u64) {
+        self.down(button);
         self.wait(ms);
-        self.app.music_button(RawEvent::Up(btn));
+        self.up(button);
         self.wait(96);
     }
 
     /// Up or Down to the row named `name`: on the page shown, or page by page until it is, on
     /// and then, past the last page, back.
     fn to(&mut self, name: &str) {
-        let (mut turn, mut was) = (Btn::Right, (None, usize::MAX));
+        let (mut turn, mut was) = (Button::Right, (None, usize::MAX));
         for _ in 0..80 {
             let Some(slot_music::Screen {
                 body: Body::List(list),
                 ..
-            }) = self.app.music_screen()
+            }) = Some(self.music.screen())
             else {
                 panic!("no list for {name}");
             };
             match list.rows.iter().position(|r| r.text == name) {
                 Some(at) if at == list.selected => return,
-                Some(at) if at > list.selected => self.tap(Btn::Down),
-                Some(_) => self.tap(Btn::Up),
+                Some(at) if at > list.selected => self.tap(Button::Down),
+                Some(_) => self.tap(Button::Up),
                 None => {
                     // Stuck where it was: the last page, so back the other way.
                     let page = (list.rows.first().map(|r| r.text.clone()), list.selected);
                     if page == was {
-                        turn = Btn::Left;
+                        turn = Button::Left;
                     }
                     was = page;
                     self.tap(turn);
@@ -495,28 +439,37 @@ impl Screen {
 
     fn open(&mut self, name: &str) {
         self.to(name);
-        self.tap(Btn::A);
+        self.tap(Button::A);
     }
 
     fn light(&mut self, light: bool) {
-        self.app.state.appearance = if light {
-            Appearance::Light
-        } else {
-            Appearance::Dark
+        self.light = light;
+    }
+
+    /// The faces of the screen shown now, on a 4:3 panel.
+    fn faces(&mut self) -> slot_music_ui::MusicFaces {
+        let frame = Frame {
+            screen: self.music.screen(),
+            art: self.music.art(),
+            thumbs: self.music.thumbs(),
+            theme: MusicTheme::of(self.light),
+            canvas: Canvas::FRAMED,
+            now: self.began.elapsed().as_millis() as u64,
         };
+        self.view.faces(frame, &mut self.textures).0
     }
 
     /// The screen as it is now, once what moves into place on a change has: drawn frame by
-    /// frame a moment first, as slot draws it, so a screen that slides in has arrived.
+    /// frame a moment first, as a host draws it, so a screen that slides in has arrived.
     fn shot(&mut self) -> Shot {
         for _ in 0..self.settle {
-            self.text.sync(&mut self.app, &mut self.textures);
+            self.faces();
             self.wait(16);
         }
-        self.text.sync(&mut self.app, &mut self.textures);
+        let faces = self.faces();
         let mut draws = Vec::new();
-        slot_music_ui::draw_music(&self.app.music_faces, &mut draws);
-        let canvas = self.app.music_faces.canvas;
+        slot_music_ui::draw_music(&faces, &mut draws);
+        let canvas = faces.canvas;
         let rgba = raster(&draws, &self.textures, canvas);
         Shot {
             w: canvas.w as u32,
@@ -529,13 +482,13 @@ impl Screen {
 
 /// The highlight of the row the cursor is on: the one bar across the screen below the header.
 fn highlight(shot: &Shot) -> (f32, f32) {
-    let bars = shot.draws.iter().filter_map(|d| match *d {
+    let mut bars = shot.draws.iter().filter_map(|d| match *d {
         Draw::Rect { x, y, w, h, .. } if x == 0.0 && w == shot.w as f32 && y > 0.0 && h < 100.0 => {
             Some((y, h))
         }
         _ => None,
     });
-    bars.last().expect("a highlighted row")
+    bars.next_back().expect("a highlighted row")
 }
 
 #[test]
@@ -560,7 +513,7 @@ fn a_two_line_row_is_centred_in_its_highlight_from_its_capitals_to_its_baseline(
 /// The room between the highlighted row's ink and its highlight, above and below; failing if
 /// any of it reaches out of the highlight.
 fn room(shot: &Shot) -> (f32, f32) {
-    let (top, h) = highlight(&shot);
+    let (top, h) = highlight(shot);
     let ground = shot.pixel(shot.w - 2, shot.h - 2);
     let bar = shot.pixel(shot.w - 2, (top + h / 2.0) as u32);
     // The text's column, past the thumbnail; the lines just above and below the highlight are
@@ -592,7 +545,7 @@ fn room(shot: &Shot) -> (f32, f32) {
 /// them: the menus and lists, what plays, the START menus, and the moments between (a notice, a
 /// letter, a hold filling, a song carried, the keys locked).
 fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
-    let home = |s: &mut Screen| s.hold(Btn::B, 700);
+    let home = |s: &mut Screen| s.hold(Button::B, 700);
     keep(s, "01-music");
     s.open("Library");
     keep(s, "02-library");
@@ -600,29 +553,29 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     keep(s, "03-artists");
     s.open("Glass Harbor");
     keep(s, "04-artist");
-    s.tap(Btn::B);
-    s.tap(Btn::B);
+    s.tap(Button::B);
+    s.tap(Button::B);
     s.open("Albums");
     s.to("Blue Hours");
     keep(s, "05-albums");
     // Moving fast by name shows the letter it is at.
-    s.app.music_button(RawEvent::Down(Btn::Down));
+    s.down(Button::Down);
     s.wait(900);
-    s.app.music_button(RawEvent::Up(Btn::Down));
+    s.up(Button::Down);
     keep_now(s, keep, "06-letter");
     s.to("Blue Hours");
     // A held, part way: the ring fills round its hint.
-    s.app.music_button(RawEvent::Down(Btn::A));
+    s.down(Button::A);
     s.wait(300);
     keep_now(s, keep, "07-hold-ring");
-    s.app.music_button(RawEvent::Up(Btn::B));
-    s.app.music_button(RawEvent::Up(Btn::A));
+    s.up(Button::B);
+    s.up(Button::A);
     s.wait(200);
     keep(s, "08-album");
-    s.tap(Btn::X);
+    s.tap(Button::X);
     keep_now(s, keep, "09-notice-queued");
     s.to("A Long Walk Home Through the Rain at Midnight");
-    s.tap(Btn::Start);
+    s.tap(Button::Start);
     keep(s, "10-song-menu");
     s.open("Song Info");
     keep(s, "11-song-info");
@@ -633,65 +586,65 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     s.open("Opening Night");
     s.wait(400);
     keep(s, "12-now-playing");
-    s.tap(Btn::Start);
+    s.tap(Button::Start);
     keep(s, "13-playing-menu");
     s.to("Sleep Timer");
-    s.tap(Btn::Right);
+    s.tap(Button::Right);
     keep(s, "14-sleep-timer");
-    s.tap(Btn::B);
-    s.tap(Btn::Select);
+    s.tap(Button::B);
+    s.tap(Button::Select);
     keep(s, "15-queue");
-    s.hold(Btn::Y, 700);
+    s.hold(Button::Y, 700);
     keep(s, "16-queue-carry");
-    s.tap(Btn::B);
-    s.tap(Btn::Start);
+    s.tap(Button::B);
+    s.tap(Button::Start);
     keep(s, "17-queue-menu");
-    s.tap(Btn::B);
-    s.tap(Btn::B);
+    s.tap(Button::B);
+    s.tap(Button::B);
     // Two shoulders held lock the keys, as in a pocket; the corner says so.
-    s.app.music_button(RawEvent::Down(Btn::L1));
-    s.app.music_button(RawEvent::Down(Btn::R1));
+    s.down(Button::L1);
+    s.down(Button::R1);
     s.wait(700);
-    s.app.music_button(RawEvent::Up(Btn::R1));
-    s.app.music_button(RawEvent::Up(Btn::L1));
+    s.up(Button::R1);
+    s.up(Button::L1);
     s.wait(100);
     // Locked stays in the corner until unlocked: the screen is let settle first.
     keep(s, "18-locked");
-    s.app.music_button(RawEvent::Down(Btn::L1));
-    s.app.music_button(RawEvent::Down(Btn::R1));
+    s.down(Button::L1);
+    s.down(Button::R1);
     s.wait(700);
-    s.app.music_button(RawEvent::Up(Btn::R1));
-    s.app.music_button(RawEvent::Up(Btn::L1));
+    s.up(Button::R1);
+    s.up(Button::L1);
     home(s);
     s.open("Library");
     s.open("Albums");
     s.open("Northern Lights");
     s.open("Harbour Song");
     s.wait(1200);
-    s.tap(Btn::X);
+    s.tap(Button::X);
     keep(s, "19-lyrics");
     home(s);
     s.open("Library");
     s.open("Songs");
     keep(s, "20-songs");
-    s.tap(Btn::B);
+    s.tap(Button::B);
     s.open("Genres");
     keep(s, "20a-genres");
     s.open("Jazz");
     keep(s, "20b-genre");
-    s.tap(Btn::B);
-    s.tap(Btn::B);
+    s.tap(Button::B);
+    s.tap(Button::B);
     s.open("Years");
     keep(s, "20c-years");
     s.open("1980–89");
     keep(s, "20d-decade");
-    s.tap(Btn::B);
-    s.tap(Btn::B);
+    s.tap(Button::B);
+    s.tap(Button::B);
     s.open("Albums");
     s.open("Summer Hits");
     keep(s, "20e-compilation");
-    s.tap(Btn::B);
-    s.tap(Btn::B);
+    s.tap(Button::B);
+    s.tap(Button::B);
     s.open("Folders");
     keep(s, "20f-folders");
     s.open("Paper Kites Club");
@@ -706,18 +659,18 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     keep(s, "23-audiobooks");
     s.open("All Books");
     keep(s, "24-all-books");
-    s.tap(Btn::Start);
+    s.tap(Button::Start);
     keep(s, "25-book-menu");
-    s.tap(Btn::B);
-    s.tap(Btn::A);
+    s.tap(Button::B);
+    s.tap(Button::A);
     s.wait(400);
     keep(s, "26-book");
-    s.tap(Btn::X);
+    s.tap(Button::X);
     keep(s, "26b-book-faster");
-    s.tap(Btn::Select);
+    s.tap(Button::Select);
     keep(s, "27-chapters");
-    s.tap(Btn::B);
-    s.tap(Btn::Start);
+    s.tap(Button::B);
+    s.tap(Button::Start);
     keep(s, "28-book-menu-playing");
     s.open("Bookmarks");
     keep(s, "29-bookmarks-none");
@@ -726,13 +679,13 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     keep(s, "30-settings");
     s.open("Music");
     keep(s, "31-settings-music");
-    s.tap(Btn::B);
+    s.tap(Button::B);
     s.open("Audiobooks");
     keep(s, "32-settings-audiobooks");
-    s.tap(Btn::B);
+    s.tap(Button::B);
     s.open("Help");
     keep(s, "33-help");
-    s.tap(Btn::B);
+    s.tap(Button::B);
     s.open("Advanced");
     keep(s, "34-advanced");
     s.open("Experimental");
@@ -747,9 +700,9 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     s.open("Settings");
     s.open("Music");
     s.to("Visualizer");
-    s.tap(Btn::Right);
+    s.tap(Button::Right);
     keep(s, "35b-settings-visualizer");
-    s.tap(Btn::Select);
+    s.tap(Button::Select);
     s.wait(600);
     keep(s, "38-visualizer");
     // The equalizer: a preset chosen, one being made, and one's own kept.
@@ -761,17 +714,17 @@ fn tour(s: &mut Screen, keep: &dyn Fn(&mut Screen, &str)) {
     keep(s, "39-equalizer");
     s.open("New Preset");
     for btn in [
-        Btn::Down,
-        Btn::Down,
-        Btn::Right,
-        Btn::Right,
-        Btn::Down,
-        Btn::Right,
+        Button::Down,
+        Button::Down,
+        Button::Right,
+        Button::Right,
+        Button::Down,
+        Button::Right,
     ] {
         s.tap(btn);
     }
     keep(s, "40-new-preset");
-    s.tap(Btn::Y);
+    s.tap(Button::Y);
     keep(s, "41-equalizer-own");
     // The menus, each led by what plays, or the book to continue.
     home(s);

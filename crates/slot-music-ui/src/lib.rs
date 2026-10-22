@@ -11,12 +11,13 @@
 //! - **Text view**: paragraphs, centred, the one in focus held in the middle.
 //! - **Motion**: everything that moves eases as `tween` says; colours are all `theme`'s.
 //!
-//! The frontend (`slot::music_faces`) turns a `Screen` into these faces; another kit could take
+//! The view (`slot-music-view`) turns a `Screen` into these faces; another kit could take
 //! this one's place behind that contract.
 
 #![warn(clippy::match_bool, clippy::undocumented_unsafe_blocks)]
 
 mod chrome;
+mod draw;
 mod face;
 mod list;
 mod now_playing;
@@ -25,12 +26,11 @@ mod theme;
 mod tint;
 mod tween;
 
-use chrome::{
-    centred_hints, push, Canvas, Draw, TexId, CAP, HINT_H, LEGEND_GAP, MENU_PAD, MENU_PX, OUT_H,
-    PLATE_H, QUICK_EDGE,
-};
+use chrome::{centred_hints, push, CAP, HINT_H, MENU_PAD, MENU_PX, PLATE_H, QUICK_EDGE};
 
 pub use chrome::Bitmap;
+pub use chrome::LEGEND_GAP;
+pub use draw::{Canvas, Draw, TexId};
 pub use face::{
     marquee_next, marquee_offset, marquee_start, music_cap_ring_face, music_caret_face,
     music_heart_face, music_hint_face, music_letter_face, music_line_face, music_no_art_face,
@@ -287,7 +287,7 @@ pub fn draw_music(faces: &MusicFaces, out: &mut Vec<Draw>) {
         x: 0.0,
         y: 0.0,
         w: canvas.w,
-        h: OUT_H as f32,
+        h: canvas.h,
         colour: theme::rgba(theme.ground, 1.0),
     });
     let m = faces.motion;
@@ -348,7 +348,6 @@ fn shift_and_fade(draws: &mut [Draw], dx: f32, alpha: f32) {
         match draw {
             Draw::Rect { x, colour, .. } => (*x, colour[3]) = (*x + dx, colour[3] * alpha),
             Draw::Tex { x, alpha: a, .. } => (*x, *a) = (*x + dx, *a * alpha),
-            _ => {}
         }
     }
 }
@@ -406,7 +405,7 @@ mod tests {
     fn the_letter_s_box_is_never_the_highlight_s_colour() {
         for theme in [MusicTheme::dark(), MusicTheme::light()] {
             let faces = MusicFaces {
-                letter: Some((slot_gfx::TexId::from_raw(1), 40, 40)),
+                letter: Some((TexId(1), 40, 40)),
                 theme,
                 ..MusicFaces::default()
             };

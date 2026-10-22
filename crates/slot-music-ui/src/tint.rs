@@ -1,7 +1,7 @@
 //! Dynamic Color: Now Playing's colour, taken from its album picture. A faint wash of it lies
 //! behind the screen, and the progress bar takes it, lightened.
 
-use super::chrome::{Canvas, Draw, OUT_H};
+use super::chrome::{Canvas, Draw};
 use super::theme::rgba;
 use super::MusicTheme;
 
@@ -40,7 +40,7 @@ impl MusicTint {
             x: 0.0,
             y: 0.0,
             w: canvas.w,
-            h: OUT_H as f32,
+            h: canvas.h,
             colour: [r, g, b, theme.wash * up * alpha],
         });
     }

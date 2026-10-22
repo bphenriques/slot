@@ -183,11 +183,11 @@ fn draw_art(np: &NowPlayingFaces, art_in: f32, theme: &MusicTheme, out: &mut Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slot_gfx::TexId;
+    use crate::TexId;
 
     #[test]
     fn a_book_s_speed_ends_at_the_margin_by_its_ink_and_the_heart_sits_a_gap_from_it() {
-        let (play, heart, speed) = (TexId::from_raw(1), TexId::from_raw(2), TexId::from_raw(3));
+        let (play, heart, speed) = (TexId(1), TexId(2), TexId(3));
         let np = NowPlayingFaces {
             status: vec![(play, 20, 20), (heart, 20, 20)],
             speed: Some((speed, 80, 30)),
@@ -217,7 +217,7 @@ mod tests {
         let canvas = Canvas::FRAMED;
         let np = |bars: Vec<f32>| NowPlayingFaces {
             bars,
-            no_art: Some((TexId::from_raw(1), 96, 96)),
+            no_art: Some((TexId(1), 96, 96)),
             ..NowPlayingFaces::default()
         };
         let mut out = Vec::new();
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn the_empty_square_shows_a_note_until_a_picture_fades_in_over_it() {
-        let (note, picture) = (TexId::from_raw(1), TexId::from_raw(2));
+        let (note, picture) = (TexId(1), TexId(2));
         let theme = MusicTheme::dark();
         let np = |art| NowPlayingFaces {
             no_art: Some((note, 96, 96)),

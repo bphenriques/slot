@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 use fontdue::{Font, FontSettings};
 
-pub(super) use slot_gfx::{Canvas, Draw, TexId, OUT_H};
+pub(super) use super::draw::{Canvas, Draw, TexId};
 
 use super::theme::{CAP_FACE, CAP_INK};
 
@@ -27,7 +27,7 @@ pub const MENU_PAD: u32 = 18;
 /// A button hint: its height, its key cap's, and the gap between hints.
 pub(super) const HINT_H: u32 = 24;
 pub(super) const CAP: u32 = 20;
-pub(super) const LEGEND_GAP: f32 = 36.0;
+pub const LEGEND_GAP: f32 = 36.0;
 const CAP_PAD: u32 = 4;
 const CAP_MAX_W: f32 = 64.0;
 const CAP_GAP: u32 = 5;

@@ -15,8 +15,9 @@ files change only at a few one-line hooks, so `git merge upstream/...` stays che
 | `crates/slot-player` | Plays files: the `Command`/`Event` words and `Handle`, the face every player has. slot's own engine (symphonia decode, rubato resample, SoundTouch speed, ReplayGain, mono, gapless, ALSA): an engine thread opens files, a writer thread owns all that plays and publishes `Status` whole (see AGENTS.md, Threads). |
 | `crates/slot-player/soundtouch` | SoundTouch 2.3.2 sources (LGPL-2.1), built by `build.rs` with `cc`. |
 | `crates/slot-music/src/store` | Everything kept on the card: one writer, each file's format (`Kept`). |
-| `crates/slot-music-ui` | The kit that draws, needing no frontend: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour). |
-| `crates/slot/src/music_faces`, `crates/slot/src/app/music.rs` | The frontend glue: textures, animation (`motion.rs`), input routing. |
+| `crates/slot-music-ui` | The kit that draws, needing no frontend: faces, lists, Now Playing, the text view, `tween.rs` (every move), `theme.rs` (every colour), and its own draw list. |
+| `crates/slot-music-view` | The music screen for any host: a `Screen` into the kit's faces each frame, the textures kept, animation (`motion.rs`); the screenshot tour in `tests/shots.rs`. |
+| `crates/slot/src/music_faces.rs`, `crates/slot/src/app/music.rs` | slot as the host: the view's textures and draws into its compositor; input routing. |
 | `music/` | `README.md` (what the screens cannot say: the card's files, how it plays), `music.txt.example`, `music-eq.txt`. |
 
 Upstream files touched: `task footprint` lists them, as changed from upstream's. Keep those
@@ -85,8 +86,8 @@ against 0.12%, the player's thread 3.2% against 3.0%, likely as the mapped buffe
 the half second kept for a pause's fade is read back out of it; so the write stays as it is.
 
 To see the screens without the device: `nix-shell --run "task shots"` draws each music screen,
-light and dark, into `target/shots/` as slot draws it (its faces and kit, put into pixels instead of
-the GPU, on a card made for the test, playing into silence). The same drawing backs a test that
+light and dark, into `target/shots/` as a host draws it (the view's faces and the kit, put into
+pixels instead of the GPU, on a card made for the test, playing into silence). The same drawing backs a test that
 holds a two-line row's text inside its highlight; a screen's pixels can be checked so.
 
 Logging: `log::warn!` for what went wrong, always written; `log::info!` for what happens, only

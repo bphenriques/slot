@@ -1,11 +1,11 @@
 //! The text view's faces: each paragraph wrapped to the room, the lit one lit and the rest faint
 //! as the body says, and the focus moving smoothly from line to line.
 
+use super::Millis;
 use super::Textures;
-use slot_input::Millis;
 use slot_music::TextBody;
+use slot_music_ui::Canvas;
 use slot_music_ui::{music_half_w, music_row_px, music_text_width, Ink, TextFaces};
-use slot_ui::Canvas;
 
 use super::{MusicText, Spec};
 

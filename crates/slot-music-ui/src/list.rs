@@ -363,7 +363,7 @@ fn draw_marks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slot_gfx::TexId;
+    use crate::TexId;
 
     #[test]
     fn a_row_is_inked_by_its_state_and_its_text_stops_short_of_its_heart_and_value() {
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn an_empty_thumbnail_shows_its_note_or_book_and_a_read_one_its_picture() {
-        let (blank, picture) = (TexId::from_raw(1), TexId::from_raw(2));
+        let (blank, picture) = (TexId(1), TexId(2));
         let list = ListFaces {
             two_lines: true,
             thumbed: true,
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn a_carried_row_stays_whole_and_the_rows_behind_it_fade() {
-        let face = |i| Some((TexId::from_raw(i), 100, 30));
+        let face = |i| Some((TexId(i), 100, 30));
         let list = ListFaces {
             rows: vec![face(1), face(2), face(3)],
             selected: Some(1),
@@ -440,7 +440,7 @@ mod tests {
         draw(&list, Canvas::FRAMED, &MusicTheme::dark(), &mut out);
         let alpha = |id| {
             out.iter().find_map(|d| match *d {
-                Draw::Tex { tex, alpha, .. } if tex == TexId::from_raw(id) => Some(alpha),
+                Draw::Tex { tex, alpha, .. } if tex == TexId(id) => Some(alpha),
                 _ => None,
             })
         };

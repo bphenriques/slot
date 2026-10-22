@@ -134,7 +134,8 @@ fn words_are_text_rs_s() {
     let dirs = [
         "slot-music/src",
         "slot-music-ui/src",
-        "slot/src/music_faces",
+        "slot-music-view/src",
+        "slot/src/music_faces.rs",
         "slot/src/app/music.rs",
     ];
     let found = breaches(&dirs, &["text.rs"], word, &allowed);
@@ -148,7 +149,11 @@ fn words_are_text_rs_s() {
 #[test]
 fn colours_are_theme_rs_s() {
     let colour = |line: &str| line.contains("[0x");
-    let dirs = ["slot-music-ui/src", "slot/src/music_faces"];
+    let dirs = [
+        "slot-music-ui/src",
+        "slot-music-view/src",
+        "slot/src/music_faces.rs",
+    ];
     let found = breaches(&dirs, &["theme.rs"], colour, &[]);
     assert!(
         found.is_empty(),
@@ -160,7 +165,11 @@ fn colours_are_theme_rs_s() {
 #[test]
 fn motion_is_tween_rs_s() {
     let time = |line: &str| line.contains("Duration::from_");
-    let dirs = ["slot-music-ui/src", "slot/src/music_faces"];
+    let dirs = [
+        "slot-music-ui/src",
+        "slot-music-view/src",
+        "slot/src/music_faces.rs",
+    ];
     let found = breaches(&dirs, &["tween.rs"], time, &[]);
     assert!(
         found.is_empty(),
@@ -287,8 +296,13 @@ fn each_layer_knows_only_the_one_below() {
     );
     assert_eq!(
         uses("slot-music-ui"),
-        ["slot-gfx"],
-        "the kit draws and decides nothing, and needs no frontend but its draw list"
+        Vec::<String>::new(),
+        "the kit draws and decides nothing, and needs no frontend: its draw list is its own"
+    );
+    assert_eq!(
+        uses("slot-music-view"),
+        ["slot-music", "slot-music-ui"],
+        "the view makes the music's screen into the kit's faces, for any host"
     );
 }
 
@@ -350,7 +364,8 @@ fn the_log_is_told_one_way() {
         "slot-music/src",
         "slot-player/src",
         "slot-music-ui/src",
-        "slot/src/music_faces",
+        "slot-music-view/src",
+        "slot/src/music_faces.rs",
     ];
     let mut found = breaches(&dirs, &owners, prints, &[]);
     let glue = ["slot/src/app/music.rs", "slot/src/audio/line_out.rs"];
