@@ -3,7 +3,7 @@
 //! in.
 
 use slot_input::Millis;
-use slot_music::{RowText, Screen};
+use slot_music::{Body, RowText, Screen};
 use slot_music_ui::{
     marquee_start, music_arrived, music_eased, MusicMotion, MusicTween, MUSIC_ART_MS,
     MUSIC_GLIDE_MS, MUSIC_SLIDE_MS,
@@ -48,7 +48,13 @@ impl Motion {
 
     /// A screen is shown. A new one slides in: deeper from the right, back from the left.
     pub fn show(&mut self, screen: &Screen, now: Millis) {
-        let key = (screen.title.clone(), screen.depth);
+        // The lyrics are one screen whatever song they are of, titled by it: a song skipped to
+        // changes them in place rather than bringing the screen in again.
+        let title = match screen.body {
+            Body::Text(_) => String::new(),
+            _ => screen.title.clone(),
+        };
+        let key = (title, screen.depth);
         if self.shown.as_ref() == Some(&key) {
             return;
         }
@@ -122,10 +128,10 @@ impl Motion {
         }
     }
 
-    /// Where the text view's middle is, in lines: it moves smoothly to `to`; on a new screen it
-    /// starts there.
-    pub fn focus(&mut self, to: f32, now: Millis) -> f32 {
-        if self.entered == now {
+    /// Where the text view's middle is, in lines: it moves smoothly to `to`; on a new screen, or
+    /// `new` text, as a song skipped to's lyrics, it starts there.
+    pub fn focus(&mut self, to: f32, new: bool, now: Millis) -> f32 {
+        if new || self.entered == now {
             self.focus = MusicTween::still(to, now)
         } else {
             self.focus.toward(to, now, MUSIC_SLIDE_MS)
@@ -184,6 +190,49 @@ mod tests {
 
     fn rows(names: &[&str]) -> Vec<RowText> {
         names.iter().map(|&n| RowText::plain(n)).collect()
+    }
+
+    /// A screen titled `title` at `depth`: the lyrics, or a list.
+    fn screen(title: &str, depth: usize, lyrics: bool) -> Screen {
+        let body = if lyrics {
+            Body::Text(slot_music::TextBody {
+                lines: Vec::new(),
+                lit: None,
+                focus: 0,
+                progress: None,
+                time: None,
+            })
+        } else {
+            Body::Message(String::new())
+        };
+        Screen {
+            title: title.into(),
+            corner: String::new(),
+            legend: slot_music::Legend::Back,
+            body,
+            depth,
+            letter: None,
+            hold: None,
+        }
+    }
+
+    #[test]
+    fn the_lyrics_of_a_song_skipped_to_change_in_place_and_start_at_their_line() {
+        let mut m = Motion::default();
+        let far = 100_000;
+        m.show(&screen("One · Abba", 2, true), far);
+        assert!(m.entering(far), "the lyrics come in");
+        let later = far + 1000;
+        m.focus(12.0, false, far);
+        m.show(&screen("Two · Abba", 2, true), later);
+        assert!(!m.entering(later), "the next song's: in place");
+        assert_eq!(
+            m.focus(0.0, true, later),
+            0.0,
+            "at their line, not gliding there"
+        );
+        m.show(&screen("Albums", 2, false), later + 10);
+        assert!(m.entering(later + 10), "another screen still comes in");
     }
 
     #[test]

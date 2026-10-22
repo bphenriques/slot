@@ -20,6 +20,11 @@ pub(super) fn faces(
     // A menu row's size: read at arm's length, as the rest is.
     let px = music_row_px(true, 1) as u32;
     let width = music_text_width(false, canvas);
+    // Other words than last shown: a song skipped to's lyrics, which start at their line.
+    let new = text.paragraphs_of != body.lines;
+    if new {
+        text.paragraphs_of.clone_from(&body.lines);
+    }
     let mut lines = Vec::with_capacity(body.lines.len());
     for (i, line) in body.lines.into_iter().enumerate() {
         let ink = match body.lit {
@@ -44,7 +49,7 @@ pub(super) fn faces(
     });
     TextFaces {
         lines,
-        focus: text.motion.focus(body.focus as f32, now),
+        focus: text.motion.focus(body.focus as f32, new, now),
         fade: body.lit.is_some(),
         progress: body.progress,
         tint,

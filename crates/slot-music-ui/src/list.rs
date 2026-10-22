@@ -29,10 +29,6 @@ pub fn music_rich_px() -> (u32, u32) {
 /// Rows on a page of a one-line list, whose height an action row keeps in every list.
 const ONE_LINE_ROWS: f32 = 8.0;
 
-/// How tall a menu's lead row is: room for its two lines and its thumbnail, as a row of a list
-/// of albums has.
-const LEAD_PITCH: f32 = 80.0;
-
 /// The gap between a two-line row's lines, their type to type.
 const LINE_GAP: f32 = 4.0;
 
@@ -125,25 +121,18 @@ impl<'a> Grid<'a> {
         } else {
             grid.pitch
         };
-        // A lead row is taller than the rest, and a menu centred on them all.
-        let (head, head_pitch) = if list.lead {
-            (1, LEAD_PITCH)
-        } else {
-            (list.head, grid.head_pitch)
-        };
-        let taller = (head as f32) * (head_pitch - pitch).max(0.0);
         Grid {
             // A titled menu starts at the top, as a list does, however short; a long one higher,
             // so it ends no nearer the hints than a list's page.
             top: if list.menu && list.titled {
-                ROWS_Y.min(Grid::list_end() - grid.pitch * list.per_page.max(1) as f32 - taller)
+                ROWS_Y.min(Grid::list_end() - grid.pitch * list.per_page.max(1) as f32)
             } else {
-                (grid.top - taller / 2.0).round()
+                grid.top
             },
             pitch,
-            head,
-            head_pitch,
+            head: list.head,
             offsets: &list.offsets,
+            ..grid
         }
     }
 
@@ -194,8 +183,8 @@ pub(super) fn draw(list: &ListFaces, canvas: Canvas, theme: &MusicTheme, out: &m
         draw_progress(QUICK_EDGE, PROGRESS_Y, w, done, ink, theme, out);
     }
     let pad = MENU_PAD as f32;
-    // A list's rows past their action rows have thumbnails, and a menu's lead row.
-    let thumbed = |i: usize| (list.thumbed && i >= list.head) || (list.lead && i == 0);
+    // A list's rows past their action rows have thumbnails.
+    let thumbed = |i: usize| list.thumbed && i >= list.head;
     let row = |i: usize, out: &mut Vec<Draw>| {
         if thumbed(i) {
             draw_thumb(list, grid, i, theme, out);
@@ -434,25 +423,6 @@ mod tests {
         };
         assert_eq!(drawn(0), [blank], "on its empty square");
         assert_eq!(drawn(1), [picture], "the picture alone");
-    }
-
-    #[test]
-    fn a_menu_s_lead_row_is_taller_the_rest_keep_their_pitch_and_the_menu_stays_centred() {
-        let menu = |lead| ListFaces {
-            menu: true,
-            lead,
-            per_page: 6,
-            ..ListFaces::default()
-        };
-        let (one, two) = (menu(false), menu(true));
-        let (plain, led) = (Grid::of(&one), Grid::of(&two));
-        assert_eq!((led.height(0), led.height(1)), (LEAD_PITCH, plain.pitch));
-        let middle = |g: Grid| (g.row_top(0.0) + g.row_top(6.0)) / 2.0;
-        assert!(
-            (middle(led) - middle(plain)).abs() <= 1.0,
-            "centred as before"
-        );
-        assert!(led.row_top(6.0) <= LEGEND_Y, "above the hints");
     }
 
     #[test]

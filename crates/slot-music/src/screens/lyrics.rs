@@ -97,20 +97,27 @@ pub(crate) fn screen(music: &Music) -> Screen {
         }
         None => return Screen::message(text::LYRICS, text::NOTHING_PLAYING),
     };
-    let Some(lyrics) = music.lyrics_now() else {
-        return Screen::message(&title, text::NO_LYRICS);
+    // Still being read, as for a song just skipped to: its bar and time, the text to come,
+    // rather than a moment of saying it has none.
+    let lyrics = match music.lyrics_read() {
+        Some(None) => return Screen::message(&title, text::NO_LYRICS),
+        read => read.flatten(),
     };
+    let timed = lyrics.is_some_and(|l| l.timed());
     let LyricsAt { sung, .. } = music.lyrics_at();
     let (at, len) = music.player.time();
-    let focus = if following(&music.browser, music.now.at) && lyrics.timed() {
+    let focus = if following(&music.browser, music.now.at) && timed {
         sung.unwrap_or(0)
     } else {
         music.browser.at()
     };
+    let lines = lyrics.map_or_else(Vec::new, |l| {
+        l.lines.iter().map(|l| l.text.clone()).collect()
+    });
     let body = TextBody {
-        lines: lyrics.lines.iter().map(|l| l.text.clone()).collect(),
+        lines,
         // Timed, the line sung is lit and the rest dim; plain, all is to be read.
-        lit: lyrics.timed().then_some(sung),
+        lit: timed.then_some(sung),
         focus,
         // How far into the song, as Now Playing has it: a bar, and its time below.
         progress: super::fraction(at, len),
@@ -118,7 +125,7 @@ pub(crate) fn screen(music: &Music) -> Screen {
     };
     let legend = super::legend(&music.browser, &music.context());
     // Timed lyrics say so, as they follow the song.
-    let corner = if lyrics.timed() { text::SYNCED } else { "" };
+    let corner = if timed { text::SYNCED } else { "" };
     Screen {
         corner: corner.into(),
         ..Screen::new(title, legend, Body::Text(body))

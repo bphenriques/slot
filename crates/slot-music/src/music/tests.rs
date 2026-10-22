@@ -2349,40 +2349,44 @@ fn the_queue_says_how_long_it_has_left_beside_where_the_cursor_is() {
 }
 
 #[test]
-fn the_music_menu_leads_with_what_plays_on_two_lines_beside_its_picture() {
+fn the_music_menu_names_what_plays_beside_now_playing_as_a_value_one_line_as_the_rest() {
     let mut rig = Rig::new(&["Music/Abba/Gold/01 one.mp3", "Music/Abba/Gold/02 two.mp3"]);
     let menu = |rig: &Rig| match rig.screen().body {
         Body::List(list) => list,
         body => panic!("the Music menu: {body:?}"),
     };
-    let first = menu(&rig);
-    assert!(
-        !first.lead,
-        "Shuffle Library, with nothing to resume, is one line"
+    assert_eq!(
+        menu(&rig).values[0],
+        None,
+        "Shuffle Library, with nothing to resume"
     );
     rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
     rig.hold(Button::B, 600);
     let playing = menu(&rig);
-    assert!(playing.lead);
     let row = &playing.rows[0];
     assert_eq!(
         (row.text.as_str(), row.after.as_str()),
-        (text::NOW_PLAYING, "one · Abba")
+        (text::NOW_PLAYING, "")
     );
-    let album = rig.music.library.tracks[rig.music.player.current().unwrap()].album;
-    let asked = rig.music.pictures.wanted.contains(&album);
-    assert!(asked, "its album's thumbnail asked for");
-    rig.hold(Button::Start, 600);
     assert_eq!(
-        menu(&rig).rows[0].text,
-        text::RESUME,
-        "paused, Resume, still leading"
+        playing.values[0].as_deref(),
+        Some("one"),
+        "the song, beside"
     );
-    assert!(menu(&rig).lead);
+    assert!(
+        !playing.two_lines && !row.playing,
+        "one line, its label saying it plays"
+    );
+    rig.hold(Button::Start, 600);
+    let paused = menu(&rig);
+    assert_eq!(
+        (paused.rows[0].text.as_str(), paused.values[0].as_deref()),
+        (text::RESUME, Some("one"))
+    );
 }
 
 #[test]
-fn what_plays_is_marked_playing_or_paused_in_the_queue_and_on_the_music_menu() {
+fn what_plays_is_marked_playing_or_paused_in_the_queue() {
     let mut rig = Rig::new(&["Music/Abba/Gold/01 one.mp3", "Music/Abba/Gold/02 two.mp3"]);
     rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
     let list = |rig: &Rig| match rig.screen().body {
@@ -2395,12 +2399,6 @@ fn what_plays_is_marked_playing_or_paused_in_the_queue_and_on_the_music_menu() {
     assert!(queue.rows[0].playing && !queue.paused, "marked, playing");
     rig.hold(Button::Start, 600);
     assert!(list(&rig).paused, "paused, and its mark says so");
-    rig.hold(Button::B, 600);
-    let menu = list(&rig);
-    assert!(
-        menu.lead && menu.rows[0].playing && menu.paused,
-        "the same on the Music menu"
-    );
 }
 
 #[test]
@@ -2432,4 +2430,24 @@ fn the_book_playing_is_marked_in_its_list_as_a_song_playing_is() {
         panic!("All Books");
     };
     assert!(list.rows[0].playing, "{:?}", list.rows[0]);
+}
+
+#[test]
+fn lyrics_still_being_read_keep_the_song_s_bar_rather_than_say_there_are_none() {
+    let mut rig = Rig::new(&["Music/Wilde/A/01 one.mp3"]);
+    rig.keys(&[Button::Down, Button::Down, Button::A, Button::A, Button::A]);
+    rig.heard(30.0, 120.0);
+    rig.music.browser.push(View::Lyrics, 0);
+    // As for a song just skipped to: asked for, not read yet.
+    rig.music.ahead.lyrics.clear();
+    let Body::Text(body) = rig.screen().body else {
+        panic!("the lyrics' frame, not a message: {:?}", rig.screen().body);
+    };
+    assert!(body.lines.is_empty() && body.progress.is_some(), "{body:?}");
+    // Read, with none: then it says so.
+    let t = rig.music.player.current().unwrap();
+    let generation = rig.music.generation;
+    rig.music
+        .update(Msg::Worker(generation, Done::Lyrics(t, None)));
+    assert_eq!(rig.screen().body, Body::Message(text::NO_LYRICS.into()));
 }

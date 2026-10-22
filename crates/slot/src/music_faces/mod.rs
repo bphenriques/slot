@@ -316,8 +316,9 @@ pub struct MusicText {
     values: Lines,
     /// Two-line rows' second lines: who made each.
     seconds: Lines,
-    /// The text view's paragraphs: the lyrics.
+    /// The text view's paragraphs: the lyrics; and their words last shown, to tell new ones.
     paragraphs: Lines,
+    paragraphs_of: Vec<String>,
     glyphs: Styled<()>,
     /// Each legend's hints.
     legends: Vec<(Legend, Styled<()>)>,

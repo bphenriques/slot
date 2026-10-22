@@ -6,7 +6,7 @@ use super::{Effect, Music};
 use crate::browse::rows;
 use crate::browse::{page_of, page_rows, View};
 use crate::library::covers::{self, Art, Covers};
-use crate::library::{AlbumId, TrackId};
+use crate::library::AlbumId;
 
 /// The album pictures: the labels still to make, the album whose picture was asked for, the
 /// picture shown, and whether Now Playing showed it last frame; and the next song's album,
@@ -21,18 +21,17 @@ pub(crate) struct Pictures {
     /// The page whose thumbnails were asked for, the albums its rows start with, and those
     /// read: asked again only as the page changes.
     page: Option<Page>,
-    pub(crate) wanted: Vec<AlbumId>,
+    wanted: Vec<AlbumId>,
     pub(crate) thumbs: Vec<Art>,
 }
 
-/// A page of a list, as far as its thumbnails go: the screen, which page of it, how long the
-/// queue is, whose rows move as it is edited, and what plays, which a menu's lead row shows.
+/// A page of a list, as far as its thumbnails go: the screen, which page of it, and how long
+/// the queue is, whose rows move as it is edited.
 #[derive(Copy, Clone, PartialEq)]
 struct Page {
     view: View,
     page: usize,
     queued: usize,
-    playing: Option<TrackId>,
 }
 
 impl Default for Pictures {
@@ -99,7 +98,6 @@ impl Music {
             view,
             page: page_of(&self.library, view, self.browser.at()),
             queued: self.player.queue().tracks.len(),
-            playing: self.player.current(),
         };
         if self.pictures.page == Some(page) {
             return;

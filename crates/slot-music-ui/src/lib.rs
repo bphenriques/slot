@@ -202,9 +202,6 @@ pub struct ListFaces {
     /// Whether the rows start with their album's thumbnail, and each one's, once read.
     pub thumbed: bool,
     pub thumbs: Vec<Option<MusicFace>>,
-    /// Whether the first row leads, taller, on two lines beside its thumbnail: what plays, the
-    /// book to continue.
-    pub lead: bool,
     /// What an empty thumbnail shows, dim: a note, or a book.
     pub blank: Option<MusicFace>,
     /// The row playing, in a list with thumbnails, and the play mark drawn on its thumbnail

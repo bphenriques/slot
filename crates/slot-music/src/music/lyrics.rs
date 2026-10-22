@@ -30,6 +30,12 @@ impl Music {
         }
     }
 
+    /// The song's lyrics as read: none until they are, then whether it has any.
+    pub(crate) fn lyrics_read(&self) -> Option<Option<&Lyrics>> {
+        let read = self.ahead.lyrics.of(self.player.current()?)?;
+        Some(read.as_ref())
+    }
+
     pub(crate) fn lyrics_now(&self) -> Option<&Lyrics> {
         self.ahead.lyrics.of(self.player.current()?)?.as_ref()
     }

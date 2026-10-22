@@ -254,7 +254,6 @@ pub(crate) fn rows_screen(music: &Music) -> Screen {
         lifted: false,
         readonly: false,
         two_lines: page.two_lines,
-        lead: page.lead,
         actions: crate::browse::rows::fixed(view).len(),
         paused: !cx.queue.playing,
         thumbs: page.thumbs,

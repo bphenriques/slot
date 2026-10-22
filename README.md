@@ -93,13 +93,13 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 The music player:
 
 <p align="center">
-<img src=".github/resources/screenshots/music-01-music.png" width="48%" alt="The Music menu: Shuffle Library, Queue, Library, Playlists, Audiobooks and Settings">
+<img src=".github/resources/screenshots/music-01-music.png" width="48%" alt="The Music menu: Now Playing with the song beside it, Queue, Library, Playlists, Audiobooks and Settings">
 <img src=".github/resources/screenshots/music-05-albums.png" width="48%" alt="Albums, each with its cover, under Play All">
 </p>
 
 <p align="center">
 <img src=".github/resources/screenshots/music-12-now-playing.png" width="48%" alt="Now Playing: the album cover, the song, its artist and album, and Up Next">
-<img src=".github/resources/screenshots/music-19-lyrics.png" width="48%" alt="Synced lyrics, the line being sung lit">
+<img src=".github/resources/screenshots/music-19-lyrics.png" width="48%" alt="Synced lyrics, the line being sung lit, the song's bar and time below">
 </p>
 
 <p align="center">

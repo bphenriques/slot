@@ -220,8 +220,6 @@ pub struct ListBody {
     /// Its rows are two lines, the name over who made it (`after`); and start with their album's
     /// thumbnail, or room for it until it is read.
     pub two_lines: bool,
-    /// Its first row leads it, on two lines beside its picture, its name's `after` below.
-    pub lead: bool,
     /// How many action rows (Play All) lead its first page, whose room two-line rows keep on
     /// every page so they look alike on each.
     pub actions: usize,

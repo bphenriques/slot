@@ -524,7 +524,6 @@ pub fn speed(x: f32) -> String {
 }
 
 /// Before the album's or artist's name on a menu row that goes there, set dim.
-pub const GO_TO: &str = "Go to";
 /// The audiobooks' menu: the latest book plays on, and the lists it opens.
 pub const CONTINUE: &str = "Continue";
 const IN_PROGRESS: &str = "In Progress";

@@ -147,7 +147,11 @@ fn the_audiobooks_menu_continues_the_latest_and_lists_them_by_progress_and_autho
         &[Key::Down, Key::Down, Key::Down, Key::Down, Key::A],
     );
     let page = b.page(&cx);
-    assert!(page.lead, "Continue leads, on two lines beside its cover");
+    assert_eq!(
+        page.values[0].as_deref(),
+        Some("Just So"),
+        "the book beside Continue"
+    );
     let rows: Vec<(&str, &str)> = page
         .rows
         .iter()
@@ -156,7 +160,7 @@ fn the_audiobooks_menu_continues_the_latest_and_lists_them_by_progress_and_autho
     assert_eq!(
         rows,
         [
-            ("Continue", "Just So · Kipling"),
+            ("Continue", ""),
             ("In Progress", ""),
             ("Authors", ""),
             ("All Books", "")

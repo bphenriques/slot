@@ -407,8 +407,6 @@ pub struct Page {
     /// albums, books, songs from across albums.
     pub two_lines: bool,
     pub thumbs: bool,
-    /// Its first row leads it, on two lines beside its picture: what plays, the book to continue.
-    pub lead: bool,
 }
 
 struct Level {
@@ -612,7 +610,6 @@ impl Browser {
                 })
                 .collect(),
             two_lines: two_lines(cx.lib, view),
-            lead: span.start == 0 && rows.first().is_some_and(|&r| rows::leads(cx, r)),
             thumbs: view.rich(),
             pages: page_of(cx.lib, view, rows.len().saturating_sub(1)) + 1,
             item: at.checked_sub(fixed).map(|i| i + 1),

@@ -283,14 +283,13 @@ fn the_menu_goes_to_the_album_on_the_track_and_a_held_in_a_list_plays_next() {
             "Sleep Timer",
             "Repeat",
             "Shuffle",
-            "Go to",
-            "Go to",
+            "Go to Album",
+            "Go to Artist",
             "Song Info",
         ],
         "what to set first, then where to go; Y favorites, so the menu does not"
     );
     assert_eq!(page.values[2].as_deref(), Some("Off"), "shuffle says which");
-    assert_eq!(page.rows[3].after, "A", "the name set dim after");
     for _ in 0..2 {
         b.press(&cx(&lib, queue, s), Key::Down);
     }
@@ -541,7 +540,7 @@ fn start_opens_a_menu_only_for_what_no_key_does() {
     press(&mut b, &lib, &[Key::A, Key::Down, Key::Down, Key::Start]);
     assert_eq!(b.view(), View::SongMenu(TrackId(1)));
     let page = b.page(&cx(&lib, QueueView::default(), Settings::default()));
-    assert_eq!(page.rows, ["Go to", "Go to", "Song Info"]);
+    assert_eq!(page.rows, ["Go to Album", "Go to Artist", "Song Info"]);
     press(&mut b, &lib, &[Key::Up, Key::A]);
     assert_eq!(b.view(), View::SongInfo(TrackId(1)));
     press(&mut b, &lib, &[Key::B, Key::Start]);
