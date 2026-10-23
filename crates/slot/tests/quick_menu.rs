@@ -254,12 +254,14 @@ fn fast_forward_steps_through_its_speeds_wraps_at_both_ends_and_saves_each_one()
         (Btn::Left, 4),
         (Btn::Left, 3),
         (Btn::Left, 2),
+        (Btn::Left, 0),
         (Btn::Left, 6),
+        (Btn::Right, 0),
         (Btn::Right, 2),
         (Btn::Right, 3),
         (Btn::Right, 4),
         (Btn::Right, 6),
-        (Btn::Right, 2),
+        (Btn::Right, 0),
     ] {
         press(&mut a, btn);
         assert_eq!(a.ff_speed(), want, "{btn:?}");
@@ -413,25 +415,29 @@ fn each_systems_colour_correction_flips_on_either_arrow_and_saves_alone() {
 }
 
 #[test]
-fn the_game_page_flips_eject_save_turbo_and_rewind_and_saves_each() {
+fn the_game_page_flips_auto_load_eject_save_turbo_and_rewind_and_saves_each() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::Rewind);
     let card = |d: &TempDir| {
         let s = read_slot_state(d.path());
-        (s.eject_save, s.turbo, s.rewind)
+        (s.auto_load, s.eject_save, s.turbo, s.rewind)
     };
-    assert_eq!(card(&d), (true, true, true));
+    assert_eq!(card(&d), (true, true, true, true));
     press(&mut a, Btn::Right);
-    assert_eq!(card(&d), (true, true, false));
+    assert_eq!(card(&d), (true, true, true, false));
     assert!(!a.may_rewind(), "rewind still offered with it off");
     press(&mut a, Btn::Down);
     press(&mut a, Btn::Left);
-    assert_eq!(card(&d), (true, false, false));
+    assert_eq!(card(&d), (true, true, false, false));
     assert!(!a.turbo());
     press(&mut a, Btn::Down);
     press(&mut a, Btn::Down);
+    assert_eq!(a.quick_menu(), Some(QuickRow::AutoLoad));
     press(&mut a, Btn::Right);
-    assert_eq!(card(&d), (false, false, false));
+    assert_eq!(card(&d), (false, true, false, false));
+    press(&mut a, Btn::Down);
+    press(&mut a, Btn::Right);
+    assert_eq!(card(&d), (false, false, false, false));
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::Game));
 }

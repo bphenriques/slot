@@ -1,10 +1,12 @@
-# v1.8.0-pvaibhav.1
+# v1.8.1-pvaibhav.1
 
-- Updated to [slot v1.8.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.8.0), with remappable controls, refreshed menus, cleaner audio, and left-stick support.
-- Includes upstream's save protection, SD card repair, and shutdown fixes. Run-ahead has been removed upstream to prevent save corruption.
-- Keeps this fork's automatic 120 Hz, panel calibration, battery improvements, home Wi-Fi and linking, automatic labels, and offline RetroAchievements, adapted to the new menus and game loading.
+- Updated to [slot v1.8.1](https://github.com/BrandonKowalski/slot/releases/tag/v1.8.1), fixing freezes in MBC2 Game Boy games, shelf navigation, and the BaseOS startup sound.
+- Adds separate **Load State on Insert** and **Save State on Eject** settings, plus **Off** for fast-forward. Save states and rewind use less space.
+- Keeps this fork's automatic 120 Hz, panel calibration, battery improvements, home Wi-Fi and linking, automatic labels, and offline RetroAchievements.
 
-Unzip `slot-v1.8.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.8.0-pvaibhav.1/` onto SD2. Your saves and settings are preserved.
+If you previously disabled Auto Save on Eject for fresh starts, also turn off **Load State on Insert**.
+
+Unzip `slot-v1.8.1-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.8.1-pvaibhav.1/` onto SD2. Your saves and settings are preserved.
 
 For labels without Wi-Fi, copy `Artwork.pack` below into `Labels/` on your SD card. The pack is unchanged from the previous release. Existing labels are kept.
 

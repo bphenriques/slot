@@ -91,10 +91,11 @@ pub enum QuickRow {
     BlueLight,
     PlayBrightness,
     PlayBlueLight,
+    AutoLoad,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 80] = [
+    pub const ALL: [QuickRow; 81] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -175,6 +176,7 @@ impl QuickRow {
         QuickRow::BlueLight,
         QuickRow::PlayBrightness,
         QuickRow::PlayBlueLight,
+        QuickRow::AutoLoad,
     ];
 
     pub const MAIN: [QuickRow; 5] = [
@@ -267,13 +269,14 @@ impl QuickRow {
         QuickRow::GbBezel,
     ];
 
-    pub const GAME: [QuickRow; 7] = [
+    pub const GAME: [QuickRow; 8] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Rewind,
         QuickRow::Turbo,
         QuickRow::Rumble,
         QuickRow::LeftStick,
+        QuickRow::AutoLoad,
         QuickRow::EjectSave,
     ];
 
@@ -327,6 +330,7 @@ impl QuickRow {
             | QuickRow::Turbo
             | QuickRow::Rumble
             | QuickRow::LeftStick
+            | QuickRow::AutoLoad
             | QuickRow::EjectSave => &QuickRow::GAME,
             QuickRow::Wallpaper
             | QuickRow::WallpaperTint
@@ -449,7 +453,8 @@ impl QuickRow {
             QuickRow::GbColourCorrection => "Color Correction",
             QuickRow::GbcColourCorrection => "Color Correction",
             QuickRow::Game => "Gameplay",
-            QuickRow::EjectSave => "Auto Save on Eject",
+            QuickRow::AutoLoad => "Load State on Insert",
+            QuickRow::EjectSave => "Save State on Eject",
             QuickRow::Turbo => "Turbo Buttons",
             QuickRow::Rewind => "Rewind",
             QuickRow::GbPalette => "Palette",
@@ -745,6 +750,7 @@ impl QuickValue {
 
     pub fn speed(frames: u8) -> Option<QuickValue> {
         match frames {
+            0 => Some(QuickValue::Off),
             2 => Some(QuickValue::Speed2),
             3 => Some(QuickValue::Speed3),
             4 => Some(QuickValue::Speed4),
