@@ -12,6 +12,28 @@
 
 ---
 
+> [!WARNING]
+> **Experimental, and built with AI assistance.** This fork adds a music and audiobook player
+> to slot. I have experience in the field and did my best to follow the right patterns, but I am
+> not an expert on this, and in the end I wanted a fast, clean music player running in slot.
+> It may be unstable: expect rough edges, things that break or change between builds, and keep
+> a backup of your card.
+>
+> Don't expect much support. I'm happy to help where I can, and happier still if someone forks
+> it and carries on the work (I'd gladly use the mature fork!) :)
+
+What I focused on:
+
+- **Pocket use.** With the screen off, the shoulders skip or seek and the triggers play, pause
+  or mark a place in a book, all found by feel; holding two shoulders locks the keys, or the
+  screen going off can lock them, so nothing changes in a pocket. I haven't seen this in a
+  handheld player before.
+- **Performance.** It's a battery device: nothing runs while idle, and the screen is drawn only
+  when something on it changes.
+- **A decoupled design.** The player is its own crates, [mute](https://github.com/bphenriques/mute-player),
+  with slot only hosting it, so it isn't tied to slot.
+- **Minimal and modern.** Familiar keys, one kind of row, quiet animations, light and dark.
+
 # What is slot?
 
 A fork of [slot](https://github.com/BrandonKowalski/slot) by Brandon Kowalski. slot is a
