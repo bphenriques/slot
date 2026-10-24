@@ -747,6 +747,9 @@ impl RetroCore for LibretroCore {
     }
 
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        if data.is_empty() {
+            return Err(CoreError::State("empty state".into()));
+        }
         self.state_size = None;
         let ok = {
             let _a = Active::bind(&mut self.host);

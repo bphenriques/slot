@@ -66,7 +66,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.8.1-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.8.1-pvaibhav.1).
+The current release is [v1.9.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.9.0-pvaibhav.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---
