@@ -130,6 +130,7 @@ fn on_mgba_loading_a_state_while_the_game_writes_its_second_flash_bank_keeps_the
             "auto",
             false,
             false,
+            true,
             None,
         );
         core.load(&rom).expect("mGBA refused the rom");
@@ -169,6 +170,7 @@ fn fusion() -> Option<(PathBuf, LibretroCore)> {
         "auto",
         false,
         false,
+        true,
         None,
     );
     core.load(&rom).expect("mGBA refused the rom");

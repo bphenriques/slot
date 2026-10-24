@@ -96,10 +96,14 @@ pub enum QuickRow {
     AutoLoad,
     UndoSave,
     UndoLoad,
+    GbaGhosting,
+    GbGhosting,
+    GbcGhosting,
+    Ghosting,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 85] = [
+    pub const ALL: [QuickRow; 89] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -185,6 +189,10 @@ impl QuickRow {
         QuickRow::AutoLoad,
         QuickRow::UndoSave,
         QuickRow::UndoLoad,
+        QuickRow::GbaGhosting,
+        QuickRow::GbGhosting,
+        QuickRow::GbcGhosting,
+        QuickRow::Ghosting,
     ];
 
     pub const MAIN: [QuickRow; 5] = [
@@ -259,21 +267,24 @@ impl QuickRow {
 
     pub const SCREEN_GENERAL: [QuickRow; 2] = [QuickRow::Brightness, QuickRow::BlueLight];
 
-    pub const SCREEN_GBA: [QuickRow; 3] = [
+    pub const SCREEN_GBA: [QuickRow; 4] = [
         QuickRow::GbaShader,
         QuickRow::GbaColourCorrection,
+        QuickRow::GbaGhosting,
         QuickRow::GbaBezel,
     ];
 
-    pub const SCREEN_GBC: [QuickRow; 3] = [
+    pub const SCREEN_GBC: [QuickRow; 4] = [
         QuickRow::GbcShader,
         QuickRow::GbcColourCorrection,
+        QuickRow::GbcGhosting,
         QuickRow::GbcBezel,
     ];
 
-    pub const SCREEN_GB: [QuickRow; 4] = [
+    pub const SCREEN_GB: [QuickRow; 5] = [
         QuickRow::GbShader,
         QuickRow::GbColourCorrection,
+        QuickRow::GbGhosting,
         QuickRow::GbPalette,
         QuickRow::GbBezel,
     ];
@@ -305,11 +316,12 @@ impl QuickRow {
         QuickRow::PlayControls,
     ];
 
-    pub const PLAY_SCREEN: [QuickRow; 6] = [
+    pub const PLAY_SCREEN: [QuickRow; 7] = [
         QuickRow::Shader,
         QuickRow::Bezel,
         QuickRow::Palette,
         QuickRow::ColourCorrection,
+        QuickRow::Ghosting,
         QuickRow::PlayBrightness,
         QuickRow::PlayBlueLight,
     ];
@@ -326,14 +338,17 @@ impl QuickRow {
             | QuickRow::ScreenGb => &QuickRow::SCREEN,
             QuickRow::Brightness | QuickRow::BlueLight => &QuickRow::SCREEN_GENERAL,
             QuickRow::PlayBrightness | QuickRow::PlayBlueLight => &QuickRow::PLAY_SCREEN,
-            QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
-                &QuickRow::SCREEN_GBA
-            }
-            QuickRow::GbcShader | QuickRow::GbcColourCorrection | QuickRow::GbcBezel => {
-                &QuickRow::SCREEN_GBC
-            }
+            QuickRow::GbaShader
+            | QuickRow::GbaColourCorrection
+            | QuickRow::GbaGhosting
+            | QuickRow::GbaBezel => &QuickRow::SCREEN_GBA,
+            QuickRow::GbcShader
+            | QuickRow::GbcColourCorrection
+            | QuickRow::GbcGhosting
+            | QuickRow::GbcBezel => &QuickRow::SCREEN_GBC,
             QuickRow::GbShader
             | QuickRow::GbColourCorrection
+            | QuickRow::GbGhosting
             | QuickRow::GbPalette
             | QuickRow::GbBezel => &QuickRow::SCREEN_GB,
             QuickRow::FastForward
@@ -368,9 +383,11 @@ impl QuickRow {
             r if r.game_button().is_some() => &QuickRow::CONTROLS,
             r if r.shortcut().is_some() => &QuickRow::SHORTCUTS,
             r if r.carousel_action().is_some() => &QuickRow::SHELF_KEYS,
-            QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
-                &QuickRow::PLAY_SCREEN
-            }
+            QuickRow::Shader
+            | QuickRow::ColourCorrection
+            | QuickRow::Ghosting
+            | QuickRow::Palette
+            | QuickRow::Bezel => &QuickRow::PLAY_SCREEN,
             _ => &QuickRow::MAIN,
         }
     }
@@ -468,6 +485,10 @@ impl QuickRow {
             QuickRow::GbaColourCorrection => "Color Correction",
             QuickRow::GbColourCorrection => "Color Correction",
             QuickRow::GbcColourCorrection => "Color Correction",
+            QuickRow::GbaGhosting
+            | QuickRow::GbGhosting
+            | QuickRow::GbcGhosting
+            | QuickRow::Ghosting => "LCD Ghosting",
             QuickRow::Game => "Gameplay",
             QuickRow::AutoLoad => "Load State on Insert",
             QuickRow::EjectSave => "Save State on Eject",

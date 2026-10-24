@@ -415,6 +415,42 @@ fn each_systems_colour_correction_flips_on_either_arrow_and_saves_alone() {
 }
 
 #[test]
+fn each_systems_lcd_ghosting_flips_on_either_arrow_and_saves_alone() {
+    let saved = |d: &TempDir| {
+        let s = read_slot_state(d.path());
+        (s.ghosting_gba, s.ghosting_gb, s.ghosting_gbc)
+    };
+    for row in [
+        QuickRow::GbaGhosting,
+        QuickRow::GbGhosting,
+        QuickRow::GbcGhosting,
+    ] {
+        let (d, mut a, _) = on_carousel();
+        open_at(&mut a, row);
+        assert_eq!(
+            a.quick_value(row),
+            Some(QuickValue::On),
+            "{row:?} did not open on the default, which is on"
+        );
+        for (btn, want) in [
+            (Btn::Right, false),
+            (Btn::Left, true),
+            (Btn::Left, false),
+            (Btn::Right, true),
+        ] {
+            press(&mut a, btn);
+            let all = match row {
+                QuickRow::GbaGhosting => (want, true, true),
+                QuickRow::GbGhosting => (true, want, true),
+                _ => (true, true, want),
+            };
+            assert_eq!(saved(&d), all, "{row:?} {btn:?}");
+            assert_eq!(a.quick_value(row), Some(QuickValue::flag(want)));
+        }
+    }
+}
+
+#[test]
 fn the_game_page_flips_auto_load_eject_save_turbo_and_rewind_and_saves_each() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::Rewind);
@@ -468,6 +504,7 @@ fn screen_opens_a_page_of_its_own_and_b_comes_back_to_it() {
     assert_eq!(a.quick_menu(), Some(QuickRow::GbShader));
     for want in [
         QuickRow::GbColourCorrection,
+        QuickRow::GbGhosting,
         QuickRow::GbPalette,
         QuickRow::GbBezel,
         QuickRow::GbShader,
@@ -1082,6 +1119,7 @@ fn the_game_boy_page_steps_the_palette_from_auto() {
         [
             QuickRow::GbShader,
             QuickRow::GbColourCorrection,
+            QuickRow::GbGhosting,
             QuickRow::GbPalette,
             QuickRow::GbBezel,
         ]

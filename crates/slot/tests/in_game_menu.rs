@@ -136,6 +136,28 @@ fn colour_correction_toggles_the_running_platform_and_asks_the_core() {
 }
 
 #[test]
+fn ghosting_toggles_the_running_platform_and_asks_the_core() {
+    let (d, mut a) = playing();
+    assert!(
+        a.ghosting(),
+        "a game started without its default LCD ghosting"
+    );
+    go_to(&mut a, QuickRow::Ghosting);
+    assert_eq!(
+        a.quick_value(QuickRow::Ghosting),
+        a.quick_value(QuickRow::GbaGhosting)
+    );
+    press(&mut a, Btn::Right);
+    assert!(!a.ghosting());
+    assert_eq!(a.take_ghosting(), Some(false));
+    let saved = slot_store::read_slot_state(d.path());
+    assert_eq!(
+        (saved.ghosting_gba, saved.ghosting_gb, saved.ghosting_gbc),
+        (false, true, true)
+    );
+}
+
+#[test]
 fn palette_steps_the_palette_and_asks_the_core() {
     let (_d, mut a) = playing();
     a.set_palette_live(true);

@@ -337,11 +337,11 @@ impl Session {
                 None => eprintln!("slot: link: a transport arrived with no core to run it"),
             }
         }
-        let mut recoloured = false;
+        let mut repaint = false;
         if let Some(p) = self.app.take_gb_colors() {
             if let Some(emu) = &self.emu {
                 emu.set_option("mgba_gb_colors", p.core_name());
-                recoloured = true;
+                repaint = true;
             }
         }
         if let Some(on) = self.app.take_colour_correction() {
@@ -350,11 +350,18 @@ impl Session {
             {
                 if let Some(emu) = &self.emu {
                     emu.set_option(key, value);
-                    recoloured = true;
+                    repaint = true;
                 }
             }
         }
-        if recoloured && self.held() && !self.app.link_active() {
+        if let Some(on) = self.app.take_ghosting() {
+            if let Some(emu) = &self.emu {
+                let (key, value) = crate::core::ghosting_option(self.app.core(), on);
+                emu.set_option(key, value);
+                repaint = true;
+            }
+        }
+        if repaint && self.held() && !self.app.link_active() {
             if let Some(emu) = &self.emu {
                 emu.refresh();
             }
@@ -571,6 +578,7 @@ impl Session {
         let player = self.app.link_player();
         let chosen = self.app.gb_colors();
         let colour = self.app.colour_correction_for(platform);
+        let ghosting = self.app.ghosting_for(platform);
         let join = std::thread::Builder::new()
             .name("slot-open".into())
             .spawn(move || {
@@ -580,7 +588,9 @@ impl Session {
                 };
                 launch("resume state read");
                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
-                let opened = open_core(&root, core, platform, serial, colour, palette, player);
+                let opened = open_core(
+                    &root, core, platform, serial, colour, ghosting, palette, player,
+                );
                 launch("core opened");
                 let sav = persist::read_sav(&root, platform, &stem);
                 launch("save read");

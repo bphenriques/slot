@@ -37,17 +37,22 @@ pub struct Opened {
     pub named: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn open_core(
     root: &Path,
     core: Core,
     platform: Platform,
     serial: &str,
     colour: bool,
+    ghosting: bool,
     palette: Option<GbColors>,
     link: Option<u8>,
 ) -> Opened {
     let paths = candidates(root, core);
-    match open_named(root, core, platform, serial, colour, palette, link, &paths) {
+    let opened = open_named(
+        root, core, platform, serial, colour, ghosting, palette, link, &paths,
+    );
+    match opened {
         Some(core) => Opened { core, named: true },
         None => {
             report_missing(core, &paths);
@@ -78,7 +83,10 @@ pub fn open_core_for_palette(
     palette: Option<GbColors>,
     paths: &[PathBuf],
 ) -> Box<dyn RetroCore> {
-    open_named(root, core, platform, serial, colour, palette, None, paths).unwrap_or_else(|| {
+    open_named(
+        root, core, platform, serial, colour, true, palette, None, paths,
+    )
+    .unwrap_or_else(|| {
         report_missing(core, paths);
         Box::new(MockCore::new())
     })
@@ -91,6 +99,7 @@ fn open_named(
     platform: Platform,
     serial: &str,
     colour: bool,
+    ghosting: bool,
     palette: Option<GbColors>,
     link: Option<u8>,
     paths: &[PathBuf],
@@ -110,6 +119,7 @@ fn open_named(
                     serial,
                     root::has_real_bios(root),
                     colour,
+                    ghosting,
                     palette,
                 );
                 if let Some(player) = link {
@@ -176,6 +186,14 @@ pub fn colour_option(
     }
 }
 
+/// mGBA's Simple mix keeps the ghosting without the accurate filter's CPU cost on the H700.
+pub fn ghosting_option(which: Core, on: bool) -> (&'static str, &'static str) {
+    match which {
+        Core::Mgba => ("mgba_interframe_blending", if on { "mix" } else { "OFF" }),
+        Core::Gpsp => ("gpsp_frame_mixing", if on { "enabled" } else { "disabled" }),
+    }
+}
+
 pub fn apply_link_options(core: &mut LibretroCore, which: Core, player: u8) {
     if which != Core::Mgba {
         return;
@@ -185,6 +203,7 @@ pub fn apply_link_options(core: &mut LibretroCore, which: Core, player: u8) {
     eprintln!("slot: core: link mode on, player {player}");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply_core_options(
     core: &mut LibretroCore,
     which: Core,
@@ -192,9 +211,12 @@ pub fn apply_core_options(
     serial: &str,
     bios: bool,
     colour: bool,
+    ghosting: bool,
     palette: Option<GbColors>,
 ) {
     core.set_option(&format!("{}_frameskip", which.as_str()), "auto");
+    let (key, value) = ghosting_option(which, ghosting);
+    core.set_option(key, value);
     if which == Core::Mgba {
         core.set_option("mgba_sgb_borders", "OFF");
         core.set_option("mgba_force_gbp", "ON");
@@ -210,14 +232,11 @@ pub fn apply_core_options(
                 core.set_option("mgba_gb_colors", "GBC Dark Green →A");
             }
         }
-        // Simple retains frame blending without the accurate filter's CPU cost on the H700.
-        core.set_option("mgba_interframe_blending", "mix");
         if let Some((key, value)) = colour_option(which, platform, colour) {
             core.set_option(key, value);
         }
     }
     if which == Core::Gpsp {
-        core.set_option("gpsp_frame_mixing", "enabled");
         core.set_option("gpsp_serial", serial);
         core.set_option("gpsp_rtc_time_source", "system");
         if bios {
@@ -253,6 +272,26 @@ mod tests {
         assert_eq!(
             colour_option(Core::Gpsp, Platform::Gba, false),
             Some(("gpsp_color_correction", "disabled"))
+        );
+    }
+
+    #[test]
+    fn each_core_spells_lcd_ghosting_its_own_way() {
+        assert_eq!(
+            ghosting_option(Core::Mgba, true),
+            ("mgba_interframe_blending", "mix")
+        );
+        assert_eq!(
+            ghosting_option(Core::Mgba, false),
+            ("mgba_interframe_blending", "OFF")
+        );
+        assert_eq!(
+            ghosting_option(Core::Gpsp, true),
+            ("gpsp_frame_mixing", "enabled")
+        );
+        assert_eq!(
+            ghosting_option(Core::Gpsp, false),
+            ("gpsp_frame_mixing", "disabled")
         );
     }
 

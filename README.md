@@ -33,7 +33,8 @@ notes are in the [changelog](CHANGELOG.md).
 - **Better battery life and less heat.** slot switches the CPU to the `schedutil` governor, so
   the clock follows the game's load. Measured on an RG SP: Game Boy and Game Boy Color games run
   at about 600 MHz, and GBA at 550–1,000 MHz, out of a 1,512 MHz maximum.
-- **LCD ghosting / interframe blending** is enabled by default. It's subtle.
+- **LCD ghosting / interframe blending** is enabled by default. It's subtle. Turn it off per
+  console in Settings > Screen, or in-game under Settings > Screen.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
   has this!

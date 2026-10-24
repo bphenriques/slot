@@ -193,7 +193,8 @@ fn a_line_the_reader_does_not_know_is_skipped() {
 /// Colour correction off is not an aesthetic preference being enshrined: it is what every card
 /// already renders as, because both cores default their own option off and slot never set it.
 /// A default of on would change the look of every existing library on the strength of an
-/// update nobody asked for.
+/// update nobody asked for. LCD ghosting defaults on for the same reason: slot always asked both
+/// cores for it.
 #[test]
 fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     let s = SlotState::default();
@@ -207,6 +208,10 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert!(
         !s.colour_correction_gb,
         "boots with the Game Boy picture tinted"
+    );
+    assert!(
+        s.ghosting_gba && s.ghosting_gb && s.ghosting_gbc,
+        "boots with the LCD ghosting every card already had switched off"
     );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
@@ -244,6 +249,9 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             colour_correction_gba: false,
             colour_correction_gb: false,
             colour_correction_gbc: false,
+            ghosting_gba: true,
+            ghosting_gb: true,
+            ghosting_gbc: true,
             shader_gba: Shader::Grid,
             shader_gb: Shader::Simpletex,
             shader_gbc: Shader::Simpletex,
@@ -293,6 +301,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         wallpaper_tint: WallpaperTint::Medium,
         colour_correction_gbc: true,
+        ghosting_gba: false,
+        ghosting_gb: true,
+        ghosting_gbc: false,
         shader_gbc: Shader::Grid,
         bezel_gba: BezelPick::None,
         bezel_gb: BezelPick::Default,
@@ -328,6 +339,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "bezel_gb=default",
         "bezel_gbc=Pocket.png",
         "colour_correction_gbc=1",
+        "ghosting_gba=0",
+        "ghosting_gb=1",
+        "ghosting_gbc=0",
         "shader_gbc=grid",
         "shelf=gba",
         "shelf_cart=gba/Drill Dozer",
