@@ -22,6 +22,7 @@ mod power_menu;
 mod quick_menu;
 mod rebuild;
 mod refusal;
+mod seal;
 mod shelf;
 mod shell;
 mod shot_viewer;
@@ -48,8 +49,8 @@ pub use board::{
 pub use cart::{
     cart_backing, cart_box, cart_face, cart_face_with, cart_interior, cart_shadow, clean_label,
     gb_cart_shadow, gb_label_panel, gb_shell_of, is_clear, label_colour, label_panel, label_size,
-    label_tags, label_text, neutral_shell, seated_box, shows_interior, CartFace, CART_H, CART_W,
-    GBC_LABEL_H, GBC_LABEL_W, GBC_LABEL_X, GBC_LABEL_Y, GB_CART_H, GB_CART_W, GB_LABEL_H,
+    label_tags, label_text, neutral_shell, seal_rect, seated_box, shows_interior, CartFace, CART_H,
+    CART_W, GBC_LABEL_H, GBC_LABEL_W, GBC_LABEL_X, GBC_LABEL_Y, GB_CART_H, GB_CART_W, GB_LABEL_H,
     GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y, LABEL_H, LABEL_W, LABEL_WELL, LABEL_X, LABEL_Y,
 };
 pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
@@ -90,6 +91,7 @@ pub use quick_menu::{
 };
 pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
 pub use refusal::Refusal;
+pub use seal::{glint_faces, GLINT_FRAMES, SEAL_H, SEAL_W};
 pub use shelf::{foot_y, repeat_gap, rest_y, Shelf, REPEAT_DELAY_MS, STAR_INK, STAR_SCALE};
 pub use shell::{
     gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,

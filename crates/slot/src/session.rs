@@ -139,6 +139,10 @@ impl Session {
         self.achievements.sync_pending()
     }
 
+    pub fn achievement_cache_generation(&self) -> u64 {
+        self.achievements.cache_generation()
+    }
+
     pub fn achievement_sync_status(&self) -> slot_achievements::SyncStatus {
         self.achievements.sync_status()
     }

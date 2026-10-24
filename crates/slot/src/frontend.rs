@@ -36,6 +36,7 @@ const ALERT_INK: [u8; 3] = [0xf0, 0xb4, 0x3c];
 
 pub struct Frontend {
     labels: crate::labels::Labels,
+    seals: crate::seals::Seals,
     achievements: crate::achievement_ui::Notifications,
     session: Session,
     start: Instant,
@@ -171,6 +172,7 @@ impl Frontend {
         let cart_faces = CartFaces::spawn(root.clone());
         let mut session = Session::boot_with(root.clone(), sink);
         crate::boot_time::mark("session");
+        let seals = crate::seals::Seals::spawn(root.clone());
         let labels = crate::labels::Labels::spawn(root, session.app().carts().cloned().collect());
         let stale_check =
             Self::check_labels(platform.root(), session.app().carts().cloned().collect());
@@ -179,6 +181,7 @@ impl Frontend {
             .set_power(Power::new(platform, DOZE_TIMEOUT));
         Frontend {
             labels,
+            seals,
             achievements: crate::achievement_ui::Notifications::new(),
             session,
             start: now,
@@ -291,6 +294,11 @@ impl Frontend {
         let star = slot_ui::star_face(slot_ui::STAR_SCALE, slot_ui::STAR_INK);
         let id = compositor.create_texture_nearest(star.w, star.h, &star.rgba);
         self.session.app_mut().set_star_face(id, star.w, star.h);
+        let glint = slot_ui::glint_faces()
+            .iter()
+            .map(|f| compositor.create_texture(f.w, f.h, &f.rgba))
+            .collect();
+        self.session.app_mut().set_glint_faces(glint);
         let shadow = cart_shadow();
         let id = compositor.create_texture(shadow.w, shadow.h, &shadow.rgba);
         self.session.app_mut().set_cart_shadow(id);
@@ -608,6 +616,7 @@ impl Frontend {
             crate::latency::taken();
         }
         self.sync_labels(compositor);
+        self.sync_seals();
         self.cart_faces.sync(self.session.app_mut(), compositor);
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_binding_faces(self.session.app_mut(), compositor);
@@ -714,6 +723,22 @@ impl Frontend {
         {
             self.core_asked = None;
             self.core_built = None;
+        }
+    }
+
+    /// Before the cart faces sync, so a cart sealed on screen is redrawn in the same frame.
+    fn sync_seals(&mut self) {
+        let generation = self.session.achievement_cache_generation();
+        let Some((ready, news)) = self.seals.poll(generation) else {
+            return;
+        };
+        for stem in self.session.app_mut().seal(&ready, news) {
+            if self.core_asked.as_deref() == Some(stem.as_str())
+                || self.core_built.as_deref() == Some(stem.as_str())
+            {
+                self.core_asked = None;
+                self.core_built = None;
+            }
         }
     }
 

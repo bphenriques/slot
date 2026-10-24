@@ -301,6 +301,10 @@ pub(crate) fn run(
                     // GB/GBC/GBA identification is the MD5 of the uncompressed ROM.
                     // File I/O and hashing happen here, never on the emulator/UI threads.
                     let hash = crate::library::hash(&dir, &load.path).ok()?;
+                    // This may have indexed a renamed ROM; the shelf can seal it.
+                    status
+                        .cached
+                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                     let mut game = Active {
                         generation: load.generation,
                         hash,
@@ -453,6 +457,9 @@ pub(crate) fn run(
                         let ids = unlocked(&session)?;
                         storage::write(&dir.join(format!("{}.json", game.hash)), &(&data, &ids))
                             .map_err(|_| Failure::Invalid)?;
+                        status
+                            .cached
+                            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                         badges.enqueue(&data);
                         ping(&mut http, auth, &status, game, &data)?;
                         let _ = prepared.send(Prepared {
@@ -478,9 +485,15 @@ pub(crate) fn run(
             // `startsession`, so preparing a library doesn't claim the user played it.
             if let Some(path) = library.front() {
                 if let Ok(hash) = crate::library::hash(&dir, path) {
+                    status
+                        .cached
+                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                     match prefetch(&mut http, auth, &dir, &hash) {
                         Ok(game) => {
                             crate::library::checked(&dir, path, now());
+                            status
+                                .cached
+                                .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                             badges.enqueue(&game);
                         }
                         Err(Failure::Network) => return Err(Failure::Network),

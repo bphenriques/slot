@@ -141,7 +141,8 @@ impl Store {
 
 pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
     let file = std::fs::File::open(path).map_err(|_| "Cannot read achievement data")?;
-    serde_json::from_reader(file).map_err(|_| "Invalid achievement data".into())
+    serde_json::from_reader(std::io::BufReader::new(file))
+        .map_err(|_| "Invalid achievement data".into())
 }
 
 pub(crate) fn write(path: &Path, value: &impl Serialize) -> Result<(), String> {

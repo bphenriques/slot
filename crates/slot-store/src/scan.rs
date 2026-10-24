@@ -14,6 +14,8 @@ pub struct Cart {
     pub title: String,
     pub code: String,
     pub shell: Option<crate::ShellChoice>,
+    /// Earns RetroAchievements offline, so the cart wears the seal. Set by the shelf.
+    pub sealed: bool,
 }
 
 impl Cart {
@@ -96,6 +98,7 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
                 shell: shells.get(&crate::cart_shell::key(stem)).copied(),
                 label,
                 rom,
+                sealed: false,
             });
         }
     }

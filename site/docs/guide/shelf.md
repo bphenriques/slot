@@ -33,6 +33,10 @@ slot remembers which shelf and cart you were on when it gets powered off and wil
 
 Press <kbd>Y</kbd> to star a cart. It shows up on the Favorites shelf alongside any other favorites across all three platforms. Press <kbd>Y</kbd> again to take the star off.
 
+## Achievement seals
+
+With RetroAchievements set up, a holographic trophy seal on a cart's bottom-left corner means that ROM earns achievements, even with no internet. slot adds seals by itself as it gets your games ready while you're online. If a cart has no seal once the sync icon next to the clock has gone, RetroAchievements doesn't recognise that version of the game.
+
 ## Recents
 
 Turn on Recents in Settings → General to get a shelf of the last 10 games you played.

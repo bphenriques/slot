@@ -58,6 +58,7 @@ fn shelf_of(names: &[&str]) -> Shelf {
                 code: String::new(),
                 shell: None,
                 title: n.to_uppercase(),
+                sealed: false,
             })
             .collect(),
     )

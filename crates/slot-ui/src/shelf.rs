@@ -4,9 +4,11 @@ use std::sync::OnceLock;
 
 use crate::board::{board_in, Placed};
 use crate::cart::{
-    cart_box, gb_shell_of, is_clear, label_colour, label_rect, label_text, CART_H, CART_W,
+    cart_box, gb_shell_of, is_clear, label_colour, label_rect, label_text, seal_rect, CART_H,
+    CART_W,
 };
 use crate::hud::Millis;
+use crate::seal::GLINT_FRAMES;
 use crate::silhouette::GbShell;
 use crate::slot_chrome::{draw_empty_slot, MOUTH_H};
 
@@ -37,6 +39,7 @@ pub const REPEAT_DELAY_MS: Millis = 400;
 pub const STAR_SCALE: u32 = 2;
 pub const STAR_INK: [u8; 3] = [0xf6, 0xc3, 0x2c];
 const STAR_INSET: f32 = 5.0;
+const GLINT_S: f32 = 0.5;
 const REPEAT_MS: [Millis; 4] = [110, 85, 65, 50];
 
 pub fn repeat_gap(fired: usize) -> Millis {
@@ -59,6 +62,9 @@ pub struct Shelf {
     clears: Vec<OnceLock<bool>>,
     starred: Vec<bool>,
     star: Option<(TexId, f32, f32)>,
+    // Seconds since each cart was sealed, while its glint plays.
+    glints: Vec<Option<f32>>,
+    glint: Vec<TexId>,
     ride: f32,
     vel: f32,
     held: Option<(i32, Millis, usize)>,
@@ -73,6 +79,8 @@ impl Shelf {
             interiors: vec![None; carts.len()],
             starred: vec![false; carts.len()],
             star: None,
+            glints: vec![None; carts.len()],
+            glint: Vec::new(),
             carts,
             index: 0,
             scroll: 0.0,
@@ -114,6 +122,7 @@ impl Shelf {
         self.faces = vec![None; carts.len()];
         self.interiors = vec![None; carts.len()];
         self.starred = vec![false; carts.len()];
+        self.glints = vec![None; carts.len()];
         self.carts = carts;
         self.held = None;
         self.select(0);
@@ -129,6 +138,18 @@ impl Shelf {
 
     pub fn set_star(&mut self, face: TexId, w: u32, h: u32) {
         self.star = Some((face, w as f32, h as f32));
+    }
+
+    pub fn set_glint(&mut self, frames: Vec<TexId>) {
+        self.glint = frames;
+    }
+
+    /// Light crosses the seal once, as foil catches it, when a cart is sealed in view.
+    /// `false` stops a glint already crossing.
+    pub fn glint(&mut self, i: usize, on: bool) {
+        if let Some(g) = self.glints.get_mut(i) {
+            *g = on.then_some(0.0);
+        }
     }
 
     pub fn mark_starred(&mut self, starred: impl Fn(&Cart) -> bool) {
@@ -413,6 +434,13 @@ impl Shelf {
         self.scroll += self.vel * dt;
     }
 
+    /// Glints run on the app's clock, so one cut short by an insert does not resume later.
+    pub fn fade_glints(&mut self, dt: f32) {
+        for g in &mut self.glints {
+            *g = g.map(|t| t + dt).filter(|t| *t < GLINT_S);
+        }
+    }
+
     pub fn draw(
         &self,
         canvas: Canvas,
@@ -550,6 +578,20 @@ impl Shelf {
                     tex,
                     alpha: alpha * dim,
                 });
+            }
+            if let Some(Some(t)) = self.glints.get(i) {
+                let frame = ((t / GLINT_S) * GLINT_FRAMES as f32) as usize;
+                if let Some(tex) = self.glint.get(frame.min(GLINT_FRAMES - 1)) {
+                    let (sx, sy, sw, sh) = seal_rect(self.shell(i));
+                    out.push(Draw::Tex {
+                        x: x + sx * w,
+                        y: y + sy * h,
+                        w: sw * w,
+                        h: sh * h,
+                        tex: *tex,
+                        alpha: alpha * dim,
+                    });
+                }
             }
         }
     }

@@ -50,6 +50,7 @@ pub mod prefetch;
 pub mod resample;
 pub mod rewind;
 pub mod root;
+mod seals;
 pub mod session;
 pub mod shot_loader;
 pub mod shot_writer;

@@ -2,7 +2,7 @@ use slot_power::{Battery, Charge};
 use slot_store::{Cart, Platform};
 use slot_ui::{
     draw_footer, footer_ink, label_colour, rest_y, Canvas, Draw, GbShell, Printed, Shelf, TexId,
-    CART_H, CART_W, GB_CART_H, GB_CART_W, LABEL_W, LABEL_X, LABEL_Y, OUT_W,
+    CART_H, CART_W, GB_CART_H, GB_CART_W, LABEL_H, LABEL_W, LABEL_X, LABEL_Y, OUT_W,
 };
 
 fn shelf_with(n: usize) -> Shelf {
@@ -16,6 +16,7 @@ fn shelf_with(n: usize) -> Shelf {
                 code: String::new(),
                 shell: None,
                 title: format!("GAME {i}"),
+                sealed: false,
             })
             .collect(),
     )
@@ -813,6 +814,7 @@ fn gb_shelf_with(n: usize) -> Shelf {
                 code: String::new(),
                 shell: None,
                 title: format!("PAK {i}"),
+                sealed: false,
             })
             .collect(),
     )
@@ -890,6 +892,7 @@ fn a_colour_pak_and_a_grey_one_are_backed_by_their_own_shells() {
                 code: String::new(),
                 shell: None,
                 title: (*stem).to_uppercase(),
+                sealed: false,
             }
         })
         .collect();
@@ -953,6 +956,7 @@ fn a_cart_pushed_onto_the_row_draws_rather_than_stopping_the_device() {
         code: String::new(),
         shell: None,
         title: "PUSHED".into(),
+        sealed: false,
     });
     settle(&mut s);
     assert_eq!(
@@ -972,6 +976,7 @@ fn a_clear_cart_is_drawn_over_its_board_and_a_solid_one_is_not() {
         code: code.into(),
         shell: None,
         title: stem.to_uppercase(),
+        sealed: false,
     };
     let board = TexId::from_raw(80);
     for (code, clear) in [("BPEE", true), ("BPRE", false)] {
@@ -1003,6 +1008,7 @@ fn a_clear_cart_draws_its_interior_then_the_board_then_the_plastic() {
         code: "BPEE".into(),
         shell: None,
         title: "GAME".into(),
+        sealed: false,
     }]);
     settle(&mut s);
     let (interior, board, face) = (
@@ -1051,6 +1057,7 @@ fn a_clear_pak_draws_its_interior_then_the_board_then_the_plastic() {
             finish: ShellFinish::Clear,
         }),
         title: "PAK".into(),
+        sealed: false,
     }]);
     settle(&mut s);
     let (interior, board, face) = (
@@ -1081,6 +1088,7 @@ fn only_a_clear_cart_has_anything_behind_its_plastic() {
         code: code.into(),
         shell: None,
         title: stem.to_uppercase(),
+        sealed: false,
     };
     let (interior, board) = (TexId::from_raw(81), TexId::from_raw(80));
     for (code, clear) in [("BPEE", true), ("BPRE", false)] {
@@ -1112,6 +1120,7 @@ fn a_pak_is_classed_when_it_is_drawn_not_when_the_shelf_is_built() {
             code: String::new(),
             shell: None,
             title: stem.to_uppercase(),
+            sealed: false,
         })
         .collect();
     let mut s = Shelf::new(carts.clone());
@@ -1150,6 +1159,7 @@ fn mixed_shelf(platforms: &[Platform]) -> Shelf {
                 code: String::new(),
                 shell: None,
                 title: format!("MIXED {i}"),
+                sealed: false,
             })
             .collect(),
     );
@@ -1276,4 +1286,42 @@ fn only_a_starred_cart_wears_the_star_in_its_label_top_right_corner() {
         top >= ly && top < ly + 16.0,
         "star top {top}, label top {ly}"
     );
+}
+
+#[test]
+fn a_newly_sealed_cart_glints_once_over_its_seal() {
+    let glint: Vec<TexId> = (0..slot_ui::GLINT_FRAMES)
+        .map(|i| TexId::from_raw(100 + i))
+        .collect();
+    let mut s = shelf_with(3);
+    s.set_glint(glint.clone());
+    s.select(1);
+    settle(&mut s);
+    let glints = |s: &Shelf| {
+        let mut out = Vec::new();
+        s.draw_row(Canvas::FRAMED, None, 0.0, 0.0, 1.0, &mut out);
+        out.iter()
+            .filter_map(|d| match *d {
+                Draw::Tex {
+                    x, y, w, h, tex, ..
+                } if glint.contains(&tex) => Some((x, y, w, h)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert!(glints(&s).is_empty());
+    s.glint(1, true);
+    s.fade_glints(0.2);
+    let drawn = glints(&s);
+    assert_eq!(drawn.len(), 1, "{drawn:?}");
+    let (x, y, w, h) = drawn[0];
+    let x0 = 360.0 - CART_W as f32 / 2.0;
+    let y0 = rest_y(CART_H as f32);
+    let (corner_x, corner_y) = (x0 + LABEL_X as f32, y0 + (LABEL_Y + LABEL_H) as f32);
+    assert!(
+        x < corner_x && x + w > corner_x && y < corner_y && y + h > corner_y,
+        "glint {drawn:?} does not cover the label's bottom-left corner ({corner_x}, {corner_y})"
+    );
+    s.fade_glints(0.4);
+    assert!(glints(&s).is_empty(), "the glint plays once");
 }

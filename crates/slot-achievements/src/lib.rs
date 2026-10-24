@@ -4,6 +4,7 @@ mod badges;
 mod core;
 mod library;
 mod network;
+mod ready;
 mod runtime;
 mod storage;
 #[cfg(test)]
@@ -16,6 +17,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use badges::{load_badge, BadgeImage};
+pub use ready::Readiness;
 use slot_retro::{AchievementMemory, RetroCore};
 use storage::{Config, Store, Unlock};
 
@@ -41,6 +43,8 @@ struct Status {
     // Zero means unknown; otherwise percent + 1, keeping Default valid.
     progress: AtomicU8,
     pending: AtomicBool,
+    // Bumped after each game cache write, so the shelf knows when to look again.
+    cached: AtomicU64,
     // Shared only by the evaluator and HTTP workers, never gameplay/UI.
     presence: Mutex<Option<(u64, String)>>,
 }
@@ -176,6 +180,11 @@ impl Service {
 
     pub fn sync_pending(&self) -> bool {
         self.status.pending.load(Ordering::Acquire) || self.status.unsaved.load(Ordering::Acquire)
+    }
+
+    /// Changes whenever a game's achievement cache is written. See [`Readiness`].
+    pub fn cache_generation(&self) -> u64 {
+        self.status.cached.load(Ordering::Acquire)
     }
 
     pub fn sync_status(&self) -> SyncStatus {
@@ -325,6 +334,8 @@ fn run(
                     let dir = store.lock().unwrap().dir.clone();
                     if storage::read::<storage::Auth>(&dir.join("auth.json")).is_ok() {
                         if let Ok(hash) = library::hash(&dir, &load.path) {
+                            // This may have indexed a renamed ROM; the shelf can seal it.
+                            status.cached.fetch_add(1, Ordering::AcqRel);
                             if let Ok((game, unlocked)) =
                                 storage::read::<(storage::Game, std::collections::BTreeSet<u32>)>(
                                     &dir.join(format!("{hash}.json")),

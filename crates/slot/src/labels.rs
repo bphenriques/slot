@@ -172,6 +172,7 @@ mod tests {
             title: "".into(),
             code: "".into(),
             shell: None,
+            sealed: false,
         };
         let (_stop, stopped) = mpsc::channel();
         let (out, _ready) = mpsc::sync_channel(1);
@@ -204,6 +205,7 @@ mod tests {
             title: "".into(),
             code: "".into(),
             shell: None,
+            sealed: false,
         };
         for terminal in [false, true] {
             let (_stop, stopped) = mpsc::channel();
@@ -244,6 +246,7 @@ mod tests {
             title: "".into(),
             code: "".into(),
             shell: None,
+            sealed: false,
         };
         let (stop, stopped) = mpsc::channel();
         let (out, _ready) = mpsc::sync_channel(1);
@@ -274,6 +277,7 @@ mod tests {
             title: "".into(),
             code: "".into(),
             shell: None,
+            sealed: false,
         };
         let mut existing = cart.clone();
         existing.label = Some(dir.path().join("Custom.png"));
@@ -310,6 +314,7 @@ mod tests {
                     title: "".into(),
                     code: "".into(),
                     shell: None,
+                    sealed: false,
                 }
             })
             .collect();

@@ -857,3 +857,183 @@ fn artwork_identity_follows_rom_bytes_instead_of_its_filename() {
     std::fs::write(&moved, b"different rom bytes").unwrap();
     assert!(artwork_title(root.path(), &moved).is_none());
 }
+
+#[test]
+fn a_rom_is_ready_offline_once_the_library_worker_caches_it() {
+    let root = configured();
+    let rom = root.path().join("Games/GBA/Prepared.gba");
+    std::fs::write(&rom, b"prepared ROM").unwrap();
+    let mut readiness = Readiness::default();
+    assert!(readiness.scan(root.path()).is_empty());
+    let (calls, _) = mpsc::channel();
+    let service = Service::start_with(root.path().into(), Server { calls });
+    wait_for(|| service.cache_generation() > 0);
+    wait_for(|| readiness.scan(root.path()).contains(&rom));
+}
+
+#[test]
+fn readiness_needs_a_matching_dump_with_core_achievements() {
+    let root = configured();
+    let store = Store::open(root.path(), "Player").unwrap();
+    let cache = |rom: &Path, game: Game| {
+        let hash = library::hash(&store.dir, rom).unwrap();
+        storage::write(
+            &store.dir.join(format!("{hash}.json")),
+            &(game, std::collections::BTreeSet::<u32>::new()),
+        )
+        .unwrap();
+    };
+    let rom = |name: &str| {
+        let path = root.path().join("Games/GBA").join(name);
+        std::fs::write(&path, name).unwrap();
+        path
+    };
+    let known = rom("Known.gba");
+    cache(&known, game());
+    let unknown = rom("Unknown.gba");
+    cache(
+        &unknown,
+        Game {
+            id: 0,
+            achievements: vec![],
+            ..game()
+        },
+    );
+    let unofficial = rom("Unofficial.gba");
+    let mut draft = game();
+    draft.achievements[0].flags = 5;
+    cache(&unofficial, draft);
+    rom("Unchecked.gba");
+    let mut readiness = Readiness::default();
+    assert_eq!(
+        readiness.scan(root.path()),
+        std::collections::HashSet::from([known.clone()])
+    );
+    // Another dump under the same name has a different hash, and nothing cached for it yet.
+    std::fs::write(&known, b"a different dump of the same game").unwrap();
+    assert!(readiness.scan(root.path()).is_empty());
+    std::fs::write(
+        root.path().join("Config/retroachievements.toml"),
+        "enabled = false\nusername = 'Player'\n",
+    )
+    .unwrap();
+    cache(&known, game());
+    assert!(readiness.scan(root.path()).is_empty());
+}
+
+#[test]
+fn a_renamed_rom_is_ready_again_once_it_is_loaded_offline() {
+    let root = configured();
+    let old = root.path().join("Games/GBA/Old name.gba");
+    std::fs::write(&old, b"renamed ROM").unwrap();
+    let store = Store::open(root.path(), "Player").unwrap();
+    let hash = library::hash(&store.dir, &old).unwrap();
+    storage::write(
+        &store.dir.join(format!("{hash}.json")),
+        &(game(), std::collections::BTreeSet::<u32>::new()),
+    )
+    .unwrap();
+    let new = root.path().join("Games/GBA/New name.gba");
+    std::fs::rename(&old, &new).unwrap();
+    let mut readiness = Readiness::default();
+    assert!(readiness.scan(root.path()).is_empty());
+    let service = Service::start_with(root.path().into(), Offline);
+    let before = service.cache_generation();
+    let mut core = service.wrap(Box::<TestCore>::default());
+    core.load(&new).unwrap();
+    wait_for(|| service.cache_generation() != before);
+    assert!(readiness.scan(root.path()).contains(&new));
+}
+
+#[test]
+fn a_verdict_is_not_carried_over_to_another_account() {
+    let root = configured();
+    let rom = root.path().join("Games/GBA/Shared.gba");
+    std::fs::write(&rom, b"shared ROM").unwrap();
+    let cache = |user: &str, game: Game| {
+        let store = Store::open(root.path(), user).unwrap();
+        let hash = library::hash(&store.dir, &rom).unwrap();
+        let path = store.dir.join(format!("{hash}.json"));
+        storage::write(&path, &(game, std::collections::BTreeSet::<u32>::new())).unwrap();
+        path
+    };
+    let first = cache("Player", game());
+    let second = cache(
+        "Other",
+        Game {
+            id: 0,
+            achievements: vec![],
+            ..game()
+        },
+    );
+    // Same timestamp on both caches, as a restored backup might have.
+    let when = std::fs::metadata(&first).unwrap().modified().unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&second)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+    let mut readiness = Readiness::default();
+    assert!(readiness.scan(root.path()).contains(&rom));
+    std::fs::write(
+        root.path().join("Config/retroachievements.toml"),
+        "enabled = true\nusername = 'Other'\ntoken = 'fixture-token'\n",
+    )
+    .unwrap();
+    assert!(readiness.scan(root.path()).is_empty());
+}
+
+#[test]
+fn indexing_a_renamed_rom_is_announced_while_https_is_stalled() {
+    struct Stalled {
+        entered: mpsc::Sender<()>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+    impl network::Transport for Stalled {
+        fn call(&mut self, _: &[(&str, String)]) -> Result<Value, network::Failure> {
+            let _ = self.entered.send(());
+            let _ = self.release.lock().unwrap().recv();
+            Err(network::Failure::Network)
+        }
+    }
+    let root = configured();
+    let old = root.path().join("Games/GBA/Old name.gba");
+    std::fs::write(&old, b"renamed while stalled").unwrap();
+    let store = Store::open(root.path(), "Player").unwrap();
+    let hash = library::hash(&store.dir, &old).unwrap();
+    storage::write(
+        &store.dir.join("auth.json"),
+        &Auth {
+            username: "Player".into(),
+            token: "fixture-token".into(),
+        },
+    )
+    .unwrap();
+    storage::write(
+        &store.dir.join(format!("{hash}.json")),
+        &(game(), std::collections::BTreeSet::<u32>::new()),
+    )
+    .unwrap();
+    let new = root.path().join("Games/GBA/New name.gba");
+    std::fs::rename(&old, &new).unwrap();
+    let (release, stalled) = mpsc::channel();
+    let (entered, stuck) = mpsc::channel();
+    let service = Service::start_with(
+        root.path().into(),
+        Stalled {
+            entered,
+            release: Mutex::new(stalled),
+        },
+    );
+    // HTTPS is now stuck logging in, so it cannot see the load below.
+    stuck.recv_timeout(Duration::from_secs(5)).unwrap();
+    let before = service.cache_generation();
+    let mut core = service.wrap(Box::<TestCore>::default());
+    core.load(&new).unwrap();
+    // Ejected before HTTPS wakes up: only the evaluator ever sees this load.
+    drop(core);
+    wait_for(|| service.cache_generation() != before);
+    assert!(Readiness::default().scan(root.path()).contains(&new));
+    drop(release);
+}

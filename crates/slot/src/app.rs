@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -1490,6 +1490,37 @@ impl App {
         }
     }
 
+    pub fn set_glint_faces(&mut self, frames: Vec<TexId>) {
+        for (_, shelf) in &mut self.shelves {
+            shelf.set_glint(frames.clone());
+        }
+    }
+
+    /// Seal the carts in `ready` and unseal the rest. A changed cart's face is rebuilt, and with
+    /// `glint` a cart sealed in view catches the light. Returns the stems that changed.
+    pub fn seal(&mut self, ready: &HashSet<PathBuf>, glint: bool) -> Vec<String> {
+        let glint = glint && self.on_shelf();
+        let mut changed = Vec::new();
+        for (at, (_, shelf)) in self.shelves.iter_mut().enumerate() {
+            let seen = if glint && at == self.shelf_at {
+                shelf.on_screen()
+            } else {
+                Vec::new()
+            };
+            for i in 0..shelf.carts.len() {
+                let sealed = ready.contains(&shelf.carts[i].rom);
+                if shelf.carts[i].sealed == sealed {
+                    continue;
+                }
+                shelf.carts[i].sealed = sealed;
+                self.orphaned.extend(shelf.take_face(i));
+                shelf.glint(i, sealed && seen.contains(&i));
+                changed.push(shelf.carts[i].stem.clone());
+            }
+        }
+        changed
+    }
+
     fn mark_stars(&mut self) {
         let state = &self.state;
         for (_, shelf) in &mut self.shelves {
@@ -1662,7 +1693,10 @@ impl App {
                 continue;
             };
             shelf.carts[index].label = Some(label.clone());
-            if let Some(face) = shelf.face(index) {
+            // The labels worker drew its face without the seal; rebuild a sealed one instead.
+            if shelf.carts[index].sealed {
+                self.orphaned.extend(shelf.take_face(index));
+            } else if let Some(face) = shelf.face(index) {
                 faces.push(face);
             }
         }
@@ -3311,6 +3345,9 @@ impl App {
 
     pub fn update(&mut self, dt: f32) {
         self.clock += dt as f64 * 1000.0;
+        for (_, shelf) in &mut self.shelves {
+            shelf.fade_glints(dt);
+        }
         if self.name_pending && self.shelf_platform.face.is_some() {
             self.name_pending = false;
             self.shelf_named = Some(self.now());
@@ -6162,5 +6199,47 @@ mod network_time_tests {
         assert_eq!(ring.list().unwrap()[0].stamp, stamp);
         assert_eq!(ring.read(&stamp).unwrap().0, b"latest");
         assert_eq!(ring.list().unwrap().len(), RING_MAX);
+    }
+}
+
+#[cfg(test)]
+mod seal_tests {
+    use super::*;
+
+    #[test]
+    fn a_cart_sealed_out_of_sight_has_no_glint_when_you_reach_it() {
+        let carts = (0..40)
+            .map(|i| Cart {
+                platform: Platform::Gba,
+                stem: format!("G{i:04}"),
+                rom: format!("/x/G{i:04}.gba").into(),
+                label: None,
+                title: String::new(),
+                code: String::new(),
+                shell: None,
+                sealed: false,
+            })
+            .collect();
+        let mut app = App::new(carts);
+        let frames: Vec<TexId> = (0..slot_ui::GLINT_FRAMES)
+            .map(|i| TexId::from_raw(100 + i))
+            .collect();
+        app.set_glint_faces(frames.clone());
+        let glints = |app: &App| {
+            let mut out = Vec::new();
+            app.draw(&mut out);
+            out.iter()
+                .filter(|d| matches!(d, Draw::Tex { tex, .. } if frames.contains(tex)))
+                .count()
+        };
+        app.seal(&HashSet::from(["/x/G0020.gba".into()]), true);
+        // Straight there, with no time passing, so a glint would still be playing.
+        app.shelf_mut().select(20);
+        assert_eq!(glints(&app), 0);
+        app.seal(
+            &HashSet::from(["/x/G0020.gba".into(), "/x/G0021.gba".into()]),
+            true,
+        );
+        assert_eq!(glints(&app), 1, "a cart sealed in view does glint");
     }
 }
