@@ -113,15 +113,21 @@ fn the_rows_run_in_the_order_the_user_chose() {
     );
     assert_eq!(
         QuickRow::SCREEN_GBA.map(QuickRow::label),
-        ["Shader", "Color Correction", "Bezel"]
+        ["Shader", "Color Correction", "LCD Ghosting", "Bezel"]
     );
     assert_eq!(
         QuickRow::SCREEN_GBC.map(QuickRow::label),
-        ["Shader", "Color Correction", "Bezel"]
+        ["Shader", "Color Correction", "LCD Ghosting", "Bezel"]
     );
     assert_eq!(
         QuickRow::SCREEN_GB.map(QuickRow::label),
-        ["Shader", "Color Correction", "Palette", "Bezel"]
+        [
+            "Shader",
+            "Color Correction",
+            "LCD Ghosting",
+            "Palette",
+            "Bezel"
+        ]
     );
     assert_eq!(
         QuickRow::GAME.map(QuickRow::label),
@@ -361,6 +367,7 @@ fn the_in_game_pages_hold_their_rows_in_order() {
             QuickRow::Bezel,
             QuickRow::Palette,
             QuickRow::ColourCorrection,
+            QuickRow::Ghosting,
             QuickRow::PlayBrightness,
             QuickRow::PlayBlueLight
         ]
@@ -405,6 +412,7 @@ fn in_game_rows_read_as_the_menu_shows_them() {
         (QuickRow::PlayGameplay, "Gameplay"),
         (QuickRow::Shader, "Shader"),
         (QuickRow::ColourCorrection, "Color Correction"),
+        (QuickRow::Ghosting, "LCD Ghosting"),
         (QuickRow::Palette, "Palette"),
         (QuickRow::PlayBrightness, "Brightness"),
         (QuickRow::PlayBlueLight, "Blue Light"),
@@ -424,13 +432,14 @@ fn in_game_rows_read_as_the_menu_shows_them() {
 }
 
 #[test]
-fn a_hidden_palette_and_bezel_leave_four_screen_rows() {
+fn a_hidden_palette_and_bezel_leave_five_screen_rows() {
     let hidden = [QuickRow::Palette, QuickRow::Bezel];
     assert_eq!(
         QuickRow::Shader.shown(&hidden),
         vec![
             QuickRow::Shader,
             QuickRow::ColourCorrection,
+            QuickRow::Ghosting,
             QuickRow::PlayBrightness,
             QuickRow::PlayBlueLight
         ]
@@ -446,33 +455,34 @@ fn the_in_game_screen_panel_shows_three_rows_and_scrolls_the_rest() {
         slot_ui::quick_window(QuickRow::ColourCorrection, &[]),
         (2, 3)
     );
-    assert_eq!(slot_ui::quick_window(QuickRow::PlayBlueLight, &[]), (3, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::Ghosting, &[]), (3, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::PlayBlueLight, &[]), (4, 3));
     let hidden = [QuickRow::Palette, QuickRow::Bezel];
     assert_eq!(
         slot_ui::quick_window(QuickRow::PlayBlueLight, &hidden),
-        (1, 3)
+        (2, 3)
     );
 }
 
 #[test]
 fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
-    let top = slot_ui::quick_scroll(QuickRow::Shader, &[]).expect("six rows in three");
+    let top = slot_ui::quick_scroll(QuickRow::Shader, &[]).expect("seven rows in three");
     assert!(
         (top.thumb_y - top.y).abs() < 0.5,
         "the thumb is not at the top"
     );
     assert!(
-        (top.thumb_h - top.h / 6.0).abs() < 0.5,
-        "the thumb is not one row of six"
+        (top.thumb_h - top.h / 7.0).abs() < 0.5,
+        "the thumb is not one row of seven"
     );
-    let end = slot_ui::quick_scroll(QuickRow::PlayBlueLight, &[]).expect("six rows in three");
+    let end = slot_ui::quick_scroll(QuickRow::PlayBlueLight, &[]).expect("seven rows in three");
     assert!(
         (end.thumb_y + end.thumb_h - (end.y + end.h)).abs() < 0.5,
         "the thumb is not at the bottom"
     );
     assert!(
         slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
-        "four rows in three still scroll"
+        "five rows in three still scroll"
     );
     assert_eq!(slot_ui::quick_scroll(QuickRow::Rumble, &[]), None);
     assert!(slot_ui::quick_scroll(QuickRow::GameUp, &[]).is_some());

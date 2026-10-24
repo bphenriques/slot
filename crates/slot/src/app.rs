@@ -389,6 +389,7 @@ pub struct App {
     snapshot: Option<Box<dyn Snapshot>>,
     core: Core,
     colour_pending: Option<bool>,
+    ghosting_pending: Option<bool>,
     palette_live: bool,
     palette_pending: Option<GbColors>,
     link_player: Option<u8>,
@@ -600,6 +601,7 @@ impl App {
             snapshot: None,
             core: Core::default(),
             colour_pending: None,
+            ghosting_pending: None,
             palette_live: false,
             palette_pending: None,
             link_player: None,
@@ -1117,6 +1119,9 @@ impl App {
             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+            (QuickRow::Ghosting, Platform::Gba) => QuickRow::GbaGhosting,
+            (QuickRow::Ghosting, Platform::Gb) => QuickRow::GbGhosting,
+            (QuickRow::Ghosting, Platform::Gbc) => QuickRow::GbcGhosting,
             (QuickRow::Bezel, Platform::Gba) => QuickRow::GbaBezel,
             (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
             (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
@@ -1130,6 +1135,7 @@ impl App {
         match row {
             QuickRow::Shader
             | QuickRow::ColourCorrection
+            | QuickRow::Ghosting
             | QuickRow::PlayBrightness
             | QuickRow::PlayBlueLight => self.quick_value(self.playing_row(row)),
             QuickRow::Brightness => Some(QuickValue::level(self.state.brightness)),
@@ -1147,6 +1153,9 @@ impl App {
             QuickRow::GbcColourCorrection => {
                 Some(QuickValue::flag(self.state.colour_correction_gbc))
             }
+            QuickRow::GbaGhosting => Some(QuickValue::flag(self.state.ghosting_gba)),
+            QuickRow::GbGhosting => Some(QuickValue::flag(self.state.ghosting_gb)),
+            QuickRow::GbcGhosting => Some(QuickValue::flag(self.state.ghosting_gbc)),
             QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
             QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
             QuickRow::GbcShader => Some(shader_value(self.state.shader_gbc)),
@@ -2333,6 +2342,18 @@ impl App {
         }
     }
 
+    pub fn ghosting(&self) -> bool {
+        self.ghosting_for(self.playing_platform())
+    }
+
+    pub fn ghosting_for(&self, platform: Platform) -> bool {
+        match platform {
+            Platform::Gba => self.state.ghosting_gba,
+            Platform::Gb => self.state.ghosting_gb,
+            Platform::Gbc => self.state.ghosting_gbc,
+        }
+    }
+
     pub fn light(&self) -> bool {
         self.state.appearance.light()
     }
@@ -2433,6 +2454,10 @@ impl App {
 
     pub fn take_colour_correction(&mut self) -> Option<bool> {
         self.colour_pending.take()
+    }
+
+    pub fn take_ghosting(&mut self) -> Option<bool> {
+        self.ghosting_pending.take()
     }
 
     pub fn gb_colors(&self) -> GbColors {
@@ -2849,6 +2874,9 @@ impl App {
             | QuickRow::GbaColourCorrection
             | QuickRow::GbColourCorrection
             | QuickRow::GbcColourCorrection
+            | QuickRow::GbaGhosting
+            | QuickRow::GbGhosting
+            | QuickRow::GbcGhosting
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbcShader
@@ -2872,6 +2900,7 @@ impl App {
             | QuickRow::PlayGameplay
             | QuickRow::Shader
             | QuickRow::ColourCorrection
+            | QuickRow::Ghosting
             | QuickRow::Palette
             | QuickRow::GbBezel
             | QuickRow::GbcBezel
@@ -3005,6 +3034,18 @@ impl App {
                 s.colour_correction_gbc = !s.colour_correction_gbc;
                 self.colour_pending = Some(self.colour_correction());
             }
+            QuickRow::GbaGhosting => {
+                s.ghosting_gba = !s.ghosting_gba;
+                self.ghosting_pending = Some(self.ghosting());
+            }
+            QuickRow::GbGhosting => {
+                s.ghosting_gb = !s.ghosting_gb;
+                self.ghosting_pending = Some(self.ghosting());
+            }
+            QuickRow::GbcGhosting => {
+                s.ghosting_gbc = !s.ghosting_gbc;
+                self.ghosting_pending = Some(self.ghosting());
+            }
             QuickRow::GbaShader => {
                 let to = s.shader_gba.step(&Shader::GBA, right);
                 if to == s.shader_gba {
@@ -3061,6 +3102,7 @@ impl App {
             | QuickRow::PlayGameplay
             | QuickRow::Shader
             | QuickRow::ColourCorrection
+            | QuickRow::Ghosting
             | QuickRow::Palette
             | QuickRow::GbPalette
             | QuickRow::ScreenGba
