@@ -33,8 +33,8 @@ notes are in the [changelog](CHANGELOG.md).
 - **Better battery life and less heat.** slot switches the CPU to the `schedutil` governor, so
   the clock follows the game's load. Measured on an RG SP: Game Boy and Game Boy Color games run
   at about 600 MHz, and GBA at 550–1,000 MHz, out of a 1,512 MHz maximum.
-- **LCD ghosting / interframe blending** is enabled by default. It's subtle. Turn it off per
-  console in Settings > Screen, or in-game under Settings > Screen.
+- **LCD ghosting / interframe blending** is enabled by default. Toggle **LCD Ghosting** per
+  console in Settings > Screen, or in-game under Settings > Screen. Changes take effect immediately.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
   has this!
@@ -52,6 +52,7 @@ notes are in the [changelog](CHANGELOG.md).
   will be cached if Wi-Fi is on, so once the sync is done, you can go out and play without
   losing your achievements. They'll sync automatically when you're back home. When you're
   playing at home with Wi-Fi on, your achievements will sync in real time with rich presence.
+  A holographic trophy seal on a cart's label shows it's ready to earn achievements offline.
 - **Linking over home Wi-Fi.** When at home and connected to Wi-Fi, two handhelds can link
   using that instead of having to create ad hoc networks. Outside of home, you can continue
   using slot's normal method. This works seamlessly, no config needed.
@@ -67,7 +68,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.9.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.9.0-pvaibhav.1).
+The current release is [v1.9.0-pvaibhav.2](https://github.com/pvaibhav/slot/releases/tag/v1.9.0-pvaibhav.2).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---

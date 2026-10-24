@@ -1,12 +1,11 @@
-# v1.9.0-pvaibhav.1
+# v1.9.0-pvaibhav.2
 
-- Updated to [slot v1.9.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.9.0), with safer saves and better recovery from crashes, stalled cores, and damaged cards.
-- Saves are synced to the SD card right away. Game saves update every minute, and automatic resume states every five minutes.
-- Adds screenshots with a gallery, zoom, and multi-select, plus **Undo Save** and **Undo Load** in the in-game menu.
-- Adds custom GBA bezels on 640×480 devices and fixes label caching that could stall at startup.
-- Keeps this fork's automatic 120 Hz, panel calibration, battery improvements, home Wi-Fi and linking, automatic labels, and offline RetroAchievements.
+- Carts with cached RetroAchievements now wear a holographic trophy seal on their labels, so you can see which games can earn achievements offline. The seal stays visible through the core picker and insertion, and glints once when a cart becomes ready on screen.
+- Adds an **LCD Ghosting** control for GBA, Game Boy, and Game Boy Color under **Settings > Screen**, including the in-game menu. Each console keeps its own setting. Ghosting defaults on, and changes take effect in the running game.
 
-Unzip `slot-v1.9.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.9.0-pvaibhav.1/` onto SD2. Your saves and settings are preserved.
+![A holographic trophy seal on the bottom-left corner of a cartridge label on the RG SP.](https://raw.githubusercontent.com/pvaibhav/slot/v1.9.0-pvaibhav.2/.github/resources/screenshots/achievement-seal.png)
+
+Unzip `slot-v1.9.0-pvaibhav.2-h700.zip`, then copy the contents of `slot-v1.9.0-pvaibhav.2/` onto SD2. Your saves and settings are preserved.
 
 For labels without Wi-Fi, copy `Artwork.pack` below into `Labels/` on your SD card. The pack is unchanged from the previous release. Existing labels are kept.
 
