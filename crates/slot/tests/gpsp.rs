@@ -52,6 +52,7 @@ fn gpsp_gets_serial_and_display_defaults_before_load() {
         "auto",
         false,
         false,
+        true,
         None,
     );
     assert_eq!(core.option("gpsp_frame_mixing").as_deref(), Some("enabled"));
@@ -79,6 +80,7 @@ fn gpsp_is_told_the_serial_mode_it_is_handed() {
             serial,
             false,
             false,
+            true,
             None,
         );
         assert_eq!(
@@ -105,6 +107,7 @@ fn gpsp_boots_through_the_bios_when_the_card_carries_one() {
         "auto",
         true,
         false,
+        true,
         None,
     );
     assert_eq!(
@@ -141,6 +144,7 @@ fn gpsp_is_left_on_its_own_boot_default_when_the_card_has_no_bios() {
         "auto",
         false,
         false,
+        true,
         None,
     );
     assert_eq!(
@@ -167,6 +171,7 @@ fn mgba_is_given_its_own_frameskip_and_none_of_gpsps() {
         "rfu",
         true,
         false,
+        true,
         None,
     );
     assert_eq!(
@@ -216,6 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
                 "auto",
                 false,
                 colour,
+                true,
                 None,
             );
             assert_eq!(
@@ -254,6 +260,7 @@ fn gpsp_is_put_on_auto_frameskip() {
         "auto",
         false,
         false,
+        true,
         None,
     );
     assert_eq!(
@@ -411,23 +418,22 @@ fn the_splash_plays_on_a_fresh_start_and_never_over_a_resume() {
 /// Render changing pixels through the real cores: reading the option map alone cannot
 /// catch a misspelled option that the core ignores or a build without display filters.
 #[test]
-fn lcd_blending_changes_the_rendered_frames_with_colour_correction_off() {
+fn lcd_ghosting_changes_the_rendered_frames_with_colour_correction_off() {
     use slot_retro::{ButtonMask, LibretroCore, RetroCore};
 
     let _g = common::core_lock();
     let d = tempfile::tempdir().unwrap();
     let rom = d.path().join("display.gba");
     std::fs::write(&rom, common::gba_rom()).unwrap();
-    for (which, blending, off) in [
-        (Core::Mgba, "mgba_interframe_blending", "OFF"),
-        (Core::Gpsp, "gpsp_frame_mixing", "disabled"),
-    ] {
+    // The display ROM changes its picture at frame 32, which is what shows the ghosting.
+    const SWITCH: usize = 16;
+    for which in [Core::Mgba, Core::Gpsp] {
         let path = dylib_for(which);
         if !path.exists() {
             eprintln!("no {which:?} dylib on this host, skipping");
             continue;
         }
-        let render = |disabled: bool| {
+        let render = |ghosting: bool, switch_to: Option<bool>| {
             let mut core = LibretroCore::open(&path).expect("open core");
             slot::core::apply_core_options(
                 &mut core,
@@ -436,21 +442,36 @@ fn lcd_blending_changes_the_rendered_frames_with_colour_correction_off() {
                 "auto",
                 false,
                 false,
+                ghosting,
                 None,
             );
-            if disabled {
-                core.set_option(blending, off);
-            }
             core.load(&rom).expect("load display ROM");
             let mut pixels = Vec::new();
-            for _ in 0..64 {
+            for frame in 0..64 {
+                if let (SWITCH, Some(on)) = (frame, switch_to) {
+                    let (key, value) = slot::core::ghosting_option(which, on);
+                    core.set_option(key, value);
+                }
                 core.run_frame(ButtonMask::default());
                 pixels.extend_from_slice(&core.video_xrgb8888()[..4]);
             }
             pixels
         };
-        let defaults = render(false);
-        assert_ne!(defaults, render(true), "{which:?} blending had no effect");
+        let on = render(true, None);
+        let off = render(false, None);
+        assert_ne!(on, off, "{which:?} ghosting had no effect");
+        let switched = render(true, Some(false));
+        let after = (SWITCH + 1) * 4;
+        assert_eq!(
+            switched[after..],
+            off[after..],
+            "{which:?} kept ghosting after it was switched off mid-game"
+        );
+        assert_ne!(
+            switched[after..],
+            on[after..],
+            "{which:?} ignored ghosting being switched off mid-game"
+        );
     }
 }
 
@@ -488,7 +509,7 @@ fn a_gpsp_carts_resume_is_read_from_its_own_core_directory_through_the_session()
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
-    s.app_mut().tick_ms(60_000);
+    s.app_mut().tick_ms(300_000);
     s.app_mut().settle_saves();
 
     let state = persist::read_resume(d.path(), Platform::Gba, Core::Gpsp, "Emerald")
@@ -539,7 +560,7 @@ fn a_gpsp_cart_runs_the_dylib_planted_under_its_own_name_through_the_session() {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
-    s.app_mut().tick_ms(60_000);
+    s.app_mut().tick_ms(300_000);
     s.app_mut().settle_saves();
 
     let state = persist::read_resume(d.path(), Platform::Gba, Core::Gpsp, "Emerald")
@@ -580,7 +601,7 @@ fn changing_the_ini_mid_session_does_not_move_a_seated_carts_autosave() {
 
     std::fs::remove_file(d.path().join(SELECTED_CORE_FILE)).unwrap();
 
-    s.app_mut().tick_ms(60_000);
+    s.app_mut().tick_ms(300_000);
     s.app_mut().settle_saves();
 
     assert!(
@@ -716,6 +737,7 @@ fn open_core_reaches_a_gpsp_named_dylib_under_the_content_roots_system_directory
         Platform::Gba,
         "auto",
         false,
+        true,
         None,
         None,
     )
@@ -823,7 +845,16 @@ fn keeps_time_while_off(which: Core) {
     let _g = common::core_lock();
     let boot = |state: Option<&[u8]>| {
         let mut core = slot_retro::LibretroCore::open(&path).expect("open the core");
-        slot::core::apply_core_options(&mut core, which, Platform::Gba, "auto", false, false, None);
+        slot::core::apply_core_options(
+            &mut core,
+            which,
+            Platform::Gba,
+            "auto",
+            false,
+            false,
+            true,
+            None,
+        );
         core.load(&rom).expect("load the probe");
         if let Some(s) = state {
             core.unserialize(s).expect("resume");

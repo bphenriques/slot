@@ -58,6 +58,18 @@ pub(crate) fn hash(dir: &Path, path: &Path) -> Result<String, String> {
     Ok(hash)
 }
 
+/// ROMs whose fingerprinted hash still matches the file on the card. Reads only.
+pub(crate) fn indexed(dir: &Path) -> Vec<(PathBuf, String)> {
+    let index: Index = storage::read(&dir.join("library.json")).unwrap_or_default();
+    index
+        .into_iter()
+        .filter(|(path, e)| {
+            e.modified_ns != 0 && fingerprint(path).ok() == Some((e.size, e.modified_ns))
+        })
+        .map(|(path, e)| (path, e.hash))
+        .collect()
+}
+
 pub(crate) fn pending(root: &Path, dir: &Path, now: u64) -> VecDeque<PathBuf> {
     let index: Index = storage::read(&dir.join("library.json")).unwrap_or_default();
     let mut paths: Vec<_> = Platform::ALL

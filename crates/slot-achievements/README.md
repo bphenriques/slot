@@ -60,6 +60,13 @@ Background diagnostics go to slot's log. Cache refresh progress reserves the fir
 for game metadata and the second half for badge downloads; badge-only resumes use
 the full range. Brief login and presence requests have no percentage.
 
+A cart whose ROM is prepared, and has at least one core achievement, wears a holographic
+seal on its label's bottom-left corner. It is part of the cart's face, so it stays on through
+the core picker and the slot. The shelf reads readiness from the library index and the game
+caches on a worker, and looks again each time a cache is written; it never hashes a ROM.
+A replaced ROM loses its seal until it is prepared again. A cart sealed while on screen
+glints once.
+
 Each ROM needs its initial download once. Leave slot running online long enough to prepare
 the library before taking a newly populated card offline. Unknown ROM hashes cannot earn
 achievements; use a ROM version supported by RetroAchievements. Cached games start tracking

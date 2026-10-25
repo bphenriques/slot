@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use slot_gfx::{Compositor, Draw, ScreenEffect, TexId, OUT_H, OUT_W};
 
 const PAPER: &[u8] = include_bytes!("../assets/paper.png");
+use crate::shot_loader::{ShotLoader, Want};
 use slot_input::{InputSource, Millis};
 use slot_power::{Platform, Power};
 use slot_store::{format_stamp, BezelPick, Platform as Console};
@@ -35,6 +36,7 @@ const ALERT_INK: [u8; 3] = [0xf0, 0xb4, 0x3c];
 
 pub struct Frontend {
     labels: crate::labels::Labels,
+    seals: crate::seals::Seals,
     achievements: crate::achievement_ui::Notifications,
     session: Session,
     start: Instant,
@@ -143,6 +145,21 @@ struct ShelfLook {
 struct Switcher {
     open: bool,
     titled: Option<String>,
+    shot: Option<TexId>,
+    loader: Option<ShotLoader>,
+    opened: u64,
+    window: Vec<std::path::PathBuf>,
+    thumbs: std::collections::HashMap<std::path::PathBuf, TexId>,
+    spare: Vec<TexId>,
+    full_wanted: Option<std::path::PathBuf>,
+    full_pending: Option<std::path::PathBuf>,
+    full_asked: Option<std::time::Instant>,
+    first_window: Option<std::time::Instant>,
+    counted: Option<String>,
+    count: Option<TexId>,
+    prompted: Option<(String, &'static str)>,
+    prompt_title: Option<TexId>,
+    prompt_detail: Option<TexId>,
 }
 
 impl Frontend {
@@ -156,6 +173,7 @@ impl Frontend {
         let cart_faces = CartFaces::spawn(root.clone());
         let mut session = Session::boot_with(root.clone(), sink);
         crate::boot_time::mark("session");
+        let seals = crate::seals::Seals::spawn(root.clone());
         let labels = crate::labels::Labels::spawn(root, session.app().carts().cloned().collect());
         let stale_check =
             Self::check_labels(platform.root(), session.app().carts().cloned().collect());
@@ -164,6 +182,7 @@ impl Frontend {
             .set_power(Power::new(platform, DOZE_TIMEOUT));
         Frontend {
             labels,
+            seals,
             achievements: crate::achievement_ui::Notifications::new(),
             session,
             start: now,
@@ -251,6 +270,24 @@ impl Frontend {
         self.session.app_mut().set_alert_face(alert);
         let legend = legend_faces(compositor, &LEGEND);
         self.session.app_mut().set_legend_faces(legend);
+        let shot_hints = slot_ui::SHOT_HINTS
+            .iter()
+            .map(|&(key, label)| {
+                let f = match key == slot_ui::PAN_KEY {
+                    true => slot_ui::pad_hint_face(label),
+                    false => hint_face(key, label),
+                };
+                compositor.create_texture(f.w, f.h, &f.rgba)
+            })
+            .collect();
+        self.session.app_mut().set_shot_hint_faces(shot_hints);
+        let tick = slot_ui::tick_cap_face();
+        let tick = (
+            compositor.create_texture(tick.w, tick.h, &tick.rgba),
+            tick.w,
+            tick.h,
+        );
+        self.session.app_mut().set_shot_tick_face(tick);
         let hint = set_clock_hint_face();
         self.clocks.hint = Some(compositor.create_texture(hint.w, hint.h, &hint.rgba));
         let back = hint_face("B", "Back");
@@ -259,6 +296,11 @@ impl Frontend {
         let star = slot_ui::star_face(slot_ui::STAR_SCALE, slot_ui::STAR_INK);
         let id = compositor.create_texture_nearest(star.w, star.h, &star.rgba);
         self.session.app_mut().set_star_face(id, star.w, star.h);
+        let glint = slot_ui::glint_faces()
+            .iter()
+            .map(|f| compositor.create_texture(f.w, f.h, &f.rgba))
+            .collect();
+        self.session.app_mut().set_glint_faces(glint);
         let shadow = cart_shadow();
         let id = compositor.create_texture(shadow.w, shadow.h, &shadow.rgba);
         self.session.app_mut().set_cart_shadow(id);
@@ -410,6 +452,7 @@ impl Frontend {
         let repair = faces.repair.into_iter().map(&mut up).collect();
         let reset = faces.reset.into_iter().map(&mut up).collect();
         let delete = faces.delete.into_iter().map(&mut up).collect();
+        let delete_shot = faces.delete_shot.into_iter().map(&mut up).collect();
         let labels = faces
             .quick_labels
             .into_iter()
@@ -464,6 +507,7 @@ impl Frontend {
         app.set_repair_faces(repair);
         app.set_reset_faces(reset);
         app.set_delete_faces(delete);
+        app.set_delete_shot_faces(delete_shot);
         app.set_quick_menu_faces(QuickMenuFaces {
             labels,
             pointer,
@@ -574,6 +618,7 @@ impl Frontend {
             crate::latency::taken();
         }
         self.sync_labels(compositor);
+        self.sync_seals();
         self.cart_faces.sync(self.session.app_mut(), compositor);
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_binding_faces(self.session.app_mut(), compositor);
@@ -647,6 +692,9 @@ impl Frontend {
         self.session.app().draw(&mut self.draws);
         self.achievements.draw(&self.session, &mut self.draws);
         compositor.draw_list(&self.draws);
+        if let Some((w, h, rgba)) = compositor.take_capture() {
+            self.session.app_mut().shot_taken(w, h, rgba);
+        }
     }
 
     pub fn drive_emulator(&mut self) {
@@ -678,6 +726,22 @@ impl Frontend {
         {
             self.core_asked = None;
             self.core_built = None;
+        }
+    }
+
+    /// Before the cart faces sync, so a cart sealed on screen is redrawn in the same frame.
+    fn sync_seals(&mut self) {
+        let generation = self.session.achievement_cache_generation();
+        let Some((ready, news)) = self.seals.poll(generation) else {
+            return;
+        };
+        for stem in self.session.app_mut().seal(&ready, news) {
+            if self.core_asked.as_deref() == Some(stem.as_str())
+                || self.core_built.as_deref() == Some(stem.as_str())
+            {
+                self.core_asked = None;
+                self.core_built = None;
+            }
         }
     }
 
@@ -722,9 +786,19 @@ impl Frontend {
     fn draw_rebuild(&mut self, compositor: &mut Compositor) -> bool {
         self.poll_label_check();
         self.poll_ui_faces(compositor);
-        let Some(rebuild) = &self.rebuild else {
+        let Some(rebuild) = &mut self.rebuild else {
             return false;
         };
+        if rebuild.stalled() && !rebuild.finished() {
+            eprintln!(
+                "slot: label cache: no label finished for a while, going on at {} / {}",
+                rebuild.done(),
+                rebuild.total()
+            );
+            self.rebuild = None;
+            self.last = Instant::now();
+            return false;
+        }
         if rebuild.finished() {
             self.rebuild = None;
             self.last = Instant::now();
@@ -765,6 +839,14 @@ impl Frontend {
         let dt = self.last.elapsed().as_secs_f32();
         self.last = Instant::now();
         self.session.update(dt);
+    }
+
+    pub fn gallery_decodes(&self) -> usize {
+        self.switcher.loader.as_ref().map_or(0, ShotLoader::decoded)
+    }
+
+    pub fn gallery_textures(&self) -> usize {
+        self.switcher.thumbs.len() + self.switcher.spare.len()
     }
 
     pub fn app(&self) -> &crate::app::App {
@@ -816,6 +898,7 @@ impl Frontend {
     pub fn stop(&mut self) {
         self.session.app_mut().flush_resume();
         self.session.app_mut().settle_saves();
+        self.session.app_mut().clear_loading_mark();
         let deadline = Instant::now() + Duration::from_secs(2);
         while !self.session.achievement_flush_ready() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
@@ -862,6 +945,7 @@ struct UiFaces {
     repair: Vec<UndoFace>,
     reset: Vec<UndoFace>,
     delete: Vec<UndoFace>,
+    delete_shot: Vec<UndoFace>,
 }
 
 impl UiFaces {
@@ -942,6 +1026,15 @@ impl UiFaces {
                     delete,
                 ]
             },
+            delete_shot: {
+                let [keep, delete] = delete_legends(footer_ink(false));
+                vec![
+                    menu_face("Delete this screenshot?"),
+                    menu_detail_face("It cannot be brought back."),
+                    keep,
+                    delete,
+                ]
+            },
             reset: {
                 let [cancel, reset] = prompt_legends(footer_ink(false), "Cancel", "Reset");
                 vec![
@@ -967,6 +1060,9 @@ struct Faces<'a> {
 
 fn sync_switcher(app: &mut App, compositor: &mut Compositor, texes: Faces, state: &mut Switcher) {
     if !matches!(app.phase(), Phase::Polaroids { .. }) {
+        if state.open {
+            close_gallery(app, state);
+        }
         state.open = false;
         return;
     }
@@ -1001,6 +1097,150 @@ fn sync_switcher(app: &mut App, compositor: &mut Compositor, texes: Faces, state
         let face = title_face(&app.polaroid_title(&format_stamp(app.wall_secs())));
         let id = upload(compositor, texes.title, face);
         app.set_polaroid_title_face(id);
+    }
+    sync_gallery(app, compositor, state);
+}
+
+fn close_gallery(app: &mut App, state: &mut Switcher) {
+    if let Some(loader) = &mut state.loader {
+        loader.cancel();
+    }
+    for (path, id) in state.thumbs.drain() {
+        app.set_shot_thumb(&path, None);
+        state.spare.push(id);
+    }
+    state.window.clear();
+    state.full_wanted = None;
+    state.full_pending = None;
+    state.full_asked = None;
+    state.first_window = None;
+    state.counted = None;
+    state.prompted = None;
+}
+
+fn sync_gallery(app: &mut App, compositor: &mut Compositor, state: &mut Switcher) {
+    if app.shot_viewer().is_none() {
+        if !state.window.is_empty() || !state.thumbs.is_empty() {
+            close_gallery(app, state);
+        }
+        return;
+    }
+    if app.shot_opens() != state.opened {
+        close_gallery(app, state);
+        state.opened = app.shot_opens();
+        state.loader.get_or_insert_with(ShotLoader::spawn).cancel();
+        state.first_window = Some(std::time::Instant::now());
+    }
+    let Some(loader) = &mut state.loader else {
+        return;
+    };
+    let canvas = app.canvas();
+    let Some(v) = app.shot_viewer() else {
+        return;
+    };
+    let count = v.count_text();
+    let has_face = v.has_face();
+    let window: Vec<std::path::PathBuf> = v
+        .thumb_order(canvas)
+        .into_iter()
+        .map(|i| v.entries[i].path.clone())
+        .collect();
+    if window != state.window {
+        let gone: Vec<_> = state
+            .thumbs
+            .keys()
+            .filter(|p| !window.contains(p))
+            .cloned()
+            .collect();
+        for path in gone {
+            if let Some(id) = state.thumbs.remove(&path) {
+                state.spare.push(id);
+            }
+            app.set_shot_thumb(&path, None);
+        }
+        let wanted = window
+            .iter()
+            .filter(|p| !state.thumbs.contains_key(*p))
+            .cloned()
+            .collect();
+        let (cw, ch) = slot_ui::grid_cell(canvas);
+        loader.queue_thumbs(wanted, cw.floor() as u32, ch.floor() as u32);
+        state.window = window;
+    }
+    if state.counted.as_deref() != Some(count.as_str()) {
+        let face = slot_ui::word_face(&count);
+        let id = upload_rgba(compositor, &mut state.count, face.w, face.h, &face.rgba);
+        app.set_shot_count_face(Some((id, face.w)));
+        state.counted = Some(count);
+    }
+    let prompted = app.delete_shot_lines();
+    if prompted != state.prompted {
+        if let Some((title, detail)) = &prompted {
+            let t = menu_face(title);
+            let d = menu_detail_face(detail);
+            let tid = upload_rgba(compositor, &mut state.prompt_title, t.w, t.h, &t.rgba);
+            let did = upload_rgba(compositor, &mut state.prompt_detail, d.w, d.h, &d.rgba);
+            app.set_delete_shot_text((tid, t.w, t.h), (did, d.w, d.h));
+        }
+        state.prompted = prompted;
+    }
+    let want = app.shot_wants_full().map(std::path::Path::to_path_buf);
+    if want != state.full_wanted {
+        state.full_wanted = want.clone();
+        state.full_pending = None;
+    }
+    if let Some(path) = want.filter(|p| !has_face && state.full_pending.as_ref() != Some(p)) {
+        loader.full(path.clone());
+        state.full_pending = Some(path);
+        state.full_asked = Some(std::time::Instant::now());
+    }
+    for l in loader.poll() {
+        match l.want {
+            Want::Thumb
+                if state.window.contains(&l.path) && !state.thumbs.contains_key(&l.path) =>
+            {
+                let id = match state.spare.pop() {
+                    Some(id) => {
+                        compositor.update_texture(id, l.w, l.h, &l.rgba);
+                        id
+                    }
+                    None => compositor.create_texture_nearest(l.w, l.h, &l.rgba),
+                };
+                state.thumbs.insert(l.path.clone(), id);
+                app.set_shot_thumb(&l.path, Some((id, l.w, l.h)));
+                if state.thumbs.len() == state.window.len() {
+                    if let Some(at) = state.first_window.take() {
+                        eprintln!(
+                            "slot: gallery: first {} thumbs in {} ms",
+                            state.thumbs.len(),
+                            at.elapsed().as_millis()
+                        );
+                    }
+                }
+            }
+            Want::Full if state.full_wanted.as_ref() == Some(&l.path) => {
+                let id = match state.shot {
+                    Some(id) => {
+                        compositor.update_texture(id, l.w, l.h, &l.rgba);
+                        id
+                    }
+                    None => {
+                        let id = compositor.create_texture_nearest(l.w, l.h, &l.rgba);
+                        state.shot = Some(id);
+                        id
+                    }
+                };
+                app.set_shot_face(Some((id, l.w, l.h)));
+                state.full_pending = None;
+                if let Some(at) = state.full_asked.take() {
+                    eprintln!(
+                        "slot: gallery: full shot in {} ms",
+                        at.elapsed().as_millis()
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -1237,6 +1477,7 @@ fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace)
         battery,
         serial: &build.serial(),
         version: build.version,
+        model: &crate::baseos::var("BASEOS_MODEL").unwrap_or_default(),
     });
     let id = upload(compositor, &mut state.tex, face);
     app.set_sticker_face(id);

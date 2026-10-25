@@ -432,6 +432,7 @@ mod tests {
                 label: None,
                 code: String::new(),
                 shell: None,
+                sealed: false,
             })
             .collect();
         let faces = carts

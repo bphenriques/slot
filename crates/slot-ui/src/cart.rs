@@ -93,6 +93,21 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
     }
 }
 
+/// Where a cart's seal sits, as fractions of its box, like [`label_rect`].
+pub fn seal_rect(shell: Option<GbShell>) -> (f32, f32, f32, f32) {
+    let s = spec(match shell {
+        None => Shape::Gba,
+        Some(shell) => Shape::Gb(shell),
+    });
+    let (x, y) = crate::seal::seal_origin(s.label);
+    (
+        x as f32 / s.w as f32,
+        y as f32 / s.h as f32,
+        crate::seal::SEAL_W as f32 / s.w as f32,
+        crate::seal::SEAL_H as f32 / s.h as f32,
+    )
+}
+
 pub fn label_rect(shell: Option<GbShell>) -> (f32, f32, f32, f32) {
     let s = spec(match shell {
         None => Shape::Gba,
@@ -261,6 +276,9 @@ pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {
         None => generated_label(&s, &label_text(cart)),
     };
     paste_label(&s, &mut face, &label);
+    if cart.sealed {
+        crate::seal::paste_seal(&mut face, s.label);
+    }
     clip_to_silhouette(&s, &mut face);
     face
 }

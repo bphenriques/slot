@@ -1,8 +1,9 @@
-# v1.8.0-bphenriques.1
+# v1.9.0-bphenriques.1
 
-Based on [pvaibhav's slot v1.8.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.8.0-pvaibhav.1), itself built on [upstream slot 1.8.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.8.0), with a music and audiobook player added, under Music in the quick menu.
+Based on [pvaibhav's slot v1.9.0-pvaibhav.2](https://github.com/pvaibhav/slot/releases/tag/v1.9.0-pvaibhav.2), itself built on [upstream slot 1.9.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.9.0), with a music and audiobook player built in, [mute](https://github.com/bphenriques/mute-player), under Music in the quick menu.
 
-- **From slot 1.8.0:** remappable controls, refreshed menus, game audio at 48 kHz through a filtered resampler, left-stick support, save protection, SD card repair (SELECT + START) and shutdown fixes. Run-ahead has been removed upstream to prevent save corruption.
+- **From pvaibhav's 1.9.0 releases:** screenshots with a gallery, zoom and multi-select; a holographic seal on carts that can earn RetroAchievements offline; and an LCD Ghosting setting for each console under Settings › Screen.
+- **From slot 1.8.1 and 1.9.0:** saves, states and settings reach the card as soon as they are written; Undo Save and Undo Load in the in-game menu; Load State on Insert; your own GBA bezels on 4:3 panels; a core that stops answering no longer freezes slot; MBC2 Game Boy games no longer freeze; and fixes to card repair, label caching and the startup sound. Upstream's changelog has the rest.
 - **Library:** put songs in `Music/` on the card, any layout; or anywhere else, as on the other card (`music_folder` and `books_folder` in `music.txt`); tags win, folders fill gaps. Library has Artists, Albums and Songs, Genres and Years once the tags name them, and Folders as they are on the card; compilations are kept as one album. Playlists (`.m3u` in `Music/Playlists/`), Favorites, Recently Played and Recently Added. Tags are read once and cached, so the library opens at once afterwards.
 - **Playing:** gapless; Crossfade only between albums, so an album played in order stays gapless; Volume Leveling from ReplayGain; an equalizer (Settings › Music) with slot's presets and your own, made on the device, heard as you set them, and renamed or kept in `Config/music-eq.txt`; Mono; and, if you like, a Visualizer: a faint level meter beside the picture, moving with the music. Synced lyrics from `.lrc` files or tags, followed with the lines around fading and the song's progress above, played from any line. The queue says how long it has left; Folders show their albums' pictures. Play Next and Add to Queue as Spotify has them; the queue, its place and its shuffle come back after a restart.
 - **Audiobooks:** from `Audiobooks/`, a folder or an `.m4b` a book. Each keeps its place, speed (0.5× to 2×, the voice at its pitch) and bookmarks; chapters from `.m4b` files, MP3s' chapters or a folder's files; it picks up a little back after a pause, the longer the further; Skip Silence and Volume Boost; the sleep timer stops at the end of a chapter, going back two minutes; In Progress and Finished lists.
@@ -11,7 +12,7 @@ Based on [pvaibhav's slot v1.8.0-pvaibhav.1](https://github.com/pvaibhav/slot/re
 
 This is a preview for feedback. Music is decoded with Symphonia (MPL-2.0), resampled with Rubato, tagged with Lofty, and played at another speed with SoundTouch (LGPL-2.1, built from its sources); Opus is decoded with libopus (BSD-3-Clause, built from its sources).
 
-Unzip, then copy the contents of `slot-v1.8.0-bphenriques.1/` onto SD2. Your saves and settings are preserved. A card from before keeps an unused `System/muse/` and `System/muse.sh`, safe to delete.
+Unzip, then copy the contents of `slot-v1.9.0-bphenriques.1/` onto SD2. Your saves and settings are preserved. A card from before keeps an unused `System/muse/` and `System/muse.sh`, safe to delete.
 
 For labels without Wi-Fi, copy `Artwork.pack` into `Labels/` on your SD card. Cart images in `Artwork.pack` come from the [LaunchBox Games Database](https://gamesdb.launchbox-app.com) and its contributors. Label artwork belongs to each game's publisher. The pack is free for personal use; please don't sell it.
 

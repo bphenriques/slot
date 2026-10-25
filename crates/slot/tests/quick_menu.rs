@@ -254,12 +254,14 @@ fn fast_forward_steps_through_its_speeds_wraps_at_both_ends_and_saves_each_one()
         (Btn::Left, 4),
         (Btn::Left, 3),
         (Btn::Left, 2),
+        (Btn::Left, 0),
         (Btn::Left, 6),
+        (Btn::Right, 0),
         (Btn::Right, 2),
         (Btn::Right, 3),
         (Btn::Right, 4),
         (Btn::Right, 6),
-        (Btn::Right, 2),
+        (Btn::Right, 0),
     ] {
         press(&mut a, btn);
         assert_eq!(a.ff_speed(), want, "{btn:?}");
@@ -413,25 +415,65 @@ fn each_systems_colour_correction_flips_on_either_arrow_and_saves_alone() {
 }
 
 #[test]
-fn the_game_page_flips_eject_save_turbo_and_rewind_and_saves_each() {
+fn each_systems_lcd_ghosting_flips_on_either_arrow_and_saves_alone() {
+    let saved = |d: &TempDir| {
+        let s = read_slot_state(d.path());
+        (s.ghosting_gba, s.ghosting_gb, s.ghosting_gbc)
+    };
+    for row in [
+        QuickRow::GbaGhosting,
+        QuickRow::GbGhosting,
+        QuickRow::GbcGhosting,
+    ] {
+        let (d, mut a, _) = on_carousel();
+        open_at(&mut a, row);
+        assert_eq!(
+            a.quick_value(row),
+            Some(QuickValue::On),
+            "{row:?} did not open on the default, which is on"
+        );
+        for (btn, want) in [
+            (Btn::Right, false),
+            (Btn::Left, true),
+            (Btn::Left, false),
+            (Btn::Right, true),
+        ] {
+            press(&mut a, btn);
+            let all = match row {
+                QuickRow::GbaGhosting => (want, true, true),
+                QuickRow::GbGhosting => (true, want, true),
+                _ => (true, true, want),
+            };
+            assert_eq!(saved(&d), all, "{row:?} {btn:?}");
+            assert_eq!(a.quick_value(row), Some(QuickValue::flag(want)));
+        }
+    }
+}
+
+#[test]
+fn the_game_page_flips_auto_load_eject_save_turbo_and_rewind_and_saves_each() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::Rewind);
     let card = |d: &TempDir| {
         let s = read_slot_state(d.path());
-        (s.eject_save, s.turbo, s.rewind)
+        (s.auto_load, s.eject_save, s.turbo, s.rewind)
     };
-    assert_eq!(card(&d), (true, true, true));
+    assert_eq!(card(&d), (true, true, true, true));
     press(&mut a, Btn::Right);
-    assert_eq!(card(&d), (true, true, false));
+    assert_eq!(card(&d), (true, true, true, false));
     assert!(!a.may_rewind(), "rewind still offered with it off");
     press(&mut a, Btn::Down);
     press(&mut a, Btn::Left);
-    assert_eq!(card(&d), (true, false, false));
+    assert_eq!(card(&d), (true, true, false, false));
     assert!(!a.turbo());
     press(&mut a, Btn::Down);
     press(&mut a, Btn::Down);
+    assert_eq!(a.quick_menu(), Some(QuickRow::AutoLoad));
     press(&mut a, Btn::Right);
-    assert_eq!(card(&d), (false, false, false));
+    assert_eq!(card(&d), (false, true, false, false));
+    press(&mut a, Btn::Down);
+    press(&mut a, Btn::Right);
+    assert_eq!(card(&d), (false, false, false, false));
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::Game));
 }
@@ -462,6 +504,7 @@ fn screen_opens_a_page_of_its_own_and_b_comes_back_to_it() {
     assert_eq!(a.quick_menu(), Some(QuickRow::GbShader));
     for want in [
         QuickRow::GbColourCorrection,
+        QuickRow::GbGhosting,
         QuickRow::GbPalette,
         QuickRow::GbBezel,
         QuickRow::GbShader,
@@ -1076,6 +1119,7 @@ fn the_game_boy_page_steps_the_palette_from_auto() {
         [
             QuickRow::GbShader,
             QuickRow::GbColourCorrection,
+            QuickRow::GbGhosting,
             QuickRow::GbPalette,
             QuickRow::GbBezel,
         ]
@@ -1385,6 +1429,31 @@ fn a_four_by_three_panel_keeps_ags_102_until_another_frame_is_picked() {
     assert_eq!(a.resolved_bezel(Platform::Gbc), BezelPick::Default);
     assert_eq!(read_slot_state(d.path()).bezel_gbc, BezelPick::Default);
     assert_eq!(read_slot_state(d.path()).bezel_gba, BezelPick::Ags102);
+}
+
+#[test]
+fn gba_frames_from_the_card_show_only_on_a_four_by_three_panel() {
+    let (d, mut a, _) = on_carousel();
+    std::fs::write(d.path().join("Bezels/GBA/Classic.png"), b"png").unwrap();
+    assert!(a.bezel_files(Platform::Gba).is_empty());
+    a.set_panel((640, 480));
+    assert_eq!(
+        a.bezel_files(Platform::Gba),
+        vec!["Classic.png".to_string()]
+    );
+    open_at(&mut a, QuickRow::GbaBezel);
+    press(&mut a, Btn::Right);
+    assert_eq!(
+        a.resolved_bezel(Platform::Gba),
+        BezelPick::File("Classic.png".into())
+    );
+    assert!(!a.sp_frame());
+    assert_eq!(
+        read_slot_state(d.path()).bezel_gba,
+        BezelPick::File("Classic.png".into())
+    );
+    a.set_panel((720, 480));
+    assert_eq!(a.resolved_bezel(Platform::Gba), BezelPick::None);
 }
 
 #[test]

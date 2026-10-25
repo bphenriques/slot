@@ -15,8 +15,27 @@ const WORKERS: usize = 2;
 
 type Key = (usize, usize);
 
-/// A cart's face and, for a clear GBA cart, the game-coloured inside it is drawn over.
-type Built = (Key, CartFace, Option<CartFace>);
+/// What a face was drawn from. It is placed only while its cart still matches.
+#[derive(PartialEq)]
+struct Drawn {
+    rom: PathBuf,
+    label: Option<PathBuf>,
+    sealed: bool,
+}
+
+impl Drawn {
+    fn of(cart: &Cart) -> Self {
+        Drawn {
+            rom: cart.rom.clone(),
+            label: cart.label.clone(),
+            sealed: cart.sealed,
+        }
+    }
+}
+
+/// A cart's face, what it was drawn from, and, for a clear GBA cart, the game-coloured inside
+/// it is drawn over.
+type Built = (Key, Drawn, CartFace, Option<CartFace>);
 
 #[derive(Default)]
 struct Queue {
@@ -58,8 +77,8 @@ impl CartFaces {
 
     pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
         self.free.extend(app.shed_faces());
-        while let Ok((key, face, interior)) = self.built.try_recv() {
-            self.place(app, compositor, key, face, interior);
+        while let Ok((key, drawn, face, interior)) = self.built.try_recv() {
+            self.place(app, compositor, key, drawn, face, interior);
         }
         let wants = app.face_wants();
         if wants != self.asked {
@@ -73,11 +92,12 @@ impl CartFaces {
             .map(|w| (w.shelf, w.index))
             .collect();
         while !waiting.is_empty() {
-            let Ok((key, face, interior)) = self.built.recv() else {
+            let Ok((key, drawn, face, interior)) = self.built.recv() else {
                 return;
             };
-            waiting.retain(|k| *k != key);
-            self.place(app, compositor, key, face, interior);
+            if self.place(app, compositor, key, drawn, face, interior) {
+                waiting.retain(|k| *k != key);
+            }
         }
     }
 
@@ -100,6 +120,22 @@ impl CartFaces {
         wake.notify_all();
     }
 
+    /// A label can arrive, or a seal come or go, while a face is drawn. Its cart is then drawn
+    /// again as it is now, first in line, and the key stays pending.
+    fn redraw_if_stale(&mut self, app: &App, key: Key, drawn: &Drawn) -> bool {
+        let Some(cart) = app
+            .face_cart(key.0, key.1)
+            .filter(|c| Drawn::of(c) != *drawn)
+        else {
+            return false;
+        };
+        let (lock, wake) = &*self.queue;
+        let mut queue = lock.lock().unwrap_or_else(|e| e.into_inner());
+        queue.jobs.push_front((key, cart.clone()));
+        wake.notify_all();
+        true
+    }
+
     fn texture(&mut self, compositor: &mut Compositor, face: &CartFace) -> TexId {
         match self.free.pop() {
             Some(tex) => {
@@ -110,14 +146,19 @@ impl CartFaces {
         }
     }
 
+    /// False when the face is out of date, and is dropped. See [`Self::redraw_if_stale`].
     fn place(
         &mut self,
         app: &mut App,
         compositor: &mut Compositor,
         key: Key,
+        drawn: Drawn,
         face: CartFace,
         interior: Option<CartFace>,
-    ) {
+    ) -> bool {
+        if self.redraw_if_stale(app, key, &drawn) {
+            return false;
+        }
         self.pending.remove(&key);
         self.asked.retain(|w| (w.shelf, w.index) != key);
         let tex = self.texture(compositor, &face);
@@ -126,6 +167,7 @@ impl CartFaces {
             let tex = self.texture(compositor, &interior);
             self.free.extend(app.set_cart_interior(key.0, key.1, tex));
         }
+        true
     }
 }
 
@@ -154,8 +196,76 @@ fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) {
         };
         let face = cart_face_with(&cart, label_art(root, &cart));
         let interior = shows_interior(&cart).then(|| cart_interior(&cart));
-        if outbox.send((key, face, interior)).is_err() {
+        if outbox
+            .send((key, Drawn::of(&cart), face, interior))
+            .is_err()
+        {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slot_store::Platform;
+
+    fn cart(stem: &str) -> Cart {
+        Cart {
+            platform: Platform::Gba,
+            stem: stem.into(),
+            rom: format!("/x/{stem}.gba").into(),
+            label: None,
+            title: String::new(),
+            code: String::new(),
+            shell: None,
+            sealed: false,
+        }
+    }
+
+    fn faces(key: Key) -> CartFaces {
+        let (_, built) = mpsc::channel();
+        CartFaces {
+            queue: Arc::default(),
+            built,
+            pending: HashSet::from([key]),
+            asked: Vec::new(),
+            free: Vec::new(),
+        }
+    }
+
+    fn queued(faces: &CartFaces) -> Vec<(Key, Cart)> {
+        faces.queue.0.lock().unwrap().jobs.iter().cloned().collect()
+    }
+
+    #[test]
+    fn a_face_drawn_before_the_cart_was_sealed_is_drawn_again() {
+        let mut app = App::new(vec![cart("Sealed")]);
+        let key = (app.face_wants()[0].shelf, 0);
+        let mut faces = faces(key);
+        let before = Drawn::of(app.face_cart(key.0, key.1).unwrap());
+        app.seal(&HashSet::from([PathBuf::from("/x/Sealed.gba")]), false);
+        assert!(faces.redraw_if_stale(&app, key, &before));
+        let jobs = queued(&faces);
+        assert_eq!(jobs.len(), 1);
+        assert!(jobs[0].1.sealed, "the cart is drawn again as it is now");
+        assert!(faces.pending.contains(&key), "and not asked for twice");
+        let now = Drawn::of(app.face_cart(key.0, key.1).unwrap());
+        assert!(!faces.redraw_if_stale(&app, key, &now));
+    }
+
+    #[test]
+    fn a_face_drawn_before_its_label_arrived_is_drawn_again() {
+        let mut app = App::new(vec![cart("Labelled")]);
+        let key = (app.face_wants()[0].shelf, 0);
+        let mut faces = faces(key);
+        app.seal(&HashSet::from([PathBuf::from("/x/Labelled.gba")]), false);
+        let before = Drawn::of(app.face_cart(key.0, key.1).unwrap());
+        app.attach_label(Path::new("/x/Labelled.gba"), "/l/Labelled.png".into());
+        assert!(faces.redraw_if_stale(&app, key, &before));
+        assert_eq!(
+            queued(&faces)[0].1.label,
+            Some(PathBuf::from("/l/Labelled.png"))
+        );
     }
 }

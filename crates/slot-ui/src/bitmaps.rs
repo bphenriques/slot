@@ -31,6 +31,8 @@ pub const ADAPTER_W: u32 = 290;
 pub const ADAPTER_H: u32 = 180;
 pub const STICKER_W: u32 = 660;
 pub const STICKER_H: u32 = 228;
+pub const SEAL_W: u32 = 36;
+pub const SEAL_H: u32 = 36;
 
 const GBA_CART_PNG: &[u8] = include_bytes!("../../../assets/gba_cart.png");
 const GB_CART_PNG: &[u8] = include_bytes!("../../../assets/gb_cart.png");
@@ -54,6 +56,7 @@ const PLUG_HOST_PNG: &[u8] = include_bytes!("../../../assets/link_plug_host.png"
 const PLUG_JOIN_PNG: &[u8] = include_bytes!("../../../assets/link_plug_join.png");
 const ADAPTER_PNG: &[u8] = include_bytes!("../../../assets/link_adapter.png");
 const STICKER_PNG: &[u8] = include_bytes!("../../../assets/sticker.png");
+const SEAL_PNG: &[u8] = include_bytes!("../../../assets/seal.png");
 
 fn load(bytes: &'static [u8], w: u32, h: u32, slot: &'static OnceLock<Vec<u8>>) -> &'static [u8] {
     slot.get_or_init(|| {
@@ -117,6 +120,12 @@ fn scale(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The RetroAchievements seal from `assets/seal.png`, its shadow included.
+pub fn seal() -> &'static [u8] {
+    static P: OnceLock<Vec<u8>> = OnceLock::new();
+    load(SEAL_PNG, SEAL_W, SEAL_H, &P)
 }
 
 pub fn gba_cart() -> &'static [u8] {

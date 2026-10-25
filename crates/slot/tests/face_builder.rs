@@ -13,6 +13,7 @@ fn cart(stem: &str) -> Cart {
         title: stem.to_uppercase(),
         code: String::new(),
         shell: None,
+        sealed: false,
     }
 }
 
@@ -77,4 +78,18 @@ fn the_newest_request_of_a_burst_is_the_last_built() {
         builder.take().is_none(),
         "a build older than the newest came back after it"
     );
+}
+
+#[test]
+fn a_lid_drawn_before_the_cart_was_sealed_is_not_its_lid_any_more() {
+    let builder = FaceBuilder::spawn();
+    builder.request(cart("Metroid Fusion"));
+    let got = collect(&builder, 1);
+    assert_eq!(got.len(), 1, "the worker never answered");
+    let mut sealed = cart("Metroid Fusion");
+    sealed.sealed = true;
+    assert!(!got[0].is_for(&sealed));
+    builder.request(sealed.clone());
+    let got = collect(&builder, 1);
+    assert!(got[0].is_for(&sealed));
 }

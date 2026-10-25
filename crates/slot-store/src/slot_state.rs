@@ -11,7 +11,7 @@ pub const VOLUME_MAX: u8 = 100;
 pub const UTC_OFFSET_MIN: i16 = -720;
 pub const UTC_OFFSET_MAX: i16 = 840;
 
-pub const FF_SPEEDS: [u8; 4] = [2, 3, 4, 6];
+pub const FF_SPEEDS: [u8; 5] = [0, 2, 3, 4, 6];
 
 pub const LID_OFF_MIN: [u8; 6] = [1, 3, 5, 10, 15, 30];
 
@@ -212,9 +212,13 @@ pub struct SlotState {
     pub colour_correction_gba: bool,
     pub colour_correction_gb: bool,
     pub colour_correction_gbc: bool,
+    pub ghosting_gba: bool,
+    pub ghosting_gb: bool,
+    pub ghosting_gbc: bool,
     pub shader_gba: Shader,
     pub shader_gb: Shader,
     pub shader_gbc: Shader,
+    pub auto_load: bool,
     pub eject_save: bool,
     pub turbo: bool,
     pub rewind: bool,
@@ -354,9 +358,13 @@ impl Default for SlotState {
             colour_correction_gba: false,
             colour_correction_gb: false,
             colour_correction_gbc: false,
+            ghosting_gba: true,
+            ghosting_gb: true,
+            ghosting_gbc: true,
             shader_gba: Shader::Grid,
             shader_gb: Shader::Simpletex,
             shader_gbc: Shader::Simpletex,
+            auto_load: true,
             eject_save: true,
             turbo: true,
             rewind: true,
@@ -461,11 +469,15 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
         "colour_correction_gbc={}\n",
         s.colour_correction_gbc as u8
     ));
+    text.push_str(&format!("ghosting_gba={}\n", s.ghosting_gba as u8));
+    text.push_str(&format!("ghosting_gb={}\n", s.ghosting_gb as u8));
+    text.push_str(&format!("ghosting_gbc={}\n", s.ghosting_gbc as u8));
     text.push_str(&format!("shader_gbc={}\n", s.shader_gbc.name()));
     text.push_str(&format!("wallpaper_tint={}\n", s.wallpaper_tint.key()));
     text.push_str(&format!("show_recents={}\n", s.show_recents as u8));
     text.push_str(&format!("show_titles={}\n", s.show_titles as u8));
     text.push_str(&format!("left_stick_dpad={}\n", s.left_stick_dpad as u8));
+    text.push_str(&format!("auto_load={}\n", s.auto_load as u8));
     if let Some(min) = s.lid_off_min {
         text.push_str(&format!("lid_off_min={min}\n"));
     }
@@ -505,9 +517,13 @@ fn parse(text: &str) -> Option<SlotState> {
     let mut colour_correction_gba = None;
     let mut colour_correction_gb = None;
     let mut colour_correction_gbc = None;
+    let mut ghosting_gba = None;
+    let mut ghosting_gb = None;
+    let mut ghosting_gbc = None;
     let mut shader_gba = None;
     let mut shader_gb = None;
     let mut shader_gbc = None;
+    let mut auto_load = None;
     let mut eject_save = None;
     let mut turbo = None;
     let mut rewind = None;
@@ -549,7 +565,11 @@ fn parse(text: &str) -> Option<SlotState> {
             "colour_correction_gba" => colour_correction_gba = flag(value),
             "colour_correction_gb" => colour_correction_gb = flag(value),
             "colour_correction_gbc" => colour_correction_gbc = flag(value),
+            "ghosting_gba" => ghosting_gba = flag(value),
+            "ghosting_gb" => ghosting_gb = flag(value),
+            "ghosting_gbc" => ghosting_gbc = flag(value),
             "shader_gba" => shader_gba = Shader::parse(value).filter(|s| Shader::GBA.contains(s)),
+            "auto_load" => auto_load = flag(value),
             "eject_save" => eject_save = flag(value),
             "turbo" => turbo = flag(value),
             "rewind" => rewind = flag(value),
@@ -600,9 +620,13 @@ fn parse(text: &str) -> Option<SlotState> {
             .or(colour_correction_gb)
             .or(colour_correction)
             .unwrap_or(fallback.colour_correction_gbc),
+        ghosting_gba: ghosting_gba.unwrap_or(fallback.ghosting_gba),
+        ghosting_gb: ghosting_gb.unwrap_or(fallback.ghosting_gb),
+        ghosting_gbc: ghosting_gbc.unwrap_or(fallback.ghosting_gbc),
         shader_gba: shader_gba.unwrap_or(fallback.shader_gba),
         shader_gb: shader_gb.unwrap_or(fallback.shader_gb),
         shader_gbc: shader_gbc.or(shader_gb).unwrap_or(fallback.shader_gbc),
+        auto_load: auto_load.unwrap_or(fallback.auto_load),
         eject_save: eject_save.unwrap_or(fallback.eject_save),
         turbo: turbo.unwrap_or(fallback.turbo),
         rewind: rewind.unwrap_or(fallback.rewind),
