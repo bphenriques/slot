@@ -10,7 +10,7 @@ use slot::frontend::Frontend;
 use slot_gfx::{Compositor, HeadlessSurface, OUT_H, OUT_W};
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::SimPlatform;
-use slot_ui::{quick_row_top, QuickRow, MOUTH_H};
+use slot_ui::{quick_row_top, QuickRow, MOUTH_H, QUICK_PITCH, QUICK_VISIBLE};
 
 struct Script(VecDeque<Vec<RawEvent>>);
 
@@ -290,4 +290,100 @@ fn the_controls_page_renders() {
     tap(&mut f, &mut input, Btn::Up);
     run_for(&mut f, &mut input, 0.2);
     composed(&mut f, &mut c, "controls-bound");
+}
+
+#[test]
+fn the_cheats_page_lists_the_games_cheats_with_their_switches() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let long = "Have Rifle Instead Of Regular Gun In Every Mission Of The Game";
+    let mut cht = String::from(
+        "cheat0_desc = \"Enable Code (Must Be On)\"\ncheat0_code = \"000039C7+000A+10068310+0007\"\n",
+    );
+    for (i, name) in [
+        "Infinite Health",
+        long,
+        "Three",
+        "Four",
+        "Five",
+        "Six",
+        "Seven",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let i = i + 1;
+        cht.push_str(&format!(
+            "cheat{i}_desc = \"{name}\"\ncheat{i}_code = \"3200041{i}+0005\"\n"
+        ));
+    }
+    std::fs::create_dir_all(d.path().join("Cheats/GBA")).unwrap();
+    std::fs::write(d.path().join("Cheats/GBA/Emerald.cht"), cht).unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::A);
+    run_for(&mut f, &mut input, 4.0);
+    tap(&mut f, &mut input, Btn::Menu);
+    run_for(&mut f, &mut input, 0.5);
+    while f.app().in_game_menu() != Some(QuickRow::Cheats) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    run_for(&mut f, &mut input, 0.3);
+    assert_eq!(f.app().in_game_menu(), Some(QuickRow::CheatList));
+    assert_eq!(f.app().cheat_names().len(), 7, "the hook is not a cheat");
+    let off = composed(&mut f, &mut c, "cheats");
+    let row = |n: usize| {
+        let top = (427.0 - QUICK_PITCH * QUICK_VISIBLE as f32) / 2.0 + QUICK_PITCH * n as f32;
+        top as usize + 4..top as usize + 44
+    };
+    // Lit type is near white and dim type grey; the game under the scrim stays darker than both.
+    let ink = |px: &[u8], ys: std::ops::Range<usize>, xs: std::ops::Range<usize>| {
+        ys.flat_map(|y| xs.clone().map(move |x| (x, y)))
+            .filter(|&(x, y)| bright(at(px, x, y)) > 350)
+            .map(|(x, _)| x)
+            .collect::<Vec<_>>()
+    };
+    let name = ink(&off, row(0), 40..400);
+    assert!(
+        name.len() > 100,
+        "no first cheat name: {} bright pixels",
+        name.len()
+    );
+    let value = ink(&off, row(0), 400..OUT_W as usize - 24);
+    let end = value
+        .iter()
+        .copied()
+        .max()
+        .expect("no value on the first row");
+    assert!((679..=688).contains(&end), "the switch ends at x {end}");
+    let long_end = ink(&off, row(1), 40..OUT_W as usize - 24)
+        .into_iter()
+        .filter(|x| *x < 560)
+        .max()
+        .unwrap();
+    assert!(
+        long_end < 470,
+        "the long name runs to x {long_end}, into the switch"
+    );
+
+    tap(&mut f, &mut input, Btn::A);
+    run_for(&mut f, &mut input, 0.2);
+    let on = composed(&mut f, &mut c, "cheats-on");
+    assert_ne!(
+        ink(&on, row(0), 560..OUT_W as usize - 24),
+        ink(&off, row(0), 560..OUT_W as usize - 24),
+        "turning the cheat on did not change its switch"
+    );
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("Config/Cheats/GBA/Emerald.txt")).unwrap(),
+        "Infinite Health\n"
+    );
 }

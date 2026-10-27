@@ -83,6 +83,7 @@ enum Cmd {
     EndLink,
     BeginCable(u8, Box<dyn LinkChannel>),
     SetOption(String, String),
+    SetCheats(Vec<String>),
     Refresh,
 }
 
@@ -262,6 +263,11 @@ impl EmuHandle {
             &self.shared,
             Cmd::SetOption(key.to_owned(), value.to_owned()),
         );
+    }
+
+    /// Replaces the game's cheats with these codes, all on. None clears them.
+    pub fn set_cheats(&self, codes: Vec<String>) {
+        request(&self.cmds, &self.shared, Cmd::SetCheats(codes));
     }
 
     pub fn set_driven(&self, driven: bool) {
@@ -1081,6 +1087,7 @@ impl Worker {
             Cmd::SetOption(key, value) => {
                 core.set_option(&key, &value);
             }
+            Cmd::SetCheats(codes) => core.set_cheats(&codes),
             Cmd::EndLink => {
                 self.shared.link_lost.store(false, Ordering::Relaxed);
                 self.shared.peer_ended.store(false, Ordering::Relaxed);
