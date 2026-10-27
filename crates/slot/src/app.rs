@@ -22,6 +22,7 @@ use slot_ui::{
 };
 
 use crate::audio::Sfx;
+use crate::cheats::{self, Cheat};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
 use crate::link_kind::{link_carried, link_dual, link_kind, serial_option, LinkKind};
 use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
@@ -390,6 +391,12 @@ pub struct App {
     core: Core,
     colour_pending: Option<bool>,
     ghosting_pending: Option<bool>,
+    /// The game in the slot's cheats, the Cheats page's selected row, the codes the core is to
+    /// run next, and the cheats' names as drawn.
+    cheats: Vec<Cheat>,
+    cheat_row: usize,
+    cheats_pending: Option<Vec<String>>,
+    cheat_faces: Vec<[(TexId, u32, u32); 2]>,
     palette_live: bool,
     palette_pending: Option<GbColors>,
     link_player: Option<u8>,
@@ -602,6 +609,10 @@ impl App {
             core: Core::default(),
             colour_pending: None,
             ghosting_pending: None,
+            cheats: Vec::new(),
+            cheat_row: 0,
+            cheats_pending: None,
+            cheat_faces: Vec::new(),
             palette_live: false,
             palette_pending: None,
             link_player: None,
@@ -1032,6 +1043,9 @@ impl App {
         if !self.has_shots || self.link_active() {
             hidden.push(QuickRow::Screenshots);
         }
+        if self.cheats.is_empty() {
+            hidden.push(QuickRow::Cheats);
+        }
         let offer = match self.undo_available(self.now()) {
             true => self.pending.as_ref().map(|(what, _)| what),
             false => None,
@@ -1200,6 +1214,8 @@ impl App {
             | QuickRow::UndoLoad
             | QuickRow::States
             | QuickRow::Screenshots
+            | QuickRow::Cheats
+            | QuickRow::CheatList
             | QuickRow::Settings
             | QuickRow::ExitGame
             | QuickRow::PlayScreen
@@ -2756,6 +2772,9 @@ impl App {
     }
 
     fn in_game_menu_input(&mut self, row: QuickRow, action: Action) {
+        if row == QuickRow::CheatList {
+            return self.cheat_list_input(action);
+        }
         let hidden = self.in_game_hidden();
         let hidden = &hidden[..];
         if row.binds() {
@@ -2792,6 +2811,10 @@ impl App {
             }
             QuickRow::States => self.open_states(),
             QuickRow::Screenshots => self.open_shots(),
+            QuickRow::Cheats => {
+                self.cheat_row = 0;
+                self.in_game_menu = Some(QuickRow::CheatList);
+            }
             QuickRow::ExitGame => self.eject(),
             _ => {
                 if let Some(child) = row.child() {
@@ -2799,6 +2822,57 @@ impl App {
                 }
             }
         }
+    }
+
+    fn cheat_list_input(&mut self, action: Action) {
+        let count = self.cheats.len();
+        if count == 0 {
+            self.in_game_menu = Some(QuickRow::Cheats);
+            return;
+        }
+        match action {
+            Action::GbaDown(Btn::Up) => self.cheat_row = (self.cheat_row + count - 1) % count,
+            Action::GbaDown(Btn::Down) => self.cheat_row = (self.cheat_row + 1) % count,
+            Action::GbaDown(Btn::A | Btn::Left | Btn::Right) => {
+                let row = self.cheat_row.min(count - 1);
+                self.cheats[row].on = !self.cheats[row].on;
+                if let Some(cart) = self.seated_cart() {
+                    let (platform, stem) = (cart.platform, cart.stem.clone());
+                    if let Some(root) = self.root() {
+                        cheats::save(root, platform, &stem, &self.cheats);
+                    }
+                }
+                self.cheats_pending = Some(cheats::codes(&self.cheats));
+            }
+            Action::GbaDown(Btn::B) => self.in_game_menu = Some(QuickRow::Cheats),
+            Action::QuickMenu => self.tap_in_game_menu(None),
+            Action::Polaroids => self.double_tap_states(),
+            _ => {}
+        }
+    }
+
+    /// The cheats of the game just loaded, with the ones it left on.
+    pub fn set_cheats(&mut self, cheats: Vec<Cheat>) {
+        self.cheats = cheats;
+        self.cheat_row = 0;
+        self.cheat_faces.clear();
+    }
+
+    /// The codes the core is to run, when they have changed.
+    pub fn take_cheat_codes(&mut self) -> Option<Vec<String>> {
+        self.cheats_pending.take()
+    }
+
+    pub fn cheat_names(&self) -> Vec<&str> {
+        self.cheats.iter().map(|c| c.name.as_str()).collect()
+    }
+
+    pub fn set_cheat_faces(&mut self, faces: Vec<[(TexId, u32, u32); 2]>) {
+        self.cheat_faces = faces;
+    }
+
+    pub fn has_cheat_faces(&self) -> bool {
+        !self.cheat_faces.is_empty()
     }
 
     fn tap_in_game_menu(&mut self, to: Option<QuickRow>) {
@@ -2894,6 +2968,8 @@ impl App {
             | QuickRow::UndoLoad
             | QuickRow::States
             | QuickRow::Screenshots
+            | QuickRow::Cheats
+            | QuickRow::CheatList
             | QuickRow::Settings
             | QuickRow::ExitGame
             | QuickRow::PlayScreen
@@ -3096,6 +3172,8 @@ impl App {
             | QuickRow::UndoLoad
             | QuickRow::States
             | QuickRow::Screenshots
+            | QuickRow::Cheats
+            | QuickRow::CheatList
             | QuickRow::Settings
             | QuickRow::ExitGame
             | QuickRow::PlayScreen
@@ -4216,27 +4294,41 @@ impl App {
         {
             let hidden = self.in_game_hidden();
             let bound = self.bound_faces();
-            QuickMenu {
-                row,
-                bound: Some(&bound),
-                description: self.description(row),
-                hidden: &hidden,
-                values: QuickRow::ALL.map(|r| self.quick_value(r)),
-                clock: None,
-                wallpaper: None,
-                faces: self.quick_menu_faces.as_ref(),
-                ground: None,
-                palette: self.quick_palette_faces,
-                gba_bezel: None,
-                gb_bezel: None,
-                gbc_bezel: None,
-                bezel: self.quick_bezel_faces[bezel_slot(self.playing_platform())],
-                over_game: true,
-                footer_legends: false,
-                footer_top: OUT_H as f32 - MOUTH_H + self.menu_footer_offset(),
-                canvas: self.canvas(),
+            let footer_top = OUT_H as f32 - MOUTH_H + self.menu_footer_offset();
+            if row == QuickRow::CheatList {
+                let on: Vec<bool> = self.cheats.iter().map(|c| c.on).collect();
+                slot_ui::CheatPage {
+                    selected: self.cheat_row,
+                    on: &on,
+                    names: &self.cheat_faces,
+                    faces: self.quick_menu_faces.as_ref(),
+                    footer_top,
+                    canvas: self.canvas(),
+                }
+                .draw(out);
+            } else {
+                QuickMenu {
+                    row,
+                    bound: Some(&bound),
+                    description: self.description(row),
+                    hidden: &hidden,
+                    values: QuickRow::ALL.map(|r| self.quick_value(r)),
+                    clock: None,
+                    wallpaper: None,
+                    faces: self.quick_menu_faces.as_ref(),
+                    ground: None,
+                    palette: self.quick_palette_faces,
+                    gba_bezel: None,
+                    gb_bezel: None,
+                    gbc_bezel: None,
+                    bezel: self.quick_bezel_faces[bezel_slot(self.playing_platform())],
+                    over_game: true,
+                    footer_legends: false,
+                    footer_top,
+                    canvas: self.canvas(),
+                }
+                .draw(out);
             }
-            .draw(out);
             if row.page() != QuickRow::PLAY_SCREEN {
                 slot_ui::draw_corners(
                     self.canvas(),

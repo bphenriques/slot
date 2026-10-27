@@ -56,6 +56,10 @@ notes are in the [changelog](CHANGELOG.md).
 - **Linking over home Wi-Fi.** When at home and connected to Wi-Fi, two handhelds can link
   using that instead of having to create ad hoc networks. Outside of home, you can continue
   using slot's normal method. This works seamlessly, no config needed.
+- **Cheats.** Put `Cheats.pack` from the release page in `Cheats/`, and a game's cheats from the
+  libretro database appear under **Cheats** in its in-game menu, each with an On/Off switch.
+  slot remembers which are on for each game. To use your own, add a RetroArch `.cht` file named
+  after the ROM to `Cheats/GBA`, `Cheats/GB` or `Cheats/GBC`. Cheats need the mGBA core.
 
 ## How to configure
 

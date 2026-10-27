@@ -93,6 +93,7 @@ fn screen_shows_the_palette_only_when_palettes_are_live() {
     let empty = [
         QuickRow::States,
         QuickRow::Screenshots,
+        QuickRow::Cheats,
         QuickRow::UndoSave,
         QuickRow::UndoLoad,
     ];
@@ -795,4 +796,62 @@ fn a_refused_double_tap_in_the_menu_with_no_states_stays_on_a_shown_row() {
     a.apply(Action::Polaroids);
     assert!(matches!(a.phase(), Phase::Playing { .. }));
     cursor_on_a_shown_row(&a);
+}
+
+fn cheat(name: &str, code: &str, on: bool) -> slot::cheats::Cheat {
+    slot::cheats::Cheat {
+        name: name.into(),
+        code: code.into(),
+        on,
+    }
+}
+
+#[test]
+fn cheats_shows_only_for_a_game_that_has_some() {
+    let (_d, mut a) = playing();
+    assert!(a.in_game_hidden().contains(&QuickRow::Cheats));
+    a.set_cheats(vec![cheat("Infinite Health", "32000410+0005", false)]);
+    assert!(!a.in_game_hidden().contains(&QuickRow::Cheats));
+    let shown = QuickRow::Cheats.shown(&a.in_game_hidden());
+    let at = shown.iter().position(|r| *r == QuickRow::Cheats).unwrap();
+    assert_eq!(shown[at + 1], QuickRow::Settings);
+}
+
+#[test]
+fn a_cheat_turned_on_reaches_the_core_and_is_remembered_for_the_game() {
+    let (d, mut a) = playing();
+    a.set_cheats(vec![
+        cheat("Infinite Health", "32000410+0005", false),
+        cheat("Infinite Lives", "32000B08+0009", false),
+    ]);
+    go_to(&mut a, QuickRow::Cheats);
+    press(&mut a, Btn::A);
+    assert_eq!(a.in_game_menu(), Some(QuickRow::CheatList));
+    assert_eq!(a.take_cheat_codes(), None);
+    press(&mut a, Btn::Down);
+    press(&mut a, Btn::A);
+    assert_eq!(a.take_cheat_codes(), Some(vec!["32000B08+0009".to_owned()]));
+    let saved = d.path().join("Config/Cheats/GBA/Emerald.txt");
+    assert_eq!(std::fs::read_to_string(&saved).unwrap(), "Infinite Lives\n");
+    press(&mut a, Btn::Right);
+    assert_eq!(a.take_cheat_codes(), Some(Vec::new()));
+    assert!(!saved.exists());
+    press(&mut a, Btn::B);
+    assert_eq!(a.in_game_menu(), Some(QuickRow::Cheats));
+    press(&mut a, Btn::B);
+    assert_eq!(a.in_game_menu(), None);
+}
+
+#[test]
+fn the_cheats_page_wraps_and_menu_closes_it_into_the_game() {
+    let (_d, mut a) = playing();
+    a.set_cheats(vec![cheat("One", "1", false), cheat("Two", "2", false)]);
+    go_to(&mut a, QuickRow::Cheats);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::Up);
+    press(&mut a, Btn::A);
+    assert_eq!(a.take_cheat_codes(), Some(vec!["2".to_owned()]));
+    a.apply(Action::QuickMenu);
+    assert_eq!(a.in_game_menu(), None);
+    assert!(matches!(a.phase(), Phase::Playing { .. }));
 }

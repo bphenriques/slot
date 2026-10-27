@@ -168,7 +168,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::ControlsInGame,
             QuickRow::ScreenGeneral,
             QuickRow::UndoSave,
-            QuickRow::UndoLoad
+            QuickRow::UndoLoad,
+            QuickRow::Cheats
         ]
     );
     for page in [
@@ -183,6 +184,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
         &QuickRow::SCREEN_GBA[..],
         &QuickRow::SCREEN_GBC[..],
         &QuickRow::SCREEN_GB[..],
+        &QuickRow::CHEAT_LIST[..],
     ] {
         for &row in page {
             assert_eq!(row.page(), page, "{row:?}");
@@ -345,6 +347,7 @@ fn the_in_game_pages_hold_their_rows_in_order() {
             QuickRow::UndoLoad,
             QuickRow::States,
             QuickRow::Screenshots,
+            QuickRow::Cheats,
             QuickRow::Settings,
             QuickRow::ExitGame
         ]
