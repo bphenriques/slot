@@ -24,3 +24,7 @@ path = "examples/launchbox-index.rs"
 [[example]]
 name = "artwork-pack"
 path = "examples/artwork-pack.rs"
+
+[[example]]
+name = "cheats-pack"
+path = "examples/cheats-pack.rs"

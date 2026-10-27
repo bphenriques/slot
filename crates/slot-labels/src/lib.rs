@@ -4,16 +4,31 @@
 //! filename. No ROM data leaves the device.
 mod artwork;
 mod catalog;
+pub mod cheats;
 mod pack;
 mod source;
 
-/// What the examples need to build the LaunchBox index and the artwork pack the way the device
-/// reads them.
+/// What the examples need to build the LaunchBox index and the packs the way the device reads
+/// them.
 #[doc(hidden)]
 pub mod build {
     pub use crate::artwork::cart_label_jpeg;
-    pub use crate::pack::{write as write_pack, FILE as PACK};
+    pub use crate::pack::FILE as PACK;
     pub use crate::source::{normalize, platforms, rank, title, PHOTO, RENDER};
+
+    pub fn write_pack(
+        out: &mut impl std::io::Write,
+        entries: Vec<(u32, Vec<u8>)>,
+    ) -> std::io::Result<()> {
+        crate::pack::write(out, crate::pack::ARTWORK, entries)
+    }
+
+    pub fn write_cheat_pack(
+        out: &mut impl std::io::Write,
+        entries: Vec<(u32, Vec<u8>)>,
+    ) -> std::io::Result<()> {
+        crate::pack::write(out, crate::pack::CHEATS, entries)
+    }
 }
 
 use std::collections::HashMap;
@@ -227,7 +242,7 @@ fn prepare(
 /// is still labelled online.
 fn from_pack(root: &Path, crc: u32, platform: Platform) -> Option<Vec<u8>> {
     let path = root.join("Labels").join(pack::FILE);
-    let label = pack::find(&path, crc)
+    let label = pack::find(&path, pack::ARTWORK, crc)
         .map_err(Error::from)
         .and_then(|image| image.map(|i| artwork::fit(&i, platform)).transpose());
     label.unwrap_or_else(|e| {
