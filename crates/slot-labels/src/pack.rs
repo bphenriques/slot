@@ -1,53 +1,72 @@
-//! An artwork pack: every label, ready made, in one file a user copies to `Labels/Artwork.pack`
-//! so carts are labelled without a network. The file is
+//! A pack: something for every known dump, ready made, in one file a user copies to the card so
+//! slot needs no network for it. `Labels/Artwork.pack` holds cart labels as JPEG and
+//! `Cheats/Cheats.pack` holds cheat lists as `.cht` text. The file is
 //!
 //! ```text
-//! b"SLOTART1", entry count (u32)
-//! per entry, sorted by CRC32: the ROM's CRC32, image offset, image length (u32 each)
-//! the images: JPEG, at the label size of the platform each was made for
+//! magic (8 bytes), entry count (u32)
+//! per entry, sorted by CRC32: the ROM's CRC32, data offset, data length (u32 each)
+//! the data, each distinct entry once
 //! ```
 //!
-//! with every integer little-endian. A lookup reads the table and one image, never the whole file.
+//! with every integer little-endian. A lookup reads the table and one entry, never the whole file.
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub const FILE: &str = "Artwork.pack";
-const MAGIC: &[u8; 8] = b"SLOTART1";
+pub const ARTWORK: &[u8; 8] = b"SLOTART1";
+pub const CHEATS: &[u8; 8] = b"SLOTCHT1";
 const HEAD: u64 = 12;
 const ENTRY: u64 = 12;
-const MAX_IMAGE: u32 = 4 << 20;
+const MAX_ENTRY: u32 = 4 << 20;
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_owned())
 }
 
-/// Writes a pack of (CRC32, JPEG) entries. A checksum listed twice keeps its first image.
-pub fn write(out: &mut impl Write, mut entries: Vec<(u32, Vec<u8>)>) -> io::Result<()> {
+/// Writes a pack of (CRC32, data) entries. A checksum listed twice keeps its first data, and
+/// dumps with the same data share one copy of it.
+pub fn write(
+    out: &mut impl Write,
+    magic: &[u8; 8],
+    mut entries: Vec<(u32, Vec<u8>)>,
+) -> io::Result<()> {
     entries.sort_by_key(|(crc, _)| *crc);
     entries.dedup_by_key(|(crc, _)| *crc);
-    let too_big = || io::Error::new(io::ErrorKind::InvalidInput, "artwork pack over 4 GB");
+    let too_big = || io::Error::new(io::ErrorKind::InvalidInput, "pack over 4 GB");
     let count = u32::try_from(entries.len()).map_err(|_| too_big())?;
-    out.write_all(MAGIC)?;
+    out.write_all(magic)?;
     out.write_all(&count.to_le_bytes())?;
     let mut offset = HEAD + ENTRY * u64::from(count);
-    for (crc, image) in &entries {
-        let len = u32::try_from(image.len()).map_err(|_| too_big())?;
-        let at = u32::try_from(offset).map_err(|_| too_big())?;
+    let mut placed: HashMap<&[u8], u32> = HashMap::new();
+    let mut data: Vec<&[u8]> = Vec::new();
+    for (crc, bytes) in &entries {
+        let len = u32::try_from(bytes.len()).map_err(|_| too_big())?;
+        let at = match placed.get(bytes.as_slice()) {
+            Some(at) => *at,
+            None => {
+                let at = u32::try_from(offset).map_err(|_| too_big())?;
+                placed.insert(bytes, at);
+                data.push(bytes);
+                offset += u64::from(len);
+                at
+            }
+        };
         for field in [*crc, at, len] {
             out.write_all(&field.to_le_bytes())?;
         }
-        offset += u64::from(len);
     }
     u32::try_from(offset).map_err(|_| too_big())?;
-    for (_, image) in &entries {
-        out.write_all(image)?;
+    for bytes in data {
+        out.write_all(bytes)?;
     }
     Ok(())
 }
 
-/// The pack's image for a ROM. No pack is `Ok(None)`; a damaged one is an error.
-pub(crate) fn find(path: &Path, crc: u32) -> io::Result<Option<Vec<u8>>> {
+/// The pack's data for a ROM. No pack is `Ok(None)`; a damaged one, or one of another kind, is an
+/// error.
+pub(crate) fn find(path: &Path, magic: &[u8; 8], crc: u32) -> io::Result<Option<Vec<u8>>> {
     let mut file = match File::open(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         file => file?,
@@ -55,13 +74,13 @@ pub(crate) fn find(path: &Path, crc: u32) -> io::Result<Option<Vec<u8>>> {
     let size = file.metadata()?.len();
     let mut head = [0u8; HEAD as usize];
     file.read_exact(&mut head)
-        .map_err(|_| invalid("artwork pack too short"))?;
-    if &head[..8] != MAGIC {
-        return Err(invalid("not an artwork pack"));
+        .map_err(|_| invalid("pack too short"))?;
+    if &head[..8] != magic {
+        return Err(invalid("not this kind of pack"));
     }
     let count = u64::from(u32::from_le_bytes(head[8..12].try_into().unwrap()));
     if HEAD + ENTRY * count > size {
-        return Err(invalid("artwork pack table runs past the end"));
+        return Err(invalid("pack table runs past the end"));
     }
     let mut table = vec![0u8; (ENTRY * count) as usize];
     file.read_exact(&mut table)?;
@@ -72,13 +91,13 @@ pub(crate) fn find(path: &Path, crc: u32) -> io::Result<Option<Vec<u8>>> {
         return Ok(None);
     };
     let (offset, len) = (field(entries[at], 1), field(entries[at], 2));
-    if len > MAX_IMAGE || u64::from(offset) + u64::from(len) > size {
-        return Err(invalid("artwork pack entry runs past the end"));
+    if len > MAX_ENTRY || u64::from(offset) + u64::from(len) > size {
+        return Err(invalid("pack entry runs past the end"));
     }
-    let mut image = vec![0u8; len as usize];
+    let mut data = vec![0u8; len as usize];
     file.seek(SeekFrom::Start(offset.into()))?;
-    file.read_exact(&mut image)?;
-    Ok(Some(image))
+    file.read_exact(&mut data)?;
+    Ok(Some(data))
 }
 
 #[cfg(test)]
@@ -92,6 +111,7 @@ mod tests {
         let mut out = Vec::new();
         write(
             &mut out,
+            ARTWORK,
             vec![
                 (30, b"third".to_vec()),
                 (10, b"first".to_vec()),
@@ -102,10 +122,38 @@ mod tests {
         .unwrap();
         std::fs::write(&path, &out).unwrap();
         for (crc, image) in [(10, &b"first"[..]), (20, b"second"), (30, b"third")] {
-            assert_eq!(find(&path, crc).unwrap().unwrap(), image);
+            assert_eq!(find(&path, ARTWORK, crc).unwrap().unwrap(), image);
         }
-        assert_eq!(find(&path, 15).unwrap(), None);
-        assert_eq!(find(&dir.path().join("missing.pack"), 10).unwrap(), None);
+        assert_eq!(find(&path, ARTWORK, 15).unwrap(), None);
+        assert_eq!(
+            find(&dir.path().join("missing.pack"), ARTWORK, 10).unwrap(),
+            None
+        );
+        assert!(find(&path, CHEATS, 10).is_err());
+    }
+
+    #[test]
+    fn dumps_with_the_same_data_share_one_copy() {
+        let shared = vec![b'x'; 1000];
+        let mut out = Vec::new();
+        write(
+            &mut out,
+            CHEATS,
+            vec![
+                (1, shared.clone()),
+                (2, shared.clone()),
+                (3, b"own".to_vec()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(out.len(), 12 + 3 * 12 + 1000 + 3);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Cheats.pack");
+        std::fs::write(&path, &out).unwrap();
+        for crc in [1, 2] {
+            assert_eq!(find(&path, CHEATS, crc).unwrap().unwrap(), shared);
+        }
+        assert_eq!(find(&path, CHEATS, 3).unwrap().unwrap(), b"own");
     }
 
     #[test]
@@ -113,7 +161,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(FILE);
         let mut good = Vec::new();
-        write(&mut good, vec![(10, vec![7; 100])]).unwrap();
+        write(&mut good, ARTWORK, vec![(10, vec![7; 100])]).unwrap();
         for damaged in [
             b"not a pack at all".to_vec(),
             good[..6].to_vec(),
@@ -121,7 +169,7 @@ mod tests {
             good[..good.len() - 1].to_vec(),
         ] {
             std::fs::write(&path, damaged).unwrap();
-            assert!(find(&path, 10).is_err());
+            assert!(find(&path, ARTWORK, 10).is_err());
         }
     }
 }

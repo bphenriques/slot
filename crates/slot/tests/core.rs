@@ -236,3 +236,47 @@ fn on_mgba_a_state_padded_by_an_older_slot_still_loads_and_plays_the_same() {
         "the padded state plays on differently from the same state without the zeros"
     );
 }
+
+fn memory_at(core: &LibretroCore, at: usize) -> u8 {
+    let mut ram = vec![0u8; slot_retro::ACHIEVEMENT_RAM_SIZE];
+    core.achievement_memory(&mut ram);
+    ram[at]
+}
+
+#[test]
+fn mgba_runs_the_cheats_it_is_given_and_a_new_list_replaces_the_old() {
+    let _g = core_lock();
+    let Some(dylib) = common::vendored_core() else {
+        return;
+    };
+    // mGBA wants the start of the logo; the game jumps to 0x150 and spins there.
+    let mut cart = vec![0u8; 0x8000];
+    cart[0x100..0x108].copy_from_slice(&[0x00, 0xc3, 0x50, 0x01, 0xce, 0xed, 0x66, 0x66]);
+    cart[0x14d] = cart[0x134..0x14d]
+        .iter()
+        .fold(0u8, |sum, byte| sum.wrapping_sub(*byte).wrapping_sub(1));
+    cart[0x150..0x152].copy_from_slice(&[0x18, 0xfe]);
+    let gb = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cheats.gb");
+    std::fs::write(&gb, cart).expect("write rom");
+    // EWRAM 0x02000100 by a CodeBreaker 8-bit write; WRAM 0xC100 by a GameShark one.
+    for (rom, first, second, at) in [
+        (
+            rom("cheats.gba"),
+            "32000100+0042",
+            "32000100+0024",
+            0x8000 + 0x100,
+        ),
+        (gb, "014200C1", "012400C1", 0xc100),
+    ] {
+        let mut core = LibretroCore::open(&dylib).expect("core");
+        core.load(&rom).expect("rom");
+        core.run_frame(ButtonMask::default());
+        assert_eq!(memory_at(&core, at), 0, "{}", rom.display());
+        core.set_cheats(&[first.to_owned()]);
+        core.run_frame(ButtonMask::default());
+        assert_eq!(memory_at(&core, at), 0x42, "{}", rom.display());
+        core.set_cheats(&[second.to_owned()]);
+        core.run_frame(ButtonMask::default());
+        assert_eq!(memory_at(&core, at), 0x24, "{}", rom.display());
+    }
+}

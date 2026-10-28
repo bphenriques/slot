@@ -8,16 +8,16 @@ use slot_input::{InputSource, Millis};
 use slot_power::{Platform, Power};
 use slot_store::{format_stamp, BezelPick, Platform as Console};
 use slot_ui::{
-    badge_face, bezel_face, cart_shadow, chip_face, chip_shadow_face, core_button_legends,
-    date_time_text, default_game_bezel_face, delete_legends, footer_ink, game_bezel_face,
-    gb_cart_shadow, hhmm, hint_face, icon_face, link_button_legends, menu_detail_face, menu_face,
-    photo_face, prompt_legends, quick_caret_face, quick_description_face, quick_label_face,
-    quick_legend_faces, quick_pointer_face, quick_value_face, quick_warning_value_face,
-    rebuild_count_face, rebuild_title_face, repair_legends, set_clock_hint_face, slot_back,
-    slot_back_light, slot_front, slot_front_light, socket_face, sticker_face, title_face,
-    toast_face, wallpaper_face, word_ink, CartFace, GbShell, Icon, LinkBadge, PowerChoice,
-    QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX,
-    BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
+    badge_face, bezel_face, cart_shadow, cheat_name_face, chip_face, chip_shadow_face,
+    core_button_legends, date_time_text, default_game_bezel_face, delete_legends, footer_ink,
+    game_bezel_face, gb_cart_shadow, hhmm, hint_face, icon_face, link_button_legends,
+    menu_detail_face, menu_face, photo_face, prompt_legends, quick_caret_face,
+    quick_description_face, quick_label_face, quick_legend_faces, quick_pointer_face,
+    quick_value_face, quick_warning_value_face, rebuild_count_face, rebuild_title_face,
+    repair_legends, set_clock_hint_face, slot_back, slot_back_light, slot_front, slot_front_light,
+    socket_face, sticker_face, title_face, toast_face, wallpaper_face, word_ink, CartFace, GbShell,
+    Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen,
+    StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -62,6 +62,7 @@ pub struct Frontend {
     quick_clock: QuickClock,
     music: crate::music_faces::MusicText,
     quick_palette: QuickPalette,
+    cheat_names: CheatNames,
     wallpaper: WallpaperSync,
     game_bezel: BezelSync,
     look: Option<ShelfLook>,
@@ -83,6 +84,13 @@ struct QuickClock {
     dim: Option<TexId>,
     lit: Option<TexId>,
     shown: String,
+}
+
+/// The Cheats page's names, kept from one game to the next and drawn again when they change.
+#[derive(Default)]
+struct CheatNames {
+    texes: Vec<[Option<TexId>; 2]>,
+    shown: Vec<String>,
 }
 
 #[derive(Default)]
@@ -208,6 +216,7 @@ impl Frontend {
             quick_clock: QuickClock::default(),
             music: Default::default(),
             quick_palette: QuickPalette::default(),
+            cheat_names: CheatNames::default(),
             wallpaper: WallpaperSync::default(),
             game_bezel: BezelSync::default(),
             look: None,
@@ -626,6 +635,7 @@ impl Frontend {
         self.music.sync(self.session.app_mut(), compositor);
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
         sync_quick_palette(self.session.app_mut(), compositor, &mut self.quick_palette);
+        sync_cheat_names(self.session.app_mut(), compositor, &mut self.cheat_names);
         sync_wallpaper(self.session.app_mut(), compositor, &mut self.wallpaper);
         sync_game_bezel(self.session.app_mut(), compositor, &mut self.game_bezel);
         compositor.set_game_bezel(self.session.app().shown_game_bezel());
@@ -1445,6 +1455,32 @@ fn sync_quick_clock(app: &mut App, compositor: &mut Compositor, state: &mut Quic
     let lit = upload(compositor, &mut state.lit, lit);
     app.set_quick_clock_faces((dim, dim_size.0, dim_size.1), (lit, lit_size.0, lit_size.1));
     state.shown = text;
+}
+
+fn sync_cheat_names(app: &mut App, compositor: &mut Compositor, state: &mut CheatNames) {
+    if app.in_game_menu() != Some(QuickRow::CheatList) {
+        return;
+    }
+    let names = app.cheat_names();
+    if names == state.shown && app.has_cheat_faces() {
+        return;
+    }
+    state
+        .texes
+        .resize(state.texes.len().max(names.len()), [None; 2]);
+    let faces = names
+        .iter()
+        .zip(&mut state.texes)
+        .map(|(name, texes)| {
+            [false, true].map(|lit| {
+                let f = cheat_name_face(name, lit);
+                let (w, h) = (f.w, f.h);
+                (upload(compositor, &mut texes[lit as usize], f), w, h)
+            })
+        })
+        .collect();
+    state.shown = names.into_iter().map(str::to_owned).collect();
+    app.set_cheat_faces(faces);
 }
 
 fn sync_quick_palette(app: &mut App, compositor: &mut Compositor, state: &mut QuickPalette) {

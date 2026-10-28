@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use slot_input::{Action, Btn, Chord, Contexts, Entry, Gestures, Millis, Mod, RawEvent};
 use slot_retro::Rumble;
-use slot_store::Platform;
+use slot_store::{Core, Platform};
 use slot_ui::FfState;
 
 pub const RUMBLE_MIN_MS: Millis = 100;
@@ -372,6 +372,11 @@ impl Session {
                 repaint = true;
             }
         }
+        if let Some(codes) = self.app.take_cheat_codes() {
+            if let Some(emu) = &self.emu {
+                emu.set_cheats(codes);
+            }
+        }
         if repaint && self.held() && !self.app.link_active() {
             if let Some(emu) = &self.emu {
                 emu.refresh();
@@ -609,6 +614,12 @@ impl Session {
                 launch("core opened");
                 let sav = persist::read_sav(&root, platform, &stem);
                 launch("save read");
+                // gpSP turns down the database's encrypted codes and holds 20 at most.
+                let cheats = match core {
+                    Core::Mgba => crate::cheats::load(&root, platform, &stem, &rom),
+                    Core::Gpsp => Vec::new(),
+                };
+                launch("cheats read");
                 Loaded {
                     opened,
                     rom,
@@ -617,6 +628,7 @@ impl Session {
                     palette_live: palette.is_some(),
                     sav,
                     resume,
+                    cheats,
                 }
             })
             .ok();
@@ -658,6 +670,11 @@ impl Session {
             emu.refuse_resume();
         }
         self.app.set_resume_unread(resume_unread);
+        let codes = crate::cheats::codes(&loaded.cheats);
+        if !codes.is_empty() {
+            emu.set_cheats(codes);
+        }
+        self.app.set_cheats(loaded.cheats);
         emu.set_volume(self.app.output_volume());
         emu.set_driven(self.driven);
         self.app.set_snapshot(Box::new(emu.snapshot()));
@@ -706,6 +723,7 @@ struct Loaded {
     palette_live: bool,
     sav: std::io::Result<Option<Vec<u8>>>,
     resume: std::io::Result<Option<Vec<u8>>>,
+    cheats: Vec<crate::cheats::Cheat>,
 }
 
 struct Opening {

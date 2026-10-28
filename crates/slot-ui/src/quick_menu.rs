@@ -101,10 +101,13 @@ pub enum QuickRow {
     GbGhosting,
     GbcGhosting,
     Ghosting,
+    Cheats,
+    /// The Cheats page, whose rows are the game's cheats rather than settings.
+    CheatList,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 90] = [
+    pub const ALL: [QuickRow; 92] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -195,6 +198,8 @@ impl QuickRow {
         QuickRow::GbGhosting,
         QuickRow::GbcGhosting,
         QuickRow::Ghosting,
+        QuickRow::Cheats,
+        QuickRow::CheatList,
     ];
 
     pub const MAIN: [QuickRow; 6] = [
@@ -303,15 +308,18 @@ impl QuickRow {
         QuickRow::EjectSave,
     ];
 
-    pub const PLAY: [QuickRow; 7] = [
+    pub const PLAY: [QuickRow; 8] = [
         QuickRow::Resume,
         QuickRow::UndoSave,
         QuickRow::UndoLoad,
         QuickRow::States,
         QuickRow::Screenshots,
+        QuickRow::Cheats,
         QuickRow::Settings,
         QuickRow::ExitGame,
     ];
+
+    pub const CHEAT_LIST: [QuickRow; 1] = [QuickRow::CheatList];
 
     pub const SETTINGS: [QuickRow; 3] = [
         QuickRow::PlayScreen,
@@ -378,8 +386,10 @@ impl QuickRow {
             | QuickRow::UndoLoad
             | QuickRow::States
             | QuickRow::Screenshots
+            | QuickRow::Cheats
             | QuickRow::Settings
             | QuickRow::ExitGame => &QuickRow::PLAY,
+            QuickRow::CheatList => &QuickRow::CHEAT_LIST,
             QuickRow::PlayScreen | QuickRow::PlayGameplay | QuickRow::PlayControls => {
                 &QuickRow::SETTINGS
             }
@@ -410,6 +420,7 @@ impl QuickRow {
             QuickRow::Theme => Some(QuickRow::General),
             QuickRow::ControlsShelf => Some(QuickRow::Controls),
             QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
+            QuickRow::CheatList => Some(QuickRow::Cheats),
             _ => None,
         }
     }
@@ -559,6 +570,7 @@ impl QuickRow {
             QuickRow::GbcBezel => "Bezel",
             QuickRow::GbaBezel => "Bezel",
             QuickRow::Bezel => "Bezel",
+            QuickRow::Cheats | QuickRow::CheatList => "Cheats",
         }
     }
 
@@ -575,6 +587,7 @@ impl QuickRow {
                 | QuickRow::UndoLoad
                 | QuickRow::States
                 | QuickRow::Screenshots
+                | QuickRow::Cheats
                 | QuickRow::Settings
                 | QuickRow::ExitGame
                 | QuickRow::PlayScreen
@@ -1203,17 +1216,12 @@ impl QuickMenu<'_> {
         for row in shown.into_iter().skip(start).take(len) {
             let y = quick_row_top_at(row, self.row, self.hidden) + TYPE_DROP;
             let lit = row == self.row;
-            if let Some(&(tex, w, h)) = faces.labels.get(row.index()).map(|l| &l[lit as usize]) {
+            if let Some(&label) = faces.labels.get(row.index()).map(|l| &l[lit as usize]) {
                 let x = match row.centred() {
                     true => self.canvas.centred(main_w as f32),
                     false => QUICK_LABEL_X - pad,
                 };
-                push(out, tex, x, y, w, h);
-                if lit {
-                    let (tex, pw, ph) = faces.pointer;
-                    let px = x + pad - POINTER_GAP - pw as f32;
-                    push(out, tex, px, y - POINTER_BLEED as f32, pw, ph);
-                }
+                push_label(out, faces, label, x, y, lit);
             }
             let value = match row {
                 QuickRow::DateTime => self.clock.map(|c| c[lit as usize]),
@@ -1231,38 +1239,13 @@ impl QuickMenu<'_> {
                     .and_then(|v| faces.values.get(v.index()))
                     .map(|v| v[lit as usize]),
             };
-            let Some((tex, w, h)) = value else {
-                continue;
-            };
-            if !lit || row.opens() || row.binds() {
-                push(out, tex, right + pad - w as f32, y, w, h);
-                continue;
+            if let Some(value) = value {
+                let carets = lit && !row.opens() && !row.binds();
+                push_value(out, faces, value, right, y, carets);
             }
-            let [(left_tex, lw, lh), (right_tex, rw, rh)] = faces.carets;
-            let rx = right - rw as f32;
-            push(out, right_tex, rx, y, rw, rh);
-            let vx = rx - CARET_GAP + pad - w as f32;
-            push(out, tex, vx, y, w, h);
-            push(out, left_tex, vx + pad - CARET_GAP - lw as f32, y, lw, lh);
         }
         if let Some(bar) = quick_scroll(self.row, self.hidden) {
-            let x = self.canvas.w - SCROLL_INSET - SCROLL_W;
-            let ink = DIM_INK.map(|c| f32::from(c) / 255.0);
-            out.push(Draw::Rect {
-                x,
-                y: bar.y,
-                w: SCROLL_W,
-                h: bar.h,
-                colour: [ink[0], ink[1], ink[2], 0.3],
-            });
-            let lit = crate::hud::HUD_INK.map(|c| f32::from(c) / 255.0);
-            out.push(Draw::Rect {
-                x,
-                y: bar.thumb_y,
-                w: SCROLL_W,
-                h: bar.thumb_h,
-                colour: [lit[0], lit[1], lit[2], 1.0],
-            });
+            push_scroll(out, self.canvas, bar);
         }
         if let Some((tex, w, h)) = self.description {
             let y = OUT_H as f32 - MOUTH_H - h as f32 - DESCRIPTION_GAP;
@@ -1279,6 +1262,152 @@ impl QuickMenu<'_> {
         let other = if self.row.opens() { open } else { change };
         for (tex, w, x) in centred_hints(self.canvas, &[back, other], LEGEND_GAP) {
             push(out, tex, x, LEGEND_Y, w, HINT_H);
+        }
+    }
+}
+
+/// A row's label, with the pointer before it when it is the selected row.
+fn push_label(
+    out: &mut Vec<Draw>,
+    faces: &QuickMenuFaces,
+    (tex, w, h): (TexId, u32, u32),
+    x: f32,
+    y: f32,
+    lit: bool,
+) {
+    push(out, tex, x, y, w, h);
+    if lit {
+        let (tex, pw, ph) = faces.pointer;
+        let px = x + MENU_PAD as f32 - POINTER_GAP - pw as f32;
+        push(out, tex, px, y - POINTER_BLEED as f32, pw, ph);
+    }
+}
+
+/// A row's value against the right edge, between carets when Left and Right change it.
+fn push_value(
+    out: &mut Vec<Draw>,
+    faces: &QuickMenuFaces,
+    (tex, w, h): (TexId, u32, u32),
+    right: f32,
+    y: f32,
+    carets: bool,
+) {
+    let pad = MENU_PAD as f32;
+    if !carets {
+        push(out, tex, right + pad - w as f32, y, w, h);
+        return;
+    }
+    let [(left_tex, lw, lh), (right_tex, rw, rh)] = faces.carets;
+    let rx = right - rw as f32;
+    push(out, right_tex, rx, y, rw, rh);
+    let vx = rx - CARET_GAP + pad - w as f32;
+    push(out, tex, vx, y, w, h);
+    push(out, left_tex, vx + pad - CARET_GAP - lw as f32, y, lw, lh);
+}
+
+fn push_scroll(out: &mut Vec<Draw>, canvas: Canvas, bar: QuickScroll) {
+    let x = canvas.w - SCROLL_INSET - SCROLL_W;
+    let ink = DIM_INK.map(|c| f32::from(c) / 255.0);
+    out.push(Draw::Rect {
+        x,
+        y: bar.y,
+        w: SCROLL_W,
+        h: bar.h,
+        colour: [ink[0], ink[1], ink[2], 0.3],
+    });
+    let lit = crate::hud::HUD_INK.map(|c| f32::from(c) / 255.0);
+    out.push(Draw::Rect {
+        x,
+        y: bar.thumb_y,
+        w: SCROLL_W,
+        h: bar.thumb_h,
+        colour: [lit[0], lit[1], lit[2], 1.0],
+    });
+}
+
+/// Where a cheat's name may run to: the width of the narrowest screen, less the value and its
+/// carets at the right.
+const CHEAT_NAME_W: f32 = 360.0;
+const CHEAT_NAME_MIN_PX: f32 = 22.0;
+
+/// A cheat's name in the menu rows' type, smaller when it is long, and ending in an ellipsis when
+/// even that does not fit.
+pub fn cheat_name_face(name: &str, lit: bool) -> UndoFace {
+    let colour = if lit { MENU_INK } else { DIM_INK };
+    let Some(font) = text::label_font() else {
+        return quick_text_face(name, colour);
+    };
+    let layout = text::fit(font, name, CHEAT_NAME_W, 1, MENU_PX, CHEAT_NAME_MIN_PX);
+    let mut line = layout.lines.first().cloned().unwrap_or_default();
+    let whole = name
+        .to_uppercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if line != whole {
+        let fits = |l: &str| text::line_width(font, l, layout.px, layout.tracking) <= CHEAT_NAME_W;
+        while !line.is_empty() && !fits(&format!("{line}…")) {
+            line.pop();
+        }
+        line = format!("{}…", line.trim_end());
+    }
+    let layout = text::Layout {
+        lines: vec![line],
+        ..layout
+    };
+    let ink = text::line_width(font, &layout.lines[0], layout.px, layout.tracking);
+    let w = ink.ceil() as u32 + 2 * MENU_PAD;
+    let mut rgba = vec![0u8; (w * MENU_H * 4) as usize];
+    text::draw_centred(&mut rgba, w, MENU_H, &layout, colour);
+    UndoFace { rgba, w, h: MENU_H }
+}
+
+/// The Cheats page over the game: a row per cheat with its On or Off, laid out, lit and scrolled
+/// like the settings pages.
+pub struct CheatPage<'a> {
+    pub selected: usize,
+    pub on: &'a [bool],
+    /// Each cheat's name, dim and lit.
+    pub names: &'a [[(TexId, u32, u32); 2]],
+    pub faces: Option<&'a QuickMenuFaces>,
+    pub footer_top: f32,
+    pub canvas: Canvas,
+}
+
+impl CheatPage<'_> {
+    pub fn draw(&self, out: &mut Vec<Draw>) {
+        out.push(Draw::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: self.canvas.w,
+            h: self.footer_top,
+            colour: [0.0, 0.0, 0.0, GROUND_SCRIM],
+        });
+        let Some(faces) = self.faces else {
+            return;
+        };
+        let count = self.names.len().min(self.on.len());
+        let (start, len) = window(self.selected, count, QUICK_VISIBLE);
+        let top = (LEGEND_Y - QUICK_PITCH * len as f32) / 2.0;
+        let right = self.canvas.w - QUICK_EDGE;
+        for i in start..start + len {
+            let y = top + QUICK_PITCH * (i - start) as f32 + TYPE_DROP;
+            let lit = i == self.selected;
+            push_label(
+                out,
+                faces,
+                self.names[i][lit as usize],
+                QUICK_LABEL_X - MENU_PAD as f32,
+                y,
+                lit,
+            );
+            let value = QuickValue::flag(self.on[i]);
+            if let Some(v) = faces.values.get(value.index()) {
+                push_value(out, faces, v[lit as usize], right, y, lit);
+            }
+        }
+        if let Some(bar) = scroll_bar(top, len, count, self.selected) {
+            push_scroll(out, self.canvas, bar);
         }
     }
 }
@@ -1347,33 +1476,44 @@ fn visible(page: &[QuickRow]) -> usize {
     }
 }
 
-pub fn quick_window(selected: QuickRow, hidden: &[QuickRow]) -> (usize, usize) {
-    let count = selected.shown(hidden).len();
-    let fits = visible(selected.page());
-    if !scrolls(selected.page()) || count <= fits {
+/// The first row shown and how many: all of them when they fit, else `fits` around `at`.
+fn window(at: usize, count: usize, fits: usize) -> (usize, usize) {
+    if count <= fits {
         return (0, count);
     }
-    let at = selected.position(hidden);
-    let start = at.saturating_sub(fits / 2).min(count - fits);
-    (start, fits)
+    (at.saturating_sub(fits / 2).min(count - fits), fits)
 }
 
-pub fn quick_scroll(selected: QuickRow, hidden: &[QuickRow]) -> Option<QuickScroll> {
-    let shown = selected.shown(hidden);
-    let (start, len) = quick_window(selected, hidden);
-    if len >= shown.len() {
+pub fn quick_window(selected: QuickRow, hidden: &[QuickRow]) -> (usize, usize) {
+    let count = selected.shown(hidden).len();
+    if !scrolls(selected.page()) {
+        return (0, count);
+    }
+    window(selected.position(hidden), count, visible(selected.page()))
+}
+
+/// The bar beside `len` rows from `y` that shows where `at` is among `count`; none when every row
+/// is shown.
+fn scroll_bar(y: f32, len: usize, count: usize, at: usize) -> Option<QuickScroll> {
+    if len >= count {
         return None;
     }
-    let y = quick_row_top_at(shown[start], selected, hidden);
     let h = QUICK_PITCH * len as f32;
-    let thumb_h = h / shown.len() as f32;
-    let along = selected.position(hidden) as f32 / (shown.len() - 1) as f32;
+    let thumb_h = h / count as f32;
+    let along = at as f32 / (count - 1) as f32;
     Some(QuickScroll {
         y,
         h,
         thumb_y: y + (h - thumb_h) * along,
         thumb_h,
     })
+}
+
+pub fn quick_scroll(selected: QuickRow, hidden: &[QuickRow]) -> Option<QuickScroll> {
+    let shown = selected.shown(hidden);
+    let (start, len) = quick_window(selected, hidden);
+    let y = quick_row_top_at(*shown.get(start)?, selected, hidden);
+    scroll_bar(y, len, shown.len(), selected.position(hidden))
 }
 
 pub fn quick_row_top_at(row: QuickRow, selected: QuickRow, hidden: &[QuickRow]) -> f32 {

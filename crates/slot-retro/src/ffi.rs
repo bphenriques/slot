@@ -169,6 +169,8 @@ pub struct Api {
     pub unserialize: unsafe extern "C" fn(*const c_void, usize) -> bool,
     pub get_memory_data: unsafe extern "C" fn(c_uint) -> *mut c_void,
     pub get_memory_size: unsafe extern "C" fn(c_uint) -> usize,
+    pub cheat_reset: unsafe extern "C" fn(),
+    pub cheat_set: unsafe extern "C" fn(c_uint, bool, *const c_char),
 }
 
 impl Api {
@@ -199,6 +201,8 @@ impl Api {
             unserialize: get!("retro_unserialize"),
             get_memory_data: get!("retro_get_memory_data"),
             get_memory_size: get!("retro_get_memory_size"),
+            cheat_reset: get!("retro_cheat_reset"),
+            cheat_set: get!("retro_cheat_set"),
         })
     }
 }

@@ -5,6 +5,7 @@ vars:
   GPSP_HOST: vendor/gpsp_libretro.dylib
   MGBA_COMMIT: e31759b24e7a4e3899285ff720d7b573ac328ae7
   GPSP_COMMIT: 7b2dd37394e2822110cacef321e9bb291a305b77
+  CHEATS_DB_COMMIT: 25da22340889d04bd6e3a8c116d2750af4157d4f
   EXFATPROGS_VERSION: 1.4.3
   EXFATPROGS_SHA256: 4b5052cba6ff9f6dcb1c63eeeac328620472c5b0b3caf3d38e4ada50e75469d3
   # mute's `music/` (the examples a card gets), in the checkout Cargo keeps of its pinned revision.
@@ -237,6 +238,29 @@ tasks:
           "$tmp/Game%20Boy.dat" "$tmp/Game%20Boy%20Color.dat" "$tmp/Game%20Boy%20Advance.dat"
         ls -l dist-device/Artwork.pack
 
+  cheats:pack:
+    desc: >-
+      Build Cheats.pack, OUT defaults to dist-device/Cheats.pack, from the libretro database's
+      GB, GBC and GBA cheats and No-Intro dats at CHEATS_DB_COMMIT
+    vars:
+      OUT: '{{.OUT | default "dist-device/Cheats.pack"}}'
+    cmds:
+      - |
+        set -euo pipefail
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        git -C "$tmp" init -q db
+        git -C "$tmp/db" remote add origin https://github.com/libretro/libretro-database.git
+        git -C "$tmp/db" sparse-checkout set --no-cone \
+          '/cht/Nintendo - Game Boy*/' '/metadat/no-intro/Nintendo - Game Boy*.dat'
+        git -C "$tmp/db" fetch -q --depth 1 --filter=blob:none origin {{.CHEATS_DB_COMMIT}}
+        git -C "$tmp/db" checkout -q FETCH_HEAD
+        dat="$tmp/db/metadat/no-intro/Nintendo - Game Boy"
+        mkdir -p "$(dirname '{{.OUT}}')"
+        cargo run --release -q -p slot-labels --example cheats-pack -- "$tmp/db/cht" '{{.OUT}}' \
+          "$dat.dat" "$dat Color.dat" "$dat Advance.dat"
+        ls -l '{{.OUT}}'
+
   sdcard:
     desc: Create an empty content root, ROOT defaults to ./sdcard
     deps: [build]
@@ -465,7 +489,7 @@ tasks:
       - mkdir {{.OUT}}/System/slot-net
       - cp vendor/slot-net/iw vendor/slot-net/*.so.* {{.OUT}}/System/slot-net/
       - cp -R card/System/* {{.OUT}}/System/
-      - for d in Bezels Labels Wallpapers; do cp card/$d/README.txt {{.OUT}}/$d/; done
+      - for d in Bezels Cheats Labels Wallpapers; do cp card/$d/README.txt {{.OUT}}/$d/; done
       - file vendor/mgba_libretro.so | grep -q aarch64
       - file vendor/gpsp_libretro.so | grep -q aarch64
       - cp vendor/mgba_libretro.so {{.OUT}}/System/
