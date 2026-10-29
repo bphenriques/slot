@@ -1,11 +1,11 @@
-# v1.10.0-pvaibhav.1
+# v1.11.0-pvaibhav.1
 
-- Updates to upstream **v1.10.0**, with picture scaling and stretching options, matching Game Boy bezels, and a **GBA Video** shelf for carts in `Games/GBAV`.
-- Date & Time now uses cities, handles daylight saving automatically, and offers a 12-hour clock. Includes upstream's brightness, menu and shutdown fixes.
-- Upstream's **Frame Blending** replaces the old LCD Ghosting toggle. Existing On settings become **Mix**, preserving their appearance; Off stays Off. mGBA also offers **LCD Ghosting**.
-- Keeps this fork's automatic 120 Hz, display calibration, home Wi-Fi, label downloads, RetroAchievements, home-network linking and cheats. The CPU governor now uses upstream's implementation.
+- Updates to upstream **v1.11.0**: fixes headphone buzzing after audio stops and adds a **1.5×** fast-forward speed.
+- **Fast Forward Toggle** starts and stops fast-forward with a single press. Assign it a button in Settings > Controls > Shortcuts; it is unbound by default.
+- Follows upstream's removal of the `schedutil` CPU governor after reports of stuttering, returning to the kernel default.
+- Keeps this fork's automatic 120 Hz, display calibration, home Wi-Fi, label downloads, RetroAchievements, home-network linking and cheats.
 
-Unzip `slot-v1.10.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.10.0-pvaibhav.1/` onto SD2. Your games, saves, settings and credentials are preserved.
+Unzip `slot-v1.11.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.11.0-pvaibhav.1/` onto SD2. Your games, saves, settings and credentials are preserved.
 
 `Cheats.pack` and `Artwork.pack` are unchanged. Keep your existing copies, or put them in `Cheats/` and `Labels/` respectively.
 

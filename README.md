@@ -31,7 +31,8 @@ notes are in the [changelog](CHANGELOG.md).
 - **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
   panels. Other panel revisions keep their existing refresh rate.
 - ~~**Better battery life and less heat** with the `schedutil` CPU governor.~~
-  Included upstream since **v1.10.0**.
+  Removed upstream in **v1.11.0** after reports of stuttering; this fork follows
+  upstream and leaves the CPU governor at the kernel default.
 - ~~**LCD ghosting / interframe blending.**~~ Included upstream since **v1.10.0**
   as **Frame Blending** under Settings > Screen.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
@@ -74,7 +75,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.10.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.10.0-pvaibhav.1).
+The current release is [v1.11.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.11.0-pvaibhav.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ## Release cadence

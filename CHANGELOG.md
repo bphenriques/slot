@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.11.0)
+
+- Headphones no longer buzz a few seconds after the sound stops. slot keeps the audio device open while headphones are in. ([#163](https://github.com/BrandonKowalski/slot/issues/163))
+- slot leaves the CPU at its full fixed speed again, as it did in 1.9.0. `schedutil` will have to be revisited. ([#162](https://github.com/BrandonKowalski/slot/issues/162))
+- Fast Forward Toggle is a new shortcut. One press turns fast-forward on and the next turns it off. It's unbound by default. ([#164](https://github.com/BrandonKowalski/slot/issues/164))
+- Fast Forward has a 1.5x speed, for games where 2x is too fast. ([#161](https://github.com/BrandonKowalski/slot/issues/161))
+
 ## [1.10.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.10.0)
 
 - Screenshots: Press SELECT + X while you play. Once you take one, you can pick Screenshots in the in-game menu to view them. They're saved as `.png` in `Screenshots/`. ([#94](https://github.com/BrandonKowalski/slot/issues/94))
