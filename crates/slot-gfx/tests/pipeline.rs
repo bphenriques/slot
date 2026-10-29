@@ -1,6 +1,6 @@
 use slot_gfx::{
     blue_light_gain, canvas_size, game_layout, lcd3x_factors, lcd3x_mask, Compositor, Draw,
-    GameLayout, HeadlessSurface, ScreenEffect, Sizing, OUT_H, OUT_W, SRC_H, SRC_W,
+    GameLayout, HeadlessSurface, Screen, ScreenEffect, Sizing, OUT_H, OUT_W, SRC_H, SRC_W,
 };
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -991,4 +991,117 @@ fn a_still_over_a_panel_layout_leaves_no_live_game_around_it() {
             .count();
         assert_eq!(live, 0, "{sizing:?} left live game around the still");
     }
+}
+
+#[test]
+fn an_authentic_colour_screen_darkens_one_gap_column_per_game_pixel() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    for window in [(720, 480), (640, 480)] {
+        c.fit(window);
+        c.set_screen_effect(ScreenEffect::Authentic);
+        c.set_authentic_screen(Screen::Gba);
+        c.set_screen_power(1.0);
+        c.begin_frame();
+        c.upload_game(&flat_shot([0xff, 0xff, 0xff]));
+        c.draw_game();
+        let (w, h) = c.frame_size();
+        let frame = c.read_frame();
+        let y = h as usize / 2 + 1;
+        let lit = (0..w as usize)
+            .map(|x| at(&frame, w, x, y)[1])
+            .max()
+            .unwrap();
+        let gaps = (0..w as usize)
+            .filter(|&x| at(&frame, w, x, y)[1] + 20 < lit)
+            .count();
+        assert_eq!(gaps, SRC_W as usize, "{window:?}: {gaps} gap columns");
+    }
+}
+
+#[test]
+fn an_authentic_game_boy_draws_grey_as_dots_on_its_panel() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    c.set_picture([
+        GB_RECT[0],
+        GB_RECT[1],
+        GB_RECT[0] + GB_RECT[2],
+        GB_RECT[1] + GB_RECT[3],
+    ]);
+    c.set_game_source_rect(GB_RECT);
+    c.fit((OUT_W, OUT_H));
+    c.set_screen_effect(ScreenEffect::Authentic);
+    c.set_screen_power(1.0);
+    let mut panels = Vec::new();
+    for screen in [Screen::Pocket, Screen::Dmg] {
+        c.set_authentic_screen(screen);
+        c.begin_frame();
+        c.upload_game(&gb_shaped(
+            |x, _| {
+                if x < 80 {
+                    [0, 0, 0]
+                } else {
+                    [0xff, 0xff, 0xff]
+                }
+            },
+            [0, 0, 0],
+        ));
+        c.draw_game();
+        let frame = c.read_frame();
+        // The middles of game pixels 140 and 20 on row 72, 4.5 by 3.33 screen pixels each.
+        let lit = px(&frame, 632, 241);
+        let dark = px(&frame, 92, 241);
+        assert!(
+            lit[1] > dark[1] + 40,
+            "{screen:?}: white {lit:?} and black {dark:?} are too close"
+        );
+        panels.push(lit);
+    }
+    assert!(
+        panels[0][2] > panels[1][2] + 40,
+        "the Pocket's grey panel and the DMG's green one came out alike: {panels:?}"
+    );
+}
+
+#[test]
+fn an_authentic_game_boy_fades_like_its_lcd_and_clears_slower_than_it_darkens() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    c.fit((OUT_W, OUT_H));
+    c.set_screen_effect(ScreenEffect::Authentic);
+    c.set_authentic_screen(Screen::Dmg);
+    c.set_screen_power(1.0);
+    let (white, black) = (flat_shot([0xff; 3]), flat_shot([0; 3]));
+    // A game pixel's middle, away from the gaps between dots.
+    let middle = |c: &mut Compositor, frame: &[u8]| {
+        c.begin_frame();
+        c.upload_game(frame);
+        c.draw_game();
+        px(&c.read_frame(), 361, 241)[1] as i32
+    };
+    for _ in 0..20 {
+        middle(&mut c, &white);
+    }
+    let lit = middle(&mut c, &white);
+    let darkening = middle(&mut c, &black);
+    for _ in 0..20 {
+        middle(&mut c, &black);
+    }
+    let dark = middle(&mut c, &black);
+    let clearing = middle(&mut c, &white);
+    assert!(
+        dark < darkening && darkening < lit,
+        "{lit} {darkening} {dark}"
+    );
+    assert!(dark < clearing && clearing < lit, "{dark} {clearing} {lit}");
+    assert!(
+        lit - darkening > clearing - dark,
+        "one frame darkened {} but cleared {}: an STN panel darkens faster",
+        lit - darkening,
+        clearing - dark
+    );
 }

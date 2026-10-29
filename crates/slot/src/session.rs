@@ -558,7 +558,7 @@ impl Session {
             Some(CoreState::Loading) => {}
             Some(CoreState::Ready) => {
                 if let (true, Some(emu)) = (self.app.palette_live(), &self.emu) {
-                    emu.set_option("mgba_gb_colors", self.app.gb_colors().core_name());
+                    emu.set_option("mgba_gb_colors", self.app.core_gb_colors().core_name());
                 }
                 self.app.on_core_ready()
             }
@@ -589,9 +589,9 @@ impl Session {
         let stem = stem.to_owned();
         let clean = self.app.starting_clean();
         let player = self.app.link_player();
-        let chosen = self.app.gb_colors();
-        let colour = self.app.colour_correction_for(platform);
-        let blending = self.app.blending_for(platform);
+        let chosen = self.app.core_gb_colors();
+        let colour = self.app.core_colour_correction_for(platform);
+        let blending = self.app.core_blending_for(platform);
         let join = std::thread::Builder::new()
             .name("slot-open".into())
             .spawn(move || {

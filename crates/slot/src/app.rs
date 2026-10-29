@@ -8,9 +8,9 @@ use slot_power::{Battery, Charge, LedState, LidPolicy, Power, RepairResult};
 use slot_retro::LinkChannel;
 use slot_store::{
     format_stamp, parse_stamp, read_slot_state, scan, write_slot_state, BezelPick, Blending, Cart,
-    Core, GbColors, Platform, Recent, Scale, Shader, ShotDir, ShotEntry, SlotState, StateEntry,
-    StateRing, Stretch, WallpaperPick, WallpaperTint, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS,
-    RING_MAX, VOLUME_MAX,
+    Core, GbColors, GbModel, Platform, Recent, Scale, Shader, ShotDir, ShotEntry, SlotState,
+    StateEntry, StateRing, Stretch, WallpaperPick, WallpaperTint, BLUE_LIGHT_MAX, BRIGHTNESS_MAX,
+    FF_SPEEDS, RING_MAX, VOLUME_MAX,
 };
 use slot_ui::{
     board_from, board_zoom, draw_empty_slot, draw_footer, draw_ground, draw_sticker, ease,
@@ -1035,6 +1035,18 @@ impl App {
         if !self.palette_live {
             hidden.push(QuickRow::Palette);
         }
+        // Authentic draws the chosen model's colours and ghosting, which these would fight.
+        let platform = self.playing_platform();
+        if self.authentic(platform) {
+            hidden.extend([
+                QuickRow::ColourCorrection,
+                QuickRow::Blending,
+                QuickRow::Palette,
+            ]);
+        }
+        if !(self.authentic(platform) && platform == Platform::Gb) {
+            hidden.push(QuickRow::Model);
+        }
         if no_bezel {
             hidden.push(QuickRow::Bezel);
         }
@@ -1168,6 +1180,11 @@ impl App {
 
     pub fn quick_value(&self, row: QuickRow) -> Option<QuickValue> {
         match row {
+            QuickRow::GbModel | QuickRow::Model => Some(match self.state.gb_model {
+                GbModel::Dmg => QuickValue::GameBoy,
+                GbModel::Pocket => QuickValue::Pocket,
+                GbModel::Light => QuickValue::Light,
+            }),
             QuickRow::Shader
             | QuickRow::ColourCorrection
             | QuickRow::PlayBrightness
@@ -1400,7 +1417,12 @@ impl App {
             return None;
         }
         let gba = self.playing_platform().hardware() == Platform::Gba;
+        // Authentic draws the lit panel around a Game Boy or GBC picture, which the SP Frame
+        // and Integer bezels would cover; the Fit bezels' wider window shows it.
+        let margin = !gba && self.authentic(self.playing_platform());
         match (self.picture().0, self.framed_panel()) {
+            (Sizing::Band | Sizing::Integer, false) if margin => Some(BezelArt::Fit3x2),
+            (Sizing::Band | Sizing::Integer, true) if margin => Some(BezelArt::Fit4x3),
             (Sizing::Band, _) => Some(BezelArt::Default),
             _ if gba => None,
             (Sizing::Integer, false) => Some(BezelArt::Default),
@@ -1528,6 +1550,31 @@ impl App {
         }
         if !self.framed_panel() {
             hidden.push(QuickRow::GbaBezel);
+        }
+        for (platform, rows) in [
+            (
+                Platform::Gba,
+                &[QuickRow::GbaColourCorrection, QuickRow::GbaBlending][..],
+            ),
+            (
+                Platform::Gbc,
+                &[QuickRow::GbcColourCorrection, QuickRow::GbcBlending][..],
+            ),
+            (
+                Platform::Gb,
+                &[
+                    QuickRow::GbColourCorrection,
+                    QuickRow::GbBlending,
+                    QuickRow::GbPalette,
+                ][..],
+            ),
+        ] {
+            if self.authentic(platform) {
+                hidden.extend_from_slice(rows);
+            }
+        }
+        if !self.authentic(Platform::Gb) {
+            hidden.push(QuickRow::GbModel);
         }
         for (row, platform) in [
             (QuickRow::GbaScale, Platform::Gba),
@@ -2618,6 +2665,32 @@ impl App {
         }
     }
 
+    pub fn authentic(&self, platform: Platform) -> bool {
+        let shader = match platform {
+            Platform::Gba | Platform::Gbav => self.state.shader_gba,
+            Platform::Gb => self.state.shader_gb,
+            Platform::Gbc => self.state.shader_gbc,
+        };
+        shader == Shader::Authentic
+    }
+
+    /// What the core is asked for. Under Authentic the shader draws the screen's colours and
+    /// its ghosting itself, so the core's correction and blending stay off.
+    pub fn core_colour_correction_for(&self, platform: Platform) -> bool {
+        self.colour_correction_for(platform) && !self.authentic(platform)
+    }
+
+    pub fn core_blending_for(&self, platform: Platform) -> Blending {
+        match self.authentic(platform) {
+            true => Blending::Off,
+            false => self.blending_for(platform),
+        }
+    }
+
+    pub fn gb_model(&self) -> GbModel {
+        self.state.gb_model
+    }
+
     pub fn blending_for(&self, platform: Platform) -> Blending {
         match platform {
             Platform::Gba | Platform::Gbav => self.state.blending_gba,
@@ -2729,15 +2802,30 @@ impl App {
     }
 
     pub fn take_colour_correction(&mut self) -> Option<bool> {
-        self.colour_pending.take()
+        let platform = self.playing_platform();
+        self.colour_pending
+            .take()
+            .map(|_| self.core_colour_correction_for(platform))
     }
 
     pub fn take_blending(&mut self) -> Option<Blending> {
-        self.blending_pending.take()
+        let platform = self.playing_platform();
+        self.blending_pending
+            .take()
+            .map(|_| self.core_blending_for(platform).on(self.core))
     }
 
     pub fn gb_colors(&self) -> GbColors {
         self.state.gb_colors()
+    }
+
+    /// The colours the core draws a Game Boy game in: grey under the Authentic shader, which
+    /// lays its own screen over the grey.
+    pub fn core_gb_colors(&self) -> GbColors {
+        match self.state.shader_gb {
+            Shader::Authentic => GbColors::Palette(slot_store::GbPalette::GRAYSCALE),
+            _ => self.state.gb_colors(),
+        }
     }
 
     pub fn card_read(
@@ -2768,7 +2856,7 @@ impl App {
     }
 
     pub fn take_gb_colors(&mut self) -> Option<GbColors> {
-        self.palette_pending.take()
+        self.palette_pending.take().map(|_| self.core_gb_colors())
     }
 
     pub fn core(&self) -> Core {
@@ -3205,6 +3293,8 @@ impl App {
             | QuickRow::GbShader
             | QuickRow::GbcShader
             | QuickRow::GbPalette
+            | QuickRow::GbModel
+            | QuickRow::Model
             | QuickRow::Rumble
             | QuickRow::LeftStick
             | QuickRow::HomeWifi
@@ -3303,6 +3393,11 @@ impl App {
                 false => now.saturating_sub(1),
             };
             self.set_level(kind, to);
+            return;
+        }
+        if let QuickRow::GbModel | QuickRow::Model = row {
+            self.state.gb_model = self.state.gb_model.step(right);
+            self.persist();
             return;
         }
         if let QuickRow::Palette | QuickRow::GbPalette = row {
@@ -3404,6 +3499,7 @@ impl App {
                     return;
                 }
                 s.shader_gba = to;
+                self.core_options_pending();
             }
             QuickRow::GbShader => {
                 let to = s.shader_gb.step(&Shader::GB, right);
@@ -3411,6 +3507,7 @@ impl App {
                     return;
                 }
                 s.shader_gb = to;
+                self.core_options_pending();
             }
             QuickRow::GbcShader => {
                 let to = s.shader_gbc.step(&Shader::GB, right);
@@ -3418,6 +3515,7 @@ impl App {
                     return;
                 }
                 s.shader_gbc = to;
+                self.core_options_pending();
             }
             QuickRow::Rumble => s.rumble = !s.rumble,
             QuickRow::LeftStick => s.left_stick_dpad = !s.left_stick_dpad,
@@ -3470,6 +3568,8 @@ impl App {
             | QuickRow::ColourCorrection
             | QuickRow::Palette
             | QuickRow::GbPalette
+            | QuickRow::GbModel
+            | QuickRow::Model
             | QuickRow::ScreenGba
             | QuickRow::ScreenGbc
             | QuickRow::ScreenGb
@@ -3530,6 +3630,14 @@ impl App {
         self.apply(action);
     }
 
+    /// Ask the core again for its palette, colour correction and blending, which Authentic
+    /// turns to neutral and back.
+    fn core_options_pending(&mut self) {
+        self.palette_pending = Some(self.state.gb_colors());
+        self.colour_pending = Some(self.colour_correction());
+        self.blending_pending = Some(self.blending_in_play());
+    }
+
     fn step_shader(&mut self, right: bool) {
         if !matches!(self.phase, Phase::Inserting { .. } | Phase::Playing { .. }) {
             return;
@@ -3546,7 +3654,9 @@ impl App {
             Shader::Grid => Toast::ShaderGrid,
             Shader::Dot => Toast::ShaderDot,
             Shader::Simpletex => Toast::ShaderSimpletex,
+            Shader::Authentic => Toast::ShaderAuthentic,
         };
+        self.core_options_pending();
         self.persist();
         self.hud.toast(said, self.now());
     }
@@ -3573,7 +3683,19 @@ impl App {
             return true;
         }
         if let Action::PaletteNext | Action::PalettePrev = action {
-            if self.palette_live && matches!(self.phase, Phase::Playing { .. }) {
+            let playing = matches!(self.phase, Phase::Playing { .. });
+            if playing && self.authentic(Platform::Gb) && self.playing_platform() == Platform::Gb {
+                self.state.gb_model = self.state.gb_model.step(action == Action::PaletteNext);
+                self.persist();
+                let said = match self.state.gb_model {
+                    GbModel::Dmg => Toast::ModelGameBoy,
+                    GbModel::Pocket => Toast::ModelPocket,
+                    GbModel::Light => Toast::ModelLight,
+                };
+                self.hud.toast(said, self.now());
+                return true;
+            }
+            if self.palette_live && playing {
                 let to = match action {
                     Action::PalettePrev => self.state.gb_colors().prev(),
                     _ => self.state.gb_colors().next(),
@@ -3586,6 +3708,9 @@ impl App {
             return true;
         }
         if action == Action::ColourCorrectionToggle {
+            if self.authentic(self.playing_platform()) {
+                return true;
+            }
             let row = match self.playing_platform() {
                 Platform::Gba | Platform::Gbav => QuickRow::GbaColourCorrection,
                 Platform::Gb => QuickRow::GbColourCorrection,
@@ -6593,6 +6718,7 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Grid => QuickValue::Grid,
         Shader::Dot => QuickValue::Dot,
         Shader::Simpletex => QuickValue::Simpletex,
+        Shader::Authentic => QuickValue::Authentic,
     }
 }
 

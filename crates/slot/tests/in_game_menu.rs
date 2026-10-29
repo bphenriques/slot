@@ -104,6 +104,7 @@ fn screen_shows_the_palette_only_when_palettes_are_live() {
         [
             &[
                 QuickRow::Palette,
+                QuickRow::Model,
                 QuickRow::Bezel,
                 QuickRow::Scale,
                 QuickRow::Stretch,
@@ -118,6 +119,7 @@ fn screen_shows_the_palette_only_when_palettes_are_live() {
         a.in_game_hidden(),
         [
             &[
+                QuickRow::Model,
                 QuickRow::Bezel,
                 QuickRow::Scale,
                 QuickRow::Stretch,

@@ -543,7 +543,9 @@ fn each_platform_keeps_its_own_shader_wraps_and_starts_on_grid_and_simpletex() {
     );
     for (btn, want, shown) in [
         (Btn::Right, Shader::Dot, QuickValue::Dot),
+        (Btn::Right, Shader::Authentic, QuickValue::Authentic),
         (Btn::Right, Shader::Off, QuickValue::Off),
+        (Btn::Left, Shader::Authentic, QuickValue::Authentic),
         (Btn::Left, Shader::Dot, QuickValue::Dot),
         (Btn::Left, Shader::Grid, QuickValue::Grid),
         (Btn::Left, Shader::Lcd3x, QuickValue::Lcd3x),
@@ -577,7 +579,7 @@ fn each_platform_keeps_its_own_shader_wraps_and_starts_on_grid_and_simpletex() {
     let s = read_slot_state(d.path());
     assert_eq!(
         (s.shader_gba, s.shader_gb, s.shader_gbc),
-        (Shader::Off, Shader::Grid, Shader::Off)
+        (Shader::Off, Shader::Grid, Shader::Authentic)
     );
 }
 
@@ -1125,6 +1127,7 @@ fn the_game_boy_page_steps_the_palette_from_auto() {
         QuickRow::SCREEN_GB,
         [
             QuickRow::GbShader,
+            QuickRow::GbModel,
             QuickRow::GbColourCorrection,
             QuickRow::GbBlending,
             QuickRow::GbPalette,

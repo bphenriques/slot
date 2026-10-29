@@ -156,6 +156,7 @@ fn slot_state_round_trips_including_a_stem_with_an_equals_sign() {
         volume: 71,
         muted: true,
         clock_set: true,
+        gb_model: slot_store::GbModel::Light,
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -342,6 +343,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             stretch_gbc: Stretch::Classic,
             blending_gba: Blending::Off,
             blending_gb: Blending::Off,
+            gb_model: slot_store::GbModel::Pocket,
             blending_gbc: Blending::Off,
             recents: Vec::new(),
             favorites: Vec::new(),
@@ -838,5 +840,17 @@ fn a_frame_blending_the_rows_do_not_offer_reads_as_off() {
     assert!(
         read.clock_set,
         "the rest of the card was thrown away with it"
+    );
+}
+
+#[test]
+fn a_card_saved_with_the_test_builds_transparent_shader_keeps_it_as_authentic() {
+    assert_eq!(
+        slot_store::Shader::parse("transparent"),
+        Some(slot_store::Shader::Authentic)
+    );
+    assert_eq!(
+        slot_store::Shader::parse("authentic"),
+        Some(slot_store::Shader::Authentic)
     );
 }

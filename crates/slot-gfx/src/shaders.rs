@@ -63,6 +63,11 @@ uniform vec2 u_origin;
 uniform vec4 u_rect;
 uniform vec2 u_fbo;
 uniform vec4 u_pic;
+uniform sampler2D u_ramp;
+uniform vec3 u_light;
+uniform vec3 u_dark;
+uniform mat3 u_response;
+uniform vec4 u_lcd;
 varying vec2 v_uv;
 const vec3 offsets = vec3(3.141592654) * vec3(1.0 / 2.0, 1.0 / 2.0 - 2.0 / 3.0, 1.0 / 2.0 - 4.0 / 3.0);
 const vec3 luma_coeff = vec3(0.2126, 0.7152, 0.0722);
@@ -78,6 +83,56 @@ void main() {
     vec3 c = texture2D(u_game, uv).rgb;
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
     if (!inside) {
+        // The lit panel runs on past the picture to the edge of the screen: a Game Boy's
+        // with its grain, a GBC's reflector white.
+        if (u_mode > 4.5) {
+            float paper = texture2D(u_paper, (floor(gl_FragCoord.xy - u_origin) + 0.5) / u_paper_size).r;
+            c = u_lcd.x > 0.5 ? u_light * (1.0 + (paper - 0.673) * 0.6) : pow(u_light, vec3(1.0 / 2.2));
+            c += (1.0 - c) * 0.05 * clamp(1.0 - (v_uv.x * 0.5 + v_uv.y), 0.0, 1.0);
+        }
+    } else if (u_mode > 4.5) {
+        // Authentic: an unlit LCD in room light. See authentic.rs.
+        vec2 span = u_rect.zw * u_fbo / (u_uv.zw * u_src);
+        // The screen pixel along each game pixel's top and left edge is the gap between dots.
+        vec2 gap = step(f * span, vec2(1.0));
+        if (u_lcd.x > 0.5) {
+            // The core draws grey: how much ink each dot holds over the lit panel. A white
+            // dot still shades it a little; a black one lets a little through.
+            float a = 0.08 + 0.84 * (1.0 - dot(c, vec3(1.0 / 3.0)));
+            a *= gap.x + gap.y > 1.5 ? 0.0 : (gap.x + gap.y > 0.5 ? 0.35 : 1.0);
+            // The dots' shadow on the reflector, half a pixel down and to the left as dmg-3x
+            // casts it, softened by the glass between them. It shows through pale dots.
+            vec2 texel = 1.0 / u_src;
+            vec2 from = uv + vec2(0.5, -0.5) * texel;
+            float shadow = 0.0;
+            for (int j = -1; j <= 1; j++) {
+                for (int i = -1; i <= 1; i++) {
+                    float w = (i == 0 ? 1.0 : 0.25) * (j == 0 ? 1.0 : 0.25);
+                    vec2 at = clamp(from + vec2(float(i), float(j)) * texel, u_pic.xy + texel * 0.5, u_pic.zw - texel * 0.5);
+                    shadow += (0.08 + 0.84 * (1.0 - dot(texture2D(u_game, at).rgb, vec3(1.0 / 3.0)))) * w;
+                }
+            }
+            // Over a dot's gaps as well as the dot itself: about six tenths of its ink.
+            shadow *= 0.6 / 2.25;
+            float paper = texture2D(u_paper, (floor(gl_FragCoord.xy - u_origin) + 0.5) / u_paper_size).r;
+            vec3 back = u_light * (1.0 + (paper - 0.673) * 0.6);
+            back = mix(back, u_dark, shadow * 0.6);
+            c = mix(back, u_dark, a);
+        } else {
+            // Each 5-bit code's measured light, then the panel's colour response, then the
+            // reflector's white and the panel's black.
+            vec3 code = (floor(c * 31.0 + 0.5) + 0.5) / 32.0;
+            vec2 pick = vec2(1.0 - u_lcd.y, u_lcd.y);
+            vec3 light = vec3(dot(texture2D(u_ramp, vec2(code.r, 0.5)).rg, pick),
+                              dot(texture2D(u_ramp, vec2(code.g, 0.5)).rg, pick),
+                              dot(texture2D(u_ramp, vec2(code.b, 0.5)).rg, pick));
+            vec3 lin = clamp(u_response * pow(light, vec3(2.2)), 0.0, 1.0);
+            lin = mix(u_dark, u_light, lin);
+            lin = mix(lin, u_dark, max(gap.x * u_lcd.z, gap.y * u_lcd.w));
+            c = pow(lin, vec3(1.0 / 2.2));
+        }
+        // The glass catches a soft reflection of the room from the top left.
+        c += (1.0 - c) * 0.05 * clamp(1.0 - (v_uv.x * 0.5 + v_uv.y), 0.0, 1.0);
     } else if (u_mode > 3.5) {
         c = pow(c, vec3(1.05));
         vec2 d = abs(f - 0.5);
@@ -154,5 +209,24 @@ uniform vec3 u_gain;
 varying vec2 v_uv;
 void main() {
     FRAG_COLOR = vec4(texture2D(u_tex, v_uv).rgb * u_gain, 1.0);
+}
+"#;
+
+/// The LCD's slow response: each channel moves from what the screen showed toward the new
+/// frame, more slowly while it turns lighter than while it turns darker.
+pub const GHOST_FRAG: &str = r#"
+precision mediump float;
+uniform sampler2D u_tex;
+uniform sampler2D u_prev;
+uniform vec2 u_keep;
+varying vec2 v_uv;
+void main() {
+    vec3 now = texture2D(u_tex, v_uv).rgb;
+    vec3 was = texture2D(u_prev, v_uv).rgb;
+    vec3 keep = mix(vec3(u_keep.y), vec3(u_keep.x), step(was, now));
+    vec3 c = mix(now, was, keep);
+    // Eight bits cannot hold the last steps of the fade; finish them.
+    c = mix(c, now, step(abs(now - was), vec3(1.5 / 255.0)));
+    FRAG_COLOR = vec4(c, 1.0);
 }
 "#;

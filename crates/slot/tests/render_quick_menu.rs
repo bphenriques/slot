@@ -289,15 +289,17 @@ fn the_game_boy_page_shows_the_palette_by_name() {
         tap(&mut f, &mut input, Btn::Down);
     }
     tap(&mut f, &mut input, Btn::A);
-    for _ in 0..QuickRow::GbPalette.position(&[]) {
+    // Model shows only under the Authentic shader.
+    let hidden = [QuickRow::GbModel];
+    for _ in 0..QuickRow::GbPalette.position(&hidden) {
         tap(&mut f, &mut input, Btn::Down);
     }
     let px = composed(&mut f, &mut c, "screen-page");
 
-    let top = quick_row_top(QuickRow::GbPalette, &[]) as usize;
+    let top = quick_row_top(QuickRow::GbPalette, &hidden) as usize;
     beside("Palette", pointer(&px, top));
-    for row in QuickRow::SCREEN_GB {
-        let top = quick_row_top(row, &[]) as usize;
+    for row in QuickRow::GbShader.shown(&hidden) {
+        let top = quick_row_top(row, &hidden) as usize;
         if row != QuickRow::GbPalette {
             assert!(pointer(&px, top).is_none(), "a pointer at {row:?} as well");
         }

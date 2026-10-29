@@ -248,6 +248,36 @@ impl Stretch {
     }
 }
 
+/// The Game Boy the Authentic shader draws a Game Boy game on.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum GbModel {
+    Dmg,
+    #[default]
+    Pocket,
+    Light,
+}
+
+impl GbModel {
+    pub const ALL: [GbModel; 3] = [GbModel::Dmg, GbModel::Pocket, GbModel::Light];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            GbModel::Dmg => "dmg",
+            GbModel::Pocket => "pocket",
+            GbModel::Light => "light",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<GbModel> {
+        GbModel::ALL.into_iter().find(|m| m.key() == value)
+    }
+
+    pub fn step(self, right: bool) -> GbModel {
+        let at = GbModel::ALL.iter().position(|&m| m == self).unwrap_or(0);
+        GbModel::ALL[(at + if right { 1 } else { 2 }) % 3]
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum Blending {
     #[default]
@@ -345,6 +375,7 @@ pub struct SlotState {
     pub stretch_gbc: Stretch,
     pub blending_gba: Blending,
     pub blending_gb: Blending,
+    pub gb_model: GbModel,
     pub blending_gbc: Blending,
     pub recents: Vec<Recent>,
     pub favorites: Vec<Recent>,
@@ -410,11 +441,24 @@ pub enum Shader {
     Grid,
     Dot,
     Simpletex,
+    Authentic,
 }
 
 impl Shader {
-    pub const GBA: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Dot];
-    pub const GB: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Simpletex];
+    pub const GBA: [Shader; 5] = [
+        Shader::Off,
+        Shader::Lcd3x,
+        Shader::Grid,
+        Shader::Dot,
+        Shader::Authentic,
+    ];
+    pub const GB: [Shader; 5] = [
+        Shader::Off,
+        Shader::Lcd3x,
+        Shader::Grid,
+        Shader::Simpletex,
+        Shader::Authentic,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -423,6 +467,7 @@ impl Shader {
             Shader::Grid => "grid",
             Shader::Dot => "dot",
             Shader::Simpletex => "simpletex",
+            Shader::Authentic => "authentic",
         }
     }
 
@@ -433,9 +478,12 @@ impl Shader {
             Shader::Grid,
             Shader::Dot,
             Shader::Simpletex,
+            Shader::Authentic,
         ]
         .into_iter()
         .find(|s| s.name() == name)
+        // Authentic's name in test builds before it was named.
+        .or((name == "transparent").then_some(Shader::Authentic))
     }
 
     pub fn step(self, choices: &[Shader], right: bool) -> Shader {
@@ -497,6 +545,7 @@ impl Default for SlotState {
             stretch_gbc: Stretch::Classic,
             blending_gba: Blending::Off,
             blending_gb: Blending::Off,
+            gb_model: GbModel::Pocket,
             blending_gbc: Blending::Off,
             recents: Vec::new(),
             favorites: Vec::new(),
@@ -606,6 +655,7 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
     text.push_str(&format!("stretch_gbc={}\n", s.stretch_gbc.name()));
     text.push_str(&format!("blending_gba={}\n", s.blending_gba.key()));
     text.push_str(&format!("blending_gb={}\n", s.blending_gb.key()));
+    text.push_str(&format!("gb_model={}\n", s.gb_model.key()));
     text.push_str(&format!("blending_gbc={}\n", s.blending_gbc.key()));
     text.push_str(&format!("shelf={}\n", s.shelf.as_deref().unwrap_or("")));
     text.push_str(&format!(
@@ -672,6 +722,7 @@ fn parse(text: &str) -> Option<SlotState> {
     let mut stretch_gbc = None;
     let mut blending_gba = None;
     let mut blending_gb = None;
+    let mut gb_model = None;
     let mut blending_gbc = None;
     let mut shelf = None;
     let mut shelf_cart = None;
@@ -728,6 +779,7 @@ fn parse(text: &str) -> Option<SlotState> {
             "stretch_gbc" => stretch_gbc = Stretch::parse(value),
             "blending_gba" => blending_gba = Some(Blending::parse(value).unwrap_or_default()),
             "blending_gb" => blending_gb = Some(Blending::parse(value).unwrap_or_default()),
+            "gb_model" => gb_model = GbModel::parse(value),
             "blending_gbc" => blending_gbc = Some(Blending::parse(value).unwrap_or_default()),
             "shelf" => shelf = Some(value.to_string()).filter(|v| !v.is_empty()),
             "shelf_cart" => shelf_cart = recent_value(value),
@@ -799,6 +851,7 @@ fn parse(text: &str) -> Option<SlotState> {
         blending_gb: blending_gb
             .or_else(|| legacy_blending(ghosting_gb))
             .unwrap_or(fallback.blending_gb),
+        gb_model: gb_model.unwrap_or(fallback.gb_model),
         blending_gbc: blending_gbc
             .or_else(|| legacy_blending(ghosting_gbc))
             .unwrap_or(fallback.blending_gbc),

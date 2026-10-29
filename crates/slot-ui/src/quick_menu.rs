@@ -109,10 +109,12 @@ pub enum QuickRow {
     Blending,
     Cheats,
     CheatList,
+    GbModel,
+    Model,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 98] = [
+    pub const ALL: [QuickRow; 100] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -211,6 +213,8 @@ impl QuickRow {
         QuickRow::Blending,
         QuickRow::Cheats,
         QuickRow::CheatList,
+        QuickRow::GbModel,
+        QuickRow::Model,
     ];
 
     pub const MAIN: [QuickRow; 5] = [
@@ -302,8 +306,9 @@ impl QuickRow {
         QuickRow::GbcStretch,
     ];
 
-    pub const SCREEN_GB: [QuickRow; 7] = [
+    pub const SCREEN_GB: [QuickRow; 8] = [
         QuickRow::GbShader,
+        QuickRow::GbModel,
         QuickRow::GbColourCorrection,
         QuickRow::GbBlending,
         QuickRow::GbPalette,
@@ -342,8 +347,9 @@ impl QuickRow {
         QuickRow::PlayControls,
     ];
 
-    pub const PLAY_SCREEN: [QuickRow; 9] = [
+    pub const PLAY_SCREEN: [QuickRow; 10] = [
         QuickRow::Shader,
+        QuickRow::Model,
         QuickRow::Bezel,
         QuickRow::Scale,
         QuickRow::Stretch,
@@ -378,6 +384,7 @@ impl QuickRow {
             | QuickRow::GbcScale
             | QuickRow::GbcStretch => &QuickRow::SCREEN_GBC,
             QuickRow::GbShader
+            | QuickRow::GbModel
             | QuickRow::GbColourCorrection
             | QuickRow::GbBlending
             | QuickRow::GbPalette
@@ -419,6 +426,7 @@ impl QuickRow {
             r if r.shortcut().is_some() => &QuickRow::SHORTCUTS,
             r if r.carousel_action().is_some() => &QuickRow::SHELF_KEYS,
             QuickRow::Shader
+            | QuickRow::Model
             | QuickRow::ColourCorrection
             | QuickRow::Palette
             | QuickRow::Bezel
@@ -529,6 +537,7 @@ impl QuickRow {
             QuickRow::Turbo => "Turbo Buttons",
             QuickRow::Rewind => "Rewind",
             QuickRow::GbPalette => "Palette",
+            QuickRow::GbModel | QuickRow::Model => "Model",
             QuickRow::Theme => "Theme",
             QuickRow::Wallpaper => "Wallpaper",
             QuickRow::Recents => "Recents",
@@ -707,6 +716,9 @@ pub enum QuickValue {
     Grid,
     Dot,
     Simpletex,
+    Authentic,
+    GameBoy,
+    Pocket,
     Dark,
     Light,
     Show,
@@ -740,7 +752,7 @@ pub enum QuickValue {
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 40] = [
+    pub const ALL: [QuickValue; 43] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -751,6 +763,9 @@ impl QuickValue {
         QuickValue::Grid,
         QuickValue::Dot,
         QuickValue::Simpletex,
+        QuickValue::Authentic,
+        QuickValue::GameBoy,
+        QuickValue::Pocket,
         QuickValue::Dark,
         QuickValue::Light,
         QuickValue::Show,
@@ -821,6 +836,9 @@ impl QuickValue {
             QuickValue::Grid => "Grid",
             QuickValue::Dot => "Dot",
             QuickValue::Simpletex => "Simpletex",
+            QuickValue::Authentic => "Authentic",
+            QuickValue::GameBoy => "Game Boy",
+            QuickValue::Pocket => "Pocket",
             QuickValue::Dark => "Dark",
             QuickValue::Light => "Light",
             QuickValue::Show => "Show",

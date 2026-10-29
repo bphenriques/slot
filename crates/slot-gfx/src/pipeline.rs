@@ -1,3 +1,4 @@
+use crate::authentic::{Ghost, Screen};
 use crate::lcd3x::ScreenEffect;
 use crate::power::{screen_brightness, screen_rect_above};
 use crate::quad::Quad;
@@ -26,6 +27,13 @@ pub struct GamePass {
     origin: [f32; 2],
     u_pic: gl::types::GLint,
     pic: [f32; 4],
+    u_light: gl::types::GLint,
+    u_dark: gl::types::GLint,
+    u_response: gl::types::GLint,
+    u_lcd: gl::types::GLint,
+    ramp: gl::types::GLuint,
+    screen: Screen,
+    ghost: Ghost,
     paper: gl::types::GLuint,
     paper_size: f32,
     effect: ScreenEffect,
@@ -49,7 +57,16 @@ impl GamePass {
             crate::gl::gray_format(),
             Some(&[255]),
         );
+        let ramp = crate::gl::texture(
+            32,
+            1,
+            gl::NEAREST,
+            gl::CLAMP_TO_EDGE,
+            gl::RGBA,
+            Some(&crate::authentic::ramp_texture()),
+        );
         let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_origin);
+        let (u_light, u_dark, u_response, u_lcd);
         unsafe {
             gl::UseProgram(prog);
             gl::Uniform1i(crate::gl::uniform_location(prog, "u_game"), 0);
@@ -72,6 +89,11 @@ impl GamePass {
             u_fbo = crate::gl::uniform_location(prog, "u_fbo");
             u_pic = crate::gl::uniform_location(prog, "u_pic");
             u_origin = crate::gl::uniform_location(prog, "u_origin");
+            u_light = crate::gl::uniform_location(prog, "u_light");
+            u_dark = crate::gl::uniform_location(prog, "u_dark");
+            u_response = crate::gl::uniform_location(prog, "u_response");
+            gl::Uniform1i(crate::gl::uniform_location(prog, "u_ramp"), 2);
+            u_lcd = crate::gl::uniform_location(prog, "u_lcd");
         }
         Ok(GamePass {
             prog,
@@ -87,6 +109,13 @@ impl GamePass {
             origin: [0.0, 0.0],
             u_pic,
             pic: WHOLE_TEXTURE,
+            u_light,
+            u_dark,
+            u_response,
+            u_lcd,
+            ramp,
+            screen: Screen::Gba,
+            ghost: Ghost::new()?,
             paper,
             paper_size: 1.0,
             effect: ScreenEffect::Lcd3x,
@@ -135,7 +164,14 @@ impl GamePass {
     }
 
     pub fn set_effect(&mut self, effect: ScreenEffect) {
+        if effect != self.effect {
+            self.ghost.reset();
+        }
         self.effect = effect;
+    }
+
+    pub fn set_screen(&mut self, screen: Screen) {
+        self.screen = screen;
     }
 
     pub fn set_paper(&mut self, size: u32, gray: &[u8]) {
@@ -156,7 +192,7 @@ impl GamePass {
         self.src = rect;
     }
 
-    pub fn upload(&mut self, xrgb8888: &[u8]) {
+    pub fn upload(&mut self, xrgb8888: &[u8], quad: &Quad) {
         if xrgb8888.len() < (SRC_W * SRC_H * 4) as usize {
             return;
         }
@@ -175,6 +211,10 @@ impl GamePass {
                 xrgb8888.as_ptr() as *const std::ffi::c_void,
             );
         }
+        if self.effect == ScreenEffect::Authentic {
+            self.ghost
+                .respond(self.game, self.screen.look().ghost, quad);
+        }
     }
 
     pub fn draw(&self, quad: &Quad) {
@@ -184,7 +224,11 @@ impl GamePass {
             }
             _ => self.src,
         };
-        self.draw_source(self.game, quad, src, self.layout);
+        let shown = match self.effect {
+            ScreenEffect::Authentic => self.ghost.texture().unwrap_or(self.game),
+            _ => self.game,
+        };
+        self.draw_source(shown, quad, src, self.layout);
     }
 
     pub fn draw_still(&self, tex: gl::types::GLuint, quad: &Quad) {
@@ -192,7 +236,7 @@ impl GamePass {
     }
 
     fn draw_source(&self, tex: gl::types::GLuint, quad: &Quad, src: [f32; 4], layout: [f32; 4]) {
-        let (x, y, w, h) = placed_in(self.frame(), layout);
+        let (mut x, mut y, mut w, mut h) = placed_in(self.frame(), layout);
         let bright = if self.fills {
             1.0
         } else {
@@ -203,6 +247,18 @@ impl GamePass {
         let mut src = src;
         if self.bottom > 0.0 {
             src[3] *= (OUT_H as f32 - self.bottom) / OUT_H as f32;
+        }
+        if self.effect == ScreenEffect::Authentic && self.pic != WHOLE_TEXTURE {
+            // The lit panel fills the screen around a Game Boy or GBC picture, with the same
+            // glass over it; a bezel, when one is chosen, is drawn on top.
+            let (fx, fy, fw, fh) = placed_in(self.frame(), FULL);
+            src = [
+                src[0] + (fx - x) / w * src[2],
+                src[1] + (fy - y) / h * src[3],
+                src[2] * fw / w,
+                src[3] * fh / h,
+            ];
+            (x, y, w, h) = (fx, fy, fw, fh);
         }
         unsafe {
             gl::UseProgram(self.prog);
@@ -220,6 +276,18 @@ impl GamePass {
                 self.pic[2],
                 self.pic[3],
             );
+            if self.effect == ScreenEffect::Authentic {
+                let look = self.screen.look();
+                let [r, g, b] = look.light;
+                gl::Uniform3f(self.u_light, r, g, b);
+                let [r, g, b] = look.dark;
+                gl::Uniform3f(self.u_dark, r, g, b);
+                gl::UniformMatrix3fv(self.u_response, 1, gl::FALSE, look.response.as_ptr());
+                let [x, y, z, w] = look.lcd;
+                gl::Uniform4f(self.u_lcd, x, y, z, w);
+                gl::ActiveTexture(gl::TEXTURE2);
+                gl::BindTexture(gl::TEXTURE_2D, self.ramp);
+            }
             gl::ActiveTexture(gl::TEXTURE1);
             gl::BindTexture(gl::TEXTURE_2D, self.paper);
             gl::ActiveTexture(gl::TEXTURE0);
@@ -258,6 +326,7 @@ impl Drop for GamePass {
         unsafe {
             gl::DeleteTextures(1, &self.game);
             gl::DeleteTextures(1, &self.paper);
+            gl::DeleteTextures(1, &self.ramp);
             gl::DeleteProgram(self.prog);
         }
     }

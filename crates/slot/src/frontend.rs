@@ -610,7 +610,9 @@ impl Frontend {
             slot_store::Shader::Grid => ScreenEffect::Grid,
             slot_store::Shader::Dot => ScreenEffect::Dot,
             slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
+            slot_store::Shader::Authentic => ScreenEffect::Authentic,
         });
+        compositor.set_authentic_screen(authentic_screen(self.session.app()));
         compositor.set_shake(self.session.app().screen_shake());
         compositor.set_screen_power(self.session.app().screen_power());
         compositor.set_screen_footer(self.session.app().screen_footer());
@@ -917,6 +919,18 @@ impl Frontend {
         while !self.session.achievement_flush_ready() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+}
+
+fn authentic_screen(app: &App) -> slot_gfx::Screen {
+    match app.playing_platform() {
+        Console::Gb => match app.gb_model() {
+            slot_store::GbModel::Dmg => slot_gfx::Screen::Dmg,
+            slot_store::GbModel::Pocket => slot_gfx::Screen::Pocket,
+            slot_store::GbModel::Light => slot_gfx::Screen::Light,
+        },
+        Console::Gbc => slot_gfx::Screen::Gbc,
+        Console::Gba | Console::Gbav => slot_gfx::Screen::Gba,
     }
 }
 

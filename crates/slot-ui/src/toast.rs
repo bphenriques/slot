@@ -24,6 +24,10 @@ pub enum Toast {
     ShaderGrid,
     ShaderDot,
     ShaderSimpletex,
+    ShaderAuthentic,
+    ModelGameBoy,
+    ModelPocket,
+    ModelLight,
     CardUnwritable,
     CardRepair,
     CardRepairCharge,
@@ -34,7 +38,7 @@ pub enum Toast {
 }
 
 impl Toast {
-    const FIXED: [Toast; 21] = [
+    const FIXED: [Toast; 25] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::ShotCaptured,
@@ -51,6 +55,10 @@ impl Toast {
         Toast::ShaderGrid,
         Toast::ShaderDot,
         Toast::ShaderSimpletex,
+        Toast::ShaderAuthentic,
+        Toast::ModelGameBoy,
+        Toast::ModelPocket,
+        Toast::ModelLight,
         Toast::CardUnwritable,
         Toast::CardRepair,
         Toast::CardRepairCharge,
@@ -138,6 +146,10 @@ impl Toast {
             Toast::ShaderGrid => "Shader: Grid",
             Toast::ShaderDot => "Shader: Dot",
             Toast::ShaderSimpletex => "Shader: Simpletex",
+            Toast::ShaderAuthentic => "Shader: Authentic",
+            Toast::ModelGameBoy => "Game Boy",
+            Toast::ModelPocket => "Game Boy Pocket",
+            Toast::ModelLight => "Game Boy Light",
             Toast::CardUnwritable => "Can't write to SD card",
             Toast::CardRepair | Toast::CardRepairCharge => "Can't write to SD card",
             Toast::CardRepaired => "SD card repaired",
