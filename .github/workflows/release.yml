@@ -29,6 +29,15 @@ jobs:
       - name: Build the tree
         run: task dist:device OUT="slot-${GITHUB_REF_NAME}"
 
+      # pvaibhav ships the cheats beside the card; ours carries them, so a game has them at once.
+      # Without them the card still works, so a missing pack only warns.
+      - name: Add pvaibhav's cheat pack
+        run: |
+          set -u
+          pack="slot-${GITHUB_REF_NAME}/Cheats/Cheats.pack"
+          curl -fsSL -o "$pack" https://github.com/pvaibhav/slot/releases/latest/download/Cheats.pack && test -s "$pack" \
+            || { rm -f "$pack"; echo "::warning::No Cheats.pack in pvaibhav's latest release; the card ships without cheats"; }
+
       - name: Check what is about to ship
         run: sh tools/check-card-tree.sh "slot-${GITHUB_REF_NAME}"
 
