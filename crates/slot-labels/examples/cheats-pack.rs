@@ -194,7 +194,7 @@ fn folder(platform: Platform) -> &'static str {
     match platform {
         Platform::Gb => "Nintendo - Game Boy",
         Platform::Gbc => "Nintendo - Game Boy Color",
-        Platform::Gba => "Nintendo - Game Boy Advance",
+        Platform::Gba | Platform::Gbav => "Nintendo - Game Boy Advance",
     }
 }
 
@@ -203,7 +203,7 @@ fn folder(platform: Platform) -> &'static str {
 fn shelves(platform: Platform) -> &'static [Platform] {
     match platform {
         Platform::Gb | Platform::Gbc => &[Platform::Gb, Platform::Gbc],
-        Platform::Gba => &[Platform::Gba],
+        Platform::Gba | Platform::Gbav => &[Platform::Gba],
     }
 }
 

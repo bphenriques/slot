@@ -55,7 +55,10 @@ mkdir -p "$TMP/card/Logs"
 head -c 70000 /dev/zero | tr '\0' 'x' > "$TMP/card/Logs/slot-session.log"
 launch
 [ "$(wc -c < "$TMP/card/Logs/slot-session.log.1")" -eq 70000 ] || fail "a full session log did not rotate"
-[ "$(grep -c . "$TMP/card/Logs/slot-session.log")" = "1" ] || fail "the new session log did not start fresh"
+[ "$(grep -c ' exec ' "$TMP/card/Logs/slot-session.log")" = "1" ] || fail "the new session log has no single launch entry"
+if grep -q '^x' "$TMP/card/Logs/slot-session.log"; then
+	fail "the new session log kept the previous session's contents"
+fi
 
 setup
 mkdir -p "$TMP/card/Logs"

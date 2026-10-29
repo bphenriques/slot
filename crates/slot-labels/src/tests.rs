@@ -408,6 +408,39 @@ fn a_rom_in_the_artwork_pack_is_labelled_without_the_network() {
 }
 
 #[test]
+fn gba_video_uses_gba_artwork_and_writes_to_its_own_shelf() {
+    struct NoNetwork;
+    impl Transport for NoNetwork {
+        fn get(&mut self, url: &str) -> Result<Vec<u8>, Error> {
+            panic!("asked the network for {url}");
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let rom = dir.path().join("Games/GBAV/Video.gba");
+    std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
+    std::fs::write(&rom, b"123456789").unwrap();
+    let jpeg = build::cart_label_jpeg(&image_bytes(1000, 574), Platform::Gbav).unwrap();
+    write_pack(dir.path(), vec![(0xCBF4_3926, jpeg)]);
+    let cart = Cart {
+        platform: Platform::Gbav,
+        rom,
+        ..cart("Video")
+    };
+    let label = prepare(
+        &mut NoNetwork,
+        &mut HashMap::new(),
+        "",
+        dir.path(),
+        &cart,
+        None,
+    )
+    .unwrap();
+    assert_eq!(label, dir.path().join("Labels/GBAV/Video.png"));
+    let image = image::open(label).unwrap();
+    assert_eq!((image.width(), image.height()), label_size(Platform::Gba));
+}
+
+#[test]
 fn a_pack_without_the_rom_or_a_damaged_pack_leaves_it_to_the_network() {
     for damaged in [false, true] {
         let dir = tempfile::tempdir().unwrap();

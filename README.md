@@ -30,11 +30,6 @@ notes are in the [changelog](CHANGELOG.md).
 
 - **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
   panels. Other panel revisions keep their existing refresh rate.
-- **Better battery life and less heat.** slot switches the CPU to the `schedutil` governor, so
-  the clock follows the game's load. Measured on an RG SP: Game Boy and Game Boy Color games run
-  at about 600 MHz, and GBA at 550–1,000 MHz, out of a 1,512 MHz maximum.
-- **LCD ghosting / interframe blending** is enabled by default. Toggle **LCD Ghosting** per
-  console in Settings > Screen, or in-game under Settings > Screen. Changes take effect immediately.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
   has this!
@@ -61,6 +56,11 @@ notes are in the [changelog](CHANGELOG.md).
   slot remembers which are on for each game. To use your own, add a RetroArch `.cht` file named
   after the ROM to `Cheats/GBA`, `Cheats/GB` or `Cheats/GBC`. Cheats need the mGBA core.
 
+Upstream now includes the `schedutil` CPU governor for better battery life and less heat,
+and **Frame Blending** controls under Settings > Screen. These replace this fork's earlier
+CPU governor change and LCD Ghosting toggle. Existing blending preferences are kept: the
+old On setting becomes Mix, and Off stays Off. mGBA also offers upstream's LCD Ghosting mode.
+
 ## How to configure
 
 The release includes an `.example` copy of each config file in `Config/`. Remove `.example`
@@ -72,7 +72,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.9.0-pvaibhav.3](https://github.com/pvaibhav/slot/releases/tag/v1.9.0-pvaibhav.3).
+The current release is [v1.10.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.10.0-pvaibhav.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ---

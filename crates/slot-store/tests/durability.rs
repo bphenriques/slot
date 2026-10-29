@@ -2,10 +2,70 @@ mod common;
 
 use common::tmp_root;
 use slot_store::{
-    atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, GbPalette,
-    Platform, Recent, Shader, SlotState, WallpaperPick, WallpaperTint, FF_SPEEDS, FF_SPEED_DEFAULT,
+    atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, Blending,
+    GbPalette, Platform, Recent, Scale, Shader, SlotState, Stretch, WallpaperPick, WallpaperTint,
+    Zone, FF_SPEEDS, FF_SPEED_DEFAULT,
 };
 use tempfile::tempdir;
+
+#[test]
+fn fork_ghosting_preferences_migrate_to_upstream_blending_and_survive_a_rewrite() {
+    let d = tmp_root();
+    let path = d.path().join("Config/slot.state");
+    std::fs::write(
+        &path,
+        "cart=Emerald\ncart_platform=gba\nbrightness=3\nblue_light=1\nvolume=40\nmuted=1\nclock_set=1\nutc_offset_min=330\nhigh_refresh=0\nhome_wifi_enabled=1\nghosting_gba=0\nghosting_gb=1\nghosting_gbc=0\n",
+    )
+    .unwrap();
+    let state = read_slot_state(d.path());
+    assert_eq!(state.cart.as_deref(), Some("Emerald"));
+    assert_eq!(state.cart_platform, Some(Platform::Gba));
+    assert_eq!(state.brightness, 3);
+    assert_eq!(state.volume, 40);
+    assert!(state.muted && state.home_wifi_enabled);
+    assert!(!state.high_refresh);
+    assert_eq!(state.zone, Zone::parse("Asia/Kolkata").unwrap());
+    assert_eq!(
+        (state.blending_gba, state.blending_gb, state.blending_gbc),
+        (Blending::Off, Blending::Mix, Blending::Off)
+    );
+    write_slot_state(d.path(), &state).unwrap();
+    assert_eq!(read_slot_state(d.path()), state);
+    assert!(!std::fs::read_to_string(path).unwrap().contains("ghosting_"));
+}
+
+#[test]
+fn older_fork_cards_keep_mix_and_upstream_cards_keep_off() {
+    for (extra, want) in [("high_refresh=1\n", Blending::Mix), ("", Blending::Off)] {
+        let d = tmp_root();
+        std::fs::write(
+            d.path().join("Config/slot.state"),
+            format!("cart=\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n{extra}"),
+        )
+        .unwrap();
+        let state = read_slot_state(d.path());
+        assert_eq!(
+            (state.blending_gba, state.blending_gb, state.blending_gbc),
+            (want, want, want)
+        );
+    }
+}
+
+#[test]
+fn upstream_blending_choices_override_legacy_preferences_in_either_order() {
+    for (first, second) in [
+        ("ghosting_gba=0\n", "blending_gba=ghosting\n"),
+        ("blending_gba=ghosting\n", "ghosting_gba=0\n"),
+    ] {
+        let d = tmp_root();
+        std::fs::write(
+            d.path().join("Config/slot.state"),
+            format!("cart=\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n{first}{second}"),
+        )
+        .unwrap();
+        assert_eq!(read_slot_state(d.path()).blending_gba, Blending::Ghosting);
+    }
+}
 
 #[test]
 fn atomic_write_leaves_no_partial_file_and_no_temp_behind() {
@@ -96,7 +156,6 @@ fn slot_state_round_trips_including_a_stem_with_an_equals_sign() {
         volume: 71,
         muted: true,
         clock_set: true,
-        utc_offset_min: 0,
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -141,7 +200,7 @@ fn a_first_boot_is_neither_dark_nor_silent() {
 }
 
 #[test]
-fn slot_state_round_trips_a_negative_utc_offset() {
+fn slot_state_round_trips_a_zone_west_of_utc() {
     let d = tmp_root();
     let s = SlotState {
         cart: None,
@@ -150,11 +209,11 @@ fn slot_state_round_trips_a_negative_utc_offset() {
         volume: 60,
         muted: false,
         clock_set: true,
-        utc_offset_min: -450,
+        zone: Zone::parse("America/St_Johns").unwrap(),
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
-    assert_eq!(read_slot_state(d.path()).utc_offset_min, -450);
+    assert_eq!(read_slot_state(d.path()).zone, s.zone);
 }
 
 #[test]
@@ -179,7 +238,12 @@ fn a_line_the_reader_does_not_know_is_skipped() {
             s.volume,
             s.muted,
             s.clock_set,
-            s.utc_offset_min
+            s.zone.offset_min(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            )
         ),
         (3, 1, 40, true, true, -300)
     );
@@ -193,8 +257,7 @@ fn a_line_the_reader_does_not_know_is_skipped() {
 /// Colour correction off is not an aesthetic preference being enshrined: it is what every card
 /// already renders as, because both cores default their own option off and slot never set it.
 /// A default of on would change the look of every existing library on the strength of an
-/// update nobody asked for. LCD ghosting defaults on for the same reason: slot always asked both
-/// cores for it.
+/// update nobody asked for.
 #[test]
 fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     let s = SlotState::default();
@@ -208,10 +271,6 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert!(
         !s.colour_correction_gb,
         "boots with the Game Boy picture tinted"
-    );
-    assert!(
-        s.ghosting_gba && s.ghosting_gb && s.ghosting_gbc,
-        "boots with the LCD ghosting every card already had switched off"
     );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
@@ -241,7 +300,14 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             muted: true,
             muted_hp: true,
             clock_set: true,
-            utc_offset_min: -300,
+            zone: Zone::for_offset(
+                -300,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            ),
+            clock_24h: true,
             rumble: true,
             home_wifi_enabled: false,
             ff_speed: FF_SPEED_DEFAULT,
@@ -249,9 +315,6 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             colour_correction_gba: false,
             colour_correction_gb: false,
             colour_correction_gbc: false,
-            ghosting_gba: true,
-            ghosting_gb: true,
-            ghosting_gbc: true,
             shader_gba: Shader::Grid,
             shader_gb: Shader::Simpletex,
             shader_gbc: Shader::Simpletex,
@@ -272,6 +335,14 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             bezel_gba: BezelPick::Ags102,
             bezel_gb: BezelPick::Ags102,
             bezel_gbc: BezelPick::Ags102,
+            scale_gba: Scale::Fit,
+            scale_gb: Scale::SpFrame,
+            scale_gbc: Scale::SpFrame,
+            stretch_gb: Stretch::Classic,
+            stretch_gbc: Stretch::Classic,
+            blending_gba: Blending::Off,
+            blending_gb: Blending::Off,
+            blending_gbc: Blending::Off,
             recents: Vec::new(),
             favorites: Vec::new(),
             shelf: None,
@@ -301,13 +372,12 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         wallpaper_tint: WallpaperTint::Medium,
         colour_correction_gbc: true,
-        ghosting_gba: false,
-        ghosting_gb: true,
-        ghosting_gbc: false,
         shader_gbc: Shader::Grid,
         bezel_gba: BezelPick::None,
         bezel_gb: BezelPick::Default,
         bezel_gbc: BezelPick::File("Pocket.png".into()),
+        blending_gba: Blending::Ghosting,
+        blending_gb: Blending::Mix,
         shelf: Some("gba".into()),
         shelf_cart: Some(Recent {
             platform: Platform::Gba,
@@ -339,10 +409,10 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "bezel_gb=default",
         "bezel_gbc=Pocket.png",
         "colour_correction_gbc=1",
-        "ghosting_gba=0",
-        "ghosting_gb=1",
-        "ghosting_gbc=0",
         "shader_gbc=grid",
+        "blending_gba=ghosting",
+        "blending_gb=mix",
+        "blending_gbc=off",
         "shelf=gba",
         "shelf_cart=gba/Drill Dozer",
     ] {
@@ -561,7 +631,7 @@ fn home_wifi_defaults_off_and_malformed_optional_flag_preserves_old_settings() {
     let s = SlotState {
         home_wifi_enabled: true,
         volume: 30,
-        utc_offset_min: 345,
+        zone: Zone::parse("Asia/Kathmandu").unwrap(),
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -573,7 +643,7 @@ fn home_wifi_defaults_off_and_malformed_optional_flag_preserves_old_settings() {
         let restored = read_slot_state(d.path());
         assert!(!restored.home_wifi_enabled);
         assert_eq!(restored.volume, 30);
-        assert_eq!(restored.utc_offset_min, 345);
+        assert_eq!(restored.zone, Zone::parse("Asia/Kathmandu").unwrap());
     }
 }
 
@@ -698,4 +768,75 @@ fn lid_power_off_minutes_round_trip_and_drop_a_value_the_menu_does_not_offer() {
         .replace("lid_off_min=30", "lid_off_min=7");
     std::fs::write(&path, text).unwrap();
     assert_eq!(read_slot_state(d.path()).lid_off_min, None);
+}
+
+#[test]
+fn scale_and_stretch_round_trip_and_fall_back() {
+    let d = tmp_root();
+    let s = SlotState {
+        scale_gba: Scale::FullScreen,
+        scale_gb: Scale::Integer,
+        scale_gbc: Scale::Fit,
+        stretch_gb: Stretch::FullScreen,
+        stretch_gbc: Stretch::Classic,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    assert_eq!(read_slot_state(d.path()), s);
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap();
+    for line in [
+        "scale_gba=full-screen",
+        "scale_gb=integer",
+        "scale_gbc=fit",
+        "stretch_gb=full-screen",
+        "stretch_gbc=classic",
+    ] {
+        assert!(text.lines().any(|l| l == line), "{line} missing");
+    }
+    let broken = text
+        .replace("scale_gb=integer", "scale_gb=huge")
+        .replace("stretch_gb=full-screen", "stretch_gb=");
+    std::fs::write(&path, broken).unwrap();
+    let back = read_slot_state(d.path());
+    assert_eq!(
+        (back.scale_gb, back.stretch_gb, back.scale_gba),
+        (Scale::SpFrame, Stretch::Classic, Scale::FullScreen)
+    );
+    assert_eq!(Scale::SpFrame.name(), "sp-frame");
+    assert_eq!(Scale::parse("sp-frame"), Some(Scale::SpFrame));
+    assert_eq!(Scale::parse("default"), None);
+}
+
+#[test]
+fn a_frame_blending_the_rows_do_not_offer_reads_as_off() {
+    let d = tmp_root();
+    let s = SlotState {
+        clock_set: true,
+        blending_gba: Blending::Mix,
+        blending_gb: Blending::Mix,
+        blending_gbc: Blending::Ghosting,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        text.replace("blending_gba=mix", "blending_gba=lcd_ghosting_fast")
+            .replace("blending_gb=mix", "blending_gb=9"),
+    )
+    .unwrap();
+    let read = read_slot_state(d.path());
+    assert_eq!(read.blending_gba, Blending::Off);
+    assert_eq!(read.blending_gb, Blending::Off);
+    assert_eq!(
+        read.blending_gbc,
+        Blending::Ghosting,
+        "a good line was thrown away with the bad ones"
+    );
+    assert!(
+        read.clock_set,
+        "the rest of the card was thrown away with it"
+    );
 }

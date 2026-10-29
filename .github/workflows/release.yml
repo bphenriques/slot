@@ -30,28 +30,7 @@ jobs:
         run: task dist:device OUT="slot-${GITHUB_REF_NAME}"
 
       - name: Check what is about to ship
-        run: |
-          set -eu
-          out="slot-${GITHUB_REF_NAME}"
-          file "$out/System/slot" | grep -q aarch64
-          file "$out/System/slot-services" | grep -q aarch64
-          file "$out/System/slot-net/iw" | grep -q aarch64
-          test -f "$out/Config/wifi.toml.example"
-          test -f "$out/Config/retroachievements.toml.example"
-          file "$out/System/mgba_libretro.so" | grep -q aarch64
-          file "$out/System/gpsp_libretro.so" | grep -q aarch64
-          test -x "$out/System/slot"
-          gpsp_src_sha="$(cat vendor/gpsp-src.sha)"
-          test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.tar.gz"
-          test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.meta"
-          for p in cores/gpsp/*.patch; do
-            test -f "$out/System/licenses/gpsp-$(basename "$p")"
-          done
-          mgba_src_commit="$(grep '^commit=' vendor/mgba_libretro.so.meta | cut -d= -f2)"
-          test -f "$out/System/licenses/mgba-${mgba_src_commit}.meta"
-          for p in cores/mgba/*.patch; do
-            test -f "$out/System/licenses/mgba-$(basename "$p")"
-          done
+        run: sh tools/check-card-tree.sh "slot-${GITHUB_REF_NAME}"
 
       - name: Package
         id: package

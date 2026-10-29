@@ -1,20 +1,14 @@
-# v1.9.0-pvaibhav.3
+# v1.10.0-pvaibhav.1
 
-- Adds **cheats**. Copy `Cheats.pack` below into `Cheats/` on your SD card. While a game is running, press MENU and choose **Cheats** to turn its cheats on or off. Changes take effect immediately, and slot remembers which cheats are on for each game.
-- The pack has cheats for 2,503 GB, GBC, and GBA games, matched to your ROMs by checksum, so file names don't matter.
-- To use your own cheats for a game, add a RetroArch `.cht` file named after the ROM to `Cheats/GBA`, `Cheats/GB`, or `Cheats/GBC`. It replaces that game's cheats from the pack.
-- Cheats work with the mGBA core. The **Cheats** row appears only for games that have cheats. A cheat that changes items or money can be written into your save, even after you turn it off.
+- Updates to upstream **v1.10.0**, with picture scaling and stretching options, matching Game Boy bezels, and a **GBA Video** shelf for carts in `Games/GBAV`.
+- Date & Time now uses cities, handles daylight saving automatically, and offers a 12-hour clock. Includes upstream's brightness, menu and shutdown fixes.
+- Upstream's **Frame Blending** replaces the old LCD Ghosting toggle. Existing On settings become **Mix**, preserving their appearance; Off stays Off. mGBA also offers **LCD Ghosting**.
+- Keeps this fork's automatic 120 Hz, display calibration, home Wi-Fi, label downloads, RetroAchievements, home-network linking and cheats. The CPU governor now uses upstream's implementation.
 
-![The Cheats page over Super Mario Bros. Deluxe, with Always Have Fire turned on.](https://raw.githubusercontent.com/pvaibhav/slot/v1.9.0-pvaibhav.3/.github/resources/screenshots/cheats.png)
+Unzip `slot-v1.10.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.10.0-pvaibhav.1/` onto SD2. Your games, saves, settings and credentials are preserved.
 
-Unzip `slot-v1.9.0-pvaibhav.3-h700.zip`, then copy the contents of `slot-v1.9.0-pvaibhav.3/` onto SD2. Your saves and settings are preserved.
+`Cheats.pack` and `Artwork.pack` are unchanged. Keep your existing copies, or put them in `Cheats/` and `Labels/` respectively.
 
-For cheats, copy `Cheats.pack` below into `Cheats/` on your SD card.
-
-For labels without Wi-Fi, copy `Artwork.pack` below into `Labels/` on your SD card. The pack is unchanged from the previous release. Existing labels are kept.
-
-Cheat codes in `Cheats.pack` come from the [libretro database](https://github.com/libretro/libretro-database) and its contributors, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). slot matched them to No-Intro dumps and merged each game's files; `Cheats.pack` is shared under the same licence.
-
-Cart images in `Artwork.pack` come from the [LaunchBox Games Database](https://gamesdb.launchbox-app.com) and its contributors. Label artwork belongs to each game's publisher. The pack is free for personal use; please don't sell it.
+Cheats are from the [libretro database](https://github.com/libretro/libretro-database) and its contributors, under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Cart artwork is from the [LaunchBox Games Database](https://gamesdb.launchbox-app.com) and belongs to the respective publishers; the artwork pack is for personal use.
 
 Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Licences, patches, and gpSP source are in `System/licenses/`.

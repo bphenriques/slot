@@ -467,7 +467,6 @@ fn ending_a_session_reaches_the_emulator_thread_too() {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
@@ -511,7 +510,6 @@ fn a_critical_battery_reading_reaches_the_emulator_thread_too() {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
@@ -558,7 +556,6 @@ fn a_live_session_refuses_fast_forward() {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
@@ -593,7 +590,6 @@ fn the_link_screen_over_a_session_leaves_the_core_running() {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
@@ -642,7 +638,6 @@ fn a_live_session_hides_the_fast_forward_badge() {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
