@@ -37,8 +37,8 @@ notes are in the [changelog](CHANGELOG.md).
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
   has this!
-- Holding POWER **shuts down** directly, without showing a menu. I did not find value in a
-  restart option.
+- ~~Holding POWER **shuts down** directly, without showing a menu.~~
+  Included upstream since **v1.8.0**. Restart is available from Settings > About with X.
 - **Home Wi-Fi.** Slot can now connect to your home Wi-Fi. Just set up your Wi-Fi credentials
   in `Config/wifi.toml` and then turn HOME WI-FI on under General. Everything happens
   automatically from then onwards. Most of the features below depend on this.
