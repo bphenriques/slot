@@ -79,8 +79,11 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 
 ## Release cadence
 
-Daily at **19:30 EST / 20:30 EDT in New York**, or
-**01:30 CET / 02:30 CEST in Berlin** the following day.
+This fork is synced to upstream slot releases every day at **07:30 CET Berlin time /
+02:30 EDT New York time**. If a new version of slot
+is available, it is merged into this fork and released automatically.
+
+I release new features as I build and test them. They are carried forward in every new release.
 
 ---
 
