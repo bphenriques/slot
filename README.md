@@ -79,14 +79,8 @@ Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fo
 
 ## Release cadence
 
-We check for new upstream releases **daily at 06:00 India time (00:30 UTC)**:
-
-- Central Europe: **01:30 CET / 02:30 CEST**.
-- New York: **19:30 EST / 20:30 EDT**, the previous day.
-- Los Angeles: **16:30 PST / 17:30 PDT**, the previous day.
-
-New upstream versions are merged, adapted and tested during that run, then published
-when checks pass. Merges needing manual review may take longer.
+Daily at **19:30 EST / 20:30 EDT in New York**, or
+**01:30 CET / 02:30 CEST in Berlin** the following day.
 
 ---
 
