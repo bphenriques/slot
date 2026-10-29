@@ -105,6 +105,10 @@ impl Session {
         self.sink.ring()
     }
 
+    pub fn close_audio(&mut self) {
+        self.sink.close();
+    }
+
     pub fn rumble(&mut self, strength: u16) {
         if strength == self.motor {
             return;
@@ -174,7 +178,7 @@ impl Session {
     pub fn step_emulator(&self, timeout: Duration) -> bool {
         self.emu.as_ref().is_some_and(|emu| {
             emu.tick();
-            emu.wait_frame(timeout)
+            !emu.wait_frame(timeout) && emu.locked()
         })
     }
 
@@ -336,6 +340,7 @@ impl Session {
             self.achievements.network_available();
         }
         self.home_connected = connected;
+        self.sink.hold_open(self.app.headphones());
         if let Some(emu) = &self.emu {
             emu.set_volume(self.app.output_volume());
         }
@@ -365,9 +370,9 @@ impl Session {
                 }
             }
         }
-        if let Some(on) = self.app.take_ghosting() {
+        if let Some(blending) = self.app.take_blending() {
             if let Some(emu) = &self.emu {
-                let (key, value) = crate::core::ghosting_option(self.app.core(), on);
+                let (key, value) = crate::core::blend_option(self.app.core(), blending);
                 emu.set_option(key, value);
                 repaint = true;
             }
@@ -515,7 +520,7 @@ impl Session {
 
     fn sync_speed(&self) {
         if let Some(emu) = &self.emu {
-            emu.set_fast_steps(u32::from(self.app.ff_speed()));
+            emu.set_fast_quarters(u32::from(self.app.ff_speed()));
             emu.set_ff_sound(self.app.ff_sound());
             emu.set_speed(
                 if self.inserting()
@@ -598,7 +603,7 @@ impl Session {
         let player = self.app.link_player();
         let chosen = self.app.gb_colors();
         let colour = self.app.colour_correction_for(platform);
-        let ghosting = self.app.ghosting_for(platform);
+        let blending = self.app.blending_for(platform);
         let join = std::thread::Builder::new()
             .name("slot-open".into())
             .spawn(move || {
@@ -608,9 +613,10 @@ impl Session {
                 };
                 launch("resume state read");
                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
-                let opened = open_core(
-                    &root, core, platform, serial, colour, ghosting, palette, player,
+                let mut opened = open_core(
+                    &root, core, platform, serial, colour, blending, palette, player,
                 );
+                crate::core::apply_game_boy_player(&mut *opened.core, core, platform, &rom);
                 launch("core opened");
                 let sav = persist::read_sav(&root, platform, &stem);
                 launch("save read");

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::refresh::PanelRefresh;
 use crate::{Battery, Charge, LedState, Platform, RepairResult};
 
-const TOP_STEP: u32 = 9;
+const TOP_STEP: u32 = 10;
 
 const BACKLIGHT_FLOOR: f64 = 8.0 / 255.0;
 

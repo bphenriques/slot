@@ -60,7 +60,7 @@ fn cart_label(bytes: &[u8], platform: Platform) -> Result<RgbImage, Error> {
     let aspect = w as f64 / h as f64;
     // Only a straight-on scan of the whole cart. Reject box art, angled photos, and tiny
     // thumbnails rather than crop arbitrary imagery.
-    let (left, top, right, bottom) = match (platform, w, h) {
+    let (left, top, right, bottom) = match (platform.hardware(), w, h) {
         (Platform::Gba, 1000, 574) => (137, 130, 865, 497),
         (Platform::Gba, 600, 355) => (82, 82, 520, 305),
         (Platform::Gba, 473, 283) => (69, 68, 402, 246),

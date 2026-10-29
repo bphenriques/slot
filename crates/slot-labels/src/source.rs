@@ -75,7 +75,7 @@ fn encode(query: &str) -> String {
 /// ROM extensions, so a cart may sit on either shelf.
 pub fn platforms(platform: Platform) -> &'static [&'static str] {
     match platform {
-        Platform::Gba => &["Nintendo Game Boy Advance"],
+        Platform::Gba | Platform::Gbav => &["Nintendo Game Boy Advance"],
         Platform::Gb => &["Nintendo Game Boy", "Nintendo Game Boy Color"],
         Platform::Gbc => &["Nintendo Game Boy Color", "Nintendo Game Boy"],
     }
@@ -229,7 +229,7 @@ pub(crate) fn resolve(
         return Err(unavailable("empty game title"));
     }
     let id = match Some(&title)
-        .filter(|_| cart.platform == Platform::Gba)
+        .filter(|_| cart.platform.hardware() == Platform::Gba)
         .and_then(|t| known(t))
     {
         Some(id) => id,

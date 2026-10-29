@@ -70,12 +70,12 @@ QUICK MENU › MUSIC plays what is on the card, offline.
 
 ## Getting it
 
-Download the zip from the [current release](https://github.com/bphenriques/slot/releases/tag/v1.9.0-bphenriques.1)
+Download the zip from the [current release](https://github.com/bphenriques/slot/releases/tag/v1.11.0-bphenriques.1)
 and put it on the card as upstream's guide says for slot. Its
 [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
-A release uses upstream's version with a `-bphenriques` suffix: `v1.9.0-bphenriques.1` is the
-first built on upstream 1.9.0, and `v1.9.0-bphenriques.2` would be the second.
+A release uses upstream's version with a `-bphenriques` suffix: `v1.11.0-bphenriques.1` is the
+first built on upstream 1.11.0, and `v1.11.0-bphenriques.2` would be the second.
 
 ## Credits
 
