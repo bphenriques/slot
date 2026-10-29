@@ -30,6 +30,10 @@ notes are in the [changelog](CHANGELOG.md).
 
 - **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
   panels. Other panel revisions keep their existing refresh rate.
+- ~~**Better battery life and less heat** with the `schedutil` CPU governor.~~
+  Included upstream since **v1.10.0**.
+- ~~**LCD ghosting / interframe blending.**~~ Included upstream since **v1.10.0**
+  as **Frame Blending** under Settings > Screen.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
   measured by me. Both white point and gamma curve are corrected. Currently no other firmware
   has this!
@@ -56,10 +60,8 @@ notes are in the [changelog](CHANGELOG.md).
   slot remembers which are on for each game. To use your own, add a RetroArch `.cht` file named
   after the ROM to `Cheats/GBA`, `Cheats/GB` or `Cheats/GBC`. Cheats need the mGBA core.
 
-Upstream now includes the `schedutil` CPU governor for better battery life and less heat,
-and **Frame Blending** controls under Settings > Screen. These replace this fork's earlier
-CPU governor change and LCD Ghosting toggle. Existing blending preferences are kept: the
-old On setting becomes Mix, and Off stays Off. mGBA also offers upstream's LCD Ghosting mode.
+Existing blending preferences are kept: the old On setting becomes Mix, and Off stays Off.
+mGBA also offers upstream's LCD Ghosting mode.
 
 ## How to configure
 
