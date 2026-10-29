@@ -166,6 +166,14 @@ impl Session {
         }
     }
 
+    pub fn cpu_governor(&self) -> slot_power::CpuGovernor {
+        governor_for(
+            self.app.core(),
+            self.app.playing_platform(),
+            self.emu.is_some() && !self.core_paused(),
+        )
+    }
+
     pub fn frame_clock(&self) -> crate::pacing::FrameClock {
         self.emu
             .as_ref()
@@ -506,24 +514,25 @@ impl Session {
         matches!(self.app.phase(), Phase::Ejecting { .. })
     }
 
+    fn core_paused(&self) -> bool {
+        self.inserting()
+            || self.ejecting()
+            || self.showing_polaroids()
+            || self.dozing()
+            || (self.held() && !self.app.link_active())
+    }
+
     fn sync_speed(&self) {
         if let Some(emu) = &self.emu {
             emu.set_fast_steps(u32::from(self.app.ff_speed()));
             emu.set_ff_sound(self.app.ff_sound());
-            emu.set_speed(
-                if self.inserting()
-                    || self.ejecting()
-                    || self.showing_polaroids()
-                    || self.dozing()
-                    || (self.held() && !self.app.link_active())
-                {
-                    Speed::Paused
-                } else if self.actually_fast_forwarding() {
-                    Speed::Fast
-                } else {
-                    Speed::Normal
-                },
-            );
+            emu.set_speed(if self.core_paused() {
+                Speed::Paused
+            } else if self.actually_fast_forwarding() {
+                Speed::Fast
+            } else {
+                Speed::Normal
+            });
             emu.set_rewinding(self.actually_rewinding());
             emu.set_turbo(self.app.turbo());
             emu.set_rewind_recording(self.app.records_rewind());
@@ -739,4 +748,32 @@ pub(crate) fn trace() -> bool {
 
 fn launch(step: &str) {
     eprintln!("slot: launch: {step} at {:.1} ms", crate::boot_time::ms());
+}
+
+fn governor_for(core: Core, platform: Platform, running: bool) -> slot_power::CpuGovernor {
+    if running && core == Core::Mgba && platform.hardware() == Platform::Gba {
+        slot_power::CpuGovernor::Performance
+    } else {
+        slot_power::CpuGovernor::Schedutil
+    }
+}
+
+#[cfg(test)]
+mod governor_tests {
+    use super::*;
+    use slot_power::CpuGovernor::{Performance, Schedutil};
+
+    #[test]
+    fn only_running_mgba_gba_uses_performance() {
+        for (core, platform, expected) in [
+            (Core::Mgba, Platform::Gba, Performance),
+            (Core::Mgba, Platform::Gbav, Performance),
+            (Core::Mgba, Platform::Gb, Schedutil),
+            (Core::Mgba, Platform::Gbc, Schedutil),
+            (Core::Gpsp, Platform::Gba, Schedutil),
+        ] {
+            assert_eq!(governor_for(core, platform, true), expected);
+            assert_eq!(governor_for(core, platform, false), Schedutil);
+        }
+    }
 }

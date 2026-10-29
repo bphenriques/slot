@@ -15,6 +15,8 @@ const STEP_TIMEOUT: Duration = Duration::from_millis(12);
 const LOG_SYNC: Duration = Duration::from_secs(1);
 
 pub fn run() {
+    let mut cpu = slot_power::CpuGovernors::new();
+    cpu.set(slot_power::CpuGovernor::Schedutil);
     slot::boot_time::mark("start");
     let _ = std::thread::Builder::new()
         .name("slot-fonts".into())
@@ -107,13 +109,17 @@ pub fn run() {
         }
         input.steer_with_stick(frontend.app().left_stick_dpad());
         frontend.advance(&mut input);
+        cpu.set(frontend.cpu_governor());
         if frontend.restarting() {
+            cpu.restore();
             frontend.restart();
         }
         if frontend.repairing() {
+            cpu.restore();
             frontend.repair();
         }
         if frontend.powering_off() {
+            cpu.restore();
             frontend.poweroff();
             return;
         }
@@ -126,6 +132,7 @@ pub fn run() {
         for step in 0..due {
             if step > 0 {
                 frontend.advance(&mut input);
+                cpu.set(frontend.cpu_governor());
             }
             let completed = frontend.step_emulator(STEP_TIMEOUT);
             steps += 1;

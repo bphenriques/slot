@@ -715,6 +715,10 @@ impl Frontend {
         self.session.set_driven(true);
     }
 
+    pub fn cpu_governor(&self) -> slot_power::CpuGovernor {
+        self.session.cpu_governor()
+    }
+
     pub fn frame_clock(&self) -> crate::pacing::FrameClock {
         self.session.frame_clock()
     }
