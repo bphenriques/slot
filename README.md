@@ -77,6 +77,17 @@ first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the seco
 The current release is [v1.10.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.10.0-pvaibhav.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
+## Release cadence
+
+We check for new upstream releases **daily at 06:00 India time (00:30 UTC)**:
+
+- Central Europe: **01:30 CET / 02:30 CEST**.
+- New York: **19:30 EST / 20:30 EDT**, the previous day.
+- Los Angeles: **16:30 PST / 17:30 PDT**, the previous day.
+
+New upstream versions are merged, adapted and tested during that run, then published
+when checks pass. Merges needing manual review may take longer.
+
 ---
 
 # What does it look like?
