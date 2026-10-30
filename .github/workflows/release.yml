@@ -63,6 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
 
@@ -79,10 +80,18 @@ jobs:
           test "$(head -n 1 RELEASE_NOTES.md)" = "# ${GITHUB_REF_NAME}"
           tail -n +3 RELEASE_NOTES.md > notes.md
           # A tag moved onto a newer build keeps its release, which takes the new card and notes.
+          # Deleting the tag to move it turns the release into a draft, so it is published again.
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file notes.md \
+              --draft=false
           else
             gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
               --title "$GITHUB_REF_NAME" --notes-file notes.md
           fi
+
+      - name: Publish versions.json with the site
+        if: github.repository == 'BrandonKowalski/slot'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

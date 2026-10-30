@@ -13,6 +13,7 @@ mod cart;
 mod clock;
 mod draw;
 mod footer;
+mod guide;
 mod hud;
 mod icon;
 mod link_art;
@@ -34,8 +35,8 @@ mod toast;
 
 pub use art::decode as decode_png;
 pub use backdrop::{
-    bezel_face, blur_background, default_background, default_game_bezel_face, draw_backdrop,
-    draw_ground, game_bezel_face, wallpaper_face, BezelArt,
+    bezel_face, blur_background, cast_screen_shadow, default_background, default_game_bezel_face,
+    draw_backdrop, draw_ground, game_bezel_face, wallpaper_face, BezelArt,
 };
 pub use barcode::{code39, CODE39_NARROW, CODE39_WIDE};
 pub use battery::{draw_gauge, BOLT_PX, GAUGE_H, GAUGE_W, WALL};
@@ -61,6 +62,10 @@ pub use draw::{Canvas, Draw, TexId, OUT_H, OUT_W};
 pub use footer::{
     draw_corners, draw_footer, draw_footer_sync, draw_home_wifi, sync_icon_face, Printed,
     SyncIndicator, FOOTER_Y, SYNC_PX,
+};
+pub use guide::{
+    cell, fitting_zoom, guide_help_face, mono_font, page_box, Guide, GuideGlyphs, GuideView,
+    GUIDE_COLUMNS, GUIDE_HELP_TITLE, GUIDE_HINTS, GUIDE_ZOOMS, PAN_COLS,
 };
 pub use hud::{
     badge_at, ff_badge, footer_ink, FfState, Hud, HudKind, LinkBadge, Millis, ALARM_BAND_H,

@@ -2141,10 +2141,10 @@ fn a_game_boy_color_game_keeps_its_own_colour_and_shader() {
     );
     assert_eq!(
         (saved.shader_gb, saved.shader_gbc),
-        (Shader::Simpletex, Shader::Off),
+        (Shader::Simpletex, Shader::Shimmerless),
         "a Game Boy Color game's shader shortcut did not land on GBC alone"
     );
-    assert_eq!(s.app().screen_shader(), Shader::Off);
+    assert_eq!(s.app().screen_shader(), Shader::Shimmerless);
 }
 
 #[test]
@@ -2276,8 +2276,28 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
         ),
         (
             slot_input::Action::ShaderNext,
+            Shader::Shimmerless,
+            slot_ui::Toast::ShaderShimmerless,
+        ),
+        (
+            slot_input::Action::ShaderNext,
+            Shader::Authentic,
+            slot_ui::Toast::ShaderAuthentic,
+        ),
+        (
+            slot_input::Action::ShaderNext,
             Shader::Off,
             slot_ui::Toast::ShaderOff,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
+            Shader::Authentic,
+            slot_ui::Toast::ShaderAuthentic,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
+            Shader::Shimmerless,
+            slot_ui::Toast::ShaderShimmerless,
         ),
         (
             slot_input::Action::ShaderPrev,
@@ -2353,4 +2373,52 @@ fn buttons_during_shutdown_never_reach_the_game() {
     s.feed([RawEvent::Down(Btn::B)], 2300);
     assert!(s.app().powering_off(), "B cancelled shutdown");
     assert_eq!(pad(&s) & ButtonMask::B, 0);
+}
+
+#[test]
+fn authentic_trades_the_game_boys_colour_ghosting_and_palette_rows_for_a_model() {
+    use slot_store::{Blending, GbColors, GbPalette, Platform, Shader};
+    use slot_ui::QuickRow;
+    let d = common::tmp_root_with_gb_carts(&["Tetris", "Zelda"]);
+    let (mut s, _motor) = common::session_with_platform(d.path());
+    s.app_mut().apply(slot_input::Action::Insert);
+    s.app_mut()
+        .apply(slot_input::Action::ColourCorrectionToggle);
+    assert!(s.app().core_colour_correction_for(Platform::Gb));
+    s.app_mut().apply(slot_input::Action::ShaderNext);
+    s.app_mut().apply(slot_input::Action::ShaderNext);
+    assert_eq!(s.app().screen_shader(), Shader::Authentic);
+
+    let app = s.app();
+    let in_game = app.in_game_hidden();
+    for row in [
+        QuickRow::ColourCorrection,
+        QuickRow::Blending,
+        QuickRow::Palette,
+    ] {
+        assert!(in_game.contains(&row), "{row:?} still shows in the game");
+    }
+    assert!(!in_game.contains(&QuickRow::Model));
+    let settings = app.hidden_rows();
+    assert!(settings.contains(&QuickRow::GbPalette));
+    assert!(!settings.contains(&QuickRow::GbModel));
+    // The setting stays as chosen; only the core is told to leave the picture alone.
+    assert!(app.colour_correction_for(Platform::Gb));
+    assert!(!app.core_colour_correction_for(Platform::Gb));
+    assert_eq!(app.core_blending_for(Platform::Gb), Blending::Off);
+    assert_eq!(
+        app.core_gb_colors(),
+        GbColors::Palette(GbPalette::GRAYSCALE)
+    );
+    // A GBA game's settings are untouched.
+    assert!(!settings.contains(&QuickRow::GbaColourCorrection));
+    // The bezel leaves the lit panel around the picture in sight.
+    assert!(
+        matches!(
+            app.bezel_art(),
+            Some(slot_ui::BezelArt::Fit3x2 | slot_ui::BezelArt::Fit4x3)
+        ),
+        "{:?}",
+        app.bezel_art()
+    );
 }

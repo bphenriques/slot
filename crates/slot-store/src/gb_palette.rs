@@ -55,6 +55,7 @@ pub struct GbPalette(u8);
 impl GbPalette {
     pub const COUNT: usize = NAMES.len();
     pub const DEFAULT: GbPalette = GbPalette(1);
+    pub const GRAYSCALE: GbPalette = GbPalette(0);
 
     pub fn all() -> impl Iterator<Item = GbPalette> {
         (0..Self::COUNT as u8).map(GbPalette)

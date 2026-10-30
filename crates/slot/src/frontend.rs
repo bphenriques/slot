@@ -8,16 +8,16 @@ use slot_input::{InputSource, Millis};
 use slot_power::{Platform, Power};
 use slot_store::{format_stamp, BezelPick, Platform as Console};
 use slot_ui::{
-    badge_face, bezel_face, cart_shadow, cheat_name_face, chip_face, chip_shadow_face,
-    core_button_legends, date_time_text, default_game_bezel_face, delete_legends, footer_ink,
-    game_bezel_face, gb_cart_shadow, hint_face, icon_face, link_button_legends, menu_detail_face,
-    menu_face, photo_face, prompt_legends, quick_description_face, quick_label_face,
-    quick_legend_faces, quick_pointer_face, quick_value_face, quick_warning_value_face,
-    rebuild_count_face, rebuild_title_face, repair_legends, slot_back, slot_back_light, slot_front,
-    slot_front_light, socket_face, sticker_face, time_text, title_face, toast_face, wallpaper_face,
-    word_ink, BezelArt, CartFace, GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow,
-    QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX,
-    HUD_INK, LEGEND,
+    badge_face, bezel_face, cart_shadow, cast_screen_shadow, cheat_name_face, chip_face,
+    chip_shadow_face, core_button_legends, date_time_text, default_game_bezel_face, delete_legends,
+    footer_ink, game_bezel_face, gb_cart_shadow, hint_face, icon_face, link_button_legends,
+    menu_detail_face, menu_face, photo_face, prompt_legends, quick_description_face,
+    quick_label_face, quick_legend_faces, quick_pointer_face, quick_value_face,
+    quick_warning_value_face, rebuild_count_face, rebuild_title_face, repair_legends, slot_back,
+    slot_back_light, slot_front, slot_front_light, socket_face, sticker_face, time_text,
+    title_face, toast_face, wallpaper_face, word_ink, BezelArt, CartFace, GbShell, Icon, LinkBadge,
+    PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StickerFields, Toast,
+    UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -57,6 +57,7 @@ pub struct Frontend {
     core_built: Option<String>,
     undo_tex: Option<TexId>,
     switcher: Switcher,
+    guide_page: GuidePage,
     clocks: Clocks,
     about: AboutFace,
     quick_clock: QuickClock,
@@ -100,7 +101,8 @@ struct QuickPalette {
     shown: &'static str,
 }
 
-type BezelImage = (Console, BezelPick, Option<BezelArt>, (u32, u32));
+/// The bezel shown, and whether it shades an Authentic screen.
+type BezelImage = (Console, BezelPick, Option<BezelArt>, (u32, u32), bool);
 
 #[derive(Default)]
 struct BezelSync {
@@ -212,6 +214,7 @@ impl Frontend {
             core_built: None,
             undo_tex: None,
             switcher: Switcher::default(),
+            guide_page: GuidePage::default(),
             clocks: Clocks::default(),
             about: AboutFace::default(),
             quick_clock: QuickClock::default(),
@@ -291,6 +294,26 @@ impl Frontend {
             })
             .collect();
         self.session.app_mut().set_shot_hint_faces(shot_hints);
+        let guide_hints = slot_ui::GUIDE_HINTS
+            .iter()
+            .map(|&(key, label)| {
+                let f = match key == slot_ui::PAN_KEY {
+                    true => slot_ui::pad_hint_face(label),
+                    false => hint_face(key, label),
+                };
+                compositor.create_texture(f.w, f.h, &f.rgba)
+            })
+            .collect();
+        self.session.app_mut().set_guide_hint_faces(guide_hints);
+        let help = slot_ui::guide_help_face();
+        let help = (
+            compositor.create_texture(help.w, help.h, &help.rgba),
+            help.w,
+            help.h,
+        );
+        let title = title_face(slot_ui::GUIDE_HELP_TITLE);
+        let title = compositor.create_texture(title.w, title.h, &title.rgba);
+        self.session.app_mut().set_guide_help_face(help, title);
         let tick = slot_ui::tick_cap_face();
         let tick = (
             compositor.create_texture(tick.w, tick.h, &tick.rgba),
@@ -605,6 +628,8 @@ impl Frontend {
 
     pub fn compose(&mut self, compositor: &mut Compositor) {
         compositor.set_blue_light(self.session.app().blue_light());
+        compositor.set_saturation(self.session.app().saturation());
+        compositor.set_contrast(self.session.app().contrast());
         compositor.set_picture(self.session.app().picture_rect());
         compositor.set_screen_effect(match self.session.app().screen_shader() {
             slot_store::Shader::Off => ScreenEffect::None,
@@ -612,7 +637,10 @@ impl Frontend {
             slot_store::Shader::Grid => ScreenEffect::Grid,
             slot_store::Shader::Dot => ScreenEffect::Dot,
             slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
+            slot_store::Shader::Shimmerless => ScreenEffect::Shimmerless,
+            slot_store::Shader::Authentic => ScreenEffect::Authentic,
         });
+        compositor.set_authentic_screen(authentic_screen(self.session.app()));
         compositor.set_shake(self.session.app().screen_shake());
         compositor.set_screen_power(self.session.app().screen_power());
         compositor.set_screen_footer(self.session.app().screen_footer());
@@ -644,7 +672,7 @@ impl Frontend {
         sync_wallpaper(self.session.app_mut(), compositor, &mut self.wallpaper);
         sync_game_bezel(self.session.app_mut(), compositor, &mut self.game_bezel);
         compositor.set_game_bezel(self.session.app().shown_game_bezel());
-        compositor.set_sp_frame(self.session.app().sp_frame());
+        compositor.set_sp_frame(self.session.app().picture_on_top());
         sync_core_picker(
             self.session.app_mut(),
             compositor,
@@ -702,6 +730,7 @@ impl Frontend {
             },
             &mut self.switcher,
         );
+        sync_guide(self.session.app_mut(), compositor, &mut self.guide_page);
         self.draws.clear();
         self.achievements.update(&mut self.session, compositor);
         self.session.app().draw(&mut self.draws);
@@ -714,6 +743,10 @@ impl Frontend {
 
     pub fn drive_emulator(&mut self) {
         self.session.set_driven(true);
+    }
+
+    pub fn cpu_governor(&self) -> slot_power::CpuGovernor {
+        self.session.cpu_governor()
     }
 
     pub fn frame_clock(&self) -> crate::pacing::FrameClock {
@@ -923,6 +956,18 @@ impl Frontend {
     }
 }
 
+fn authentic_screen(app: &App) -> slot_gfx::Screen {
+    match app.playing_platform() {
+        Console::Gb => match app.gb_model() {
+            slot_store::GbModel::Dmg => slot_gfx::Screen::Dmg,
+            slot_store::GbModel::Pocket => slot_gfx::Screen::Pocket,
+            slot_store::GbModel::Light => slot_gfx::Screen::Light,
+        },
+        Console::Gbc => slot_gfx::Screen::Gbc,
+        Console::Gba | Console::Gbav => slot_gfx::Screen::Gba,
+    }
+}
+
 fn link_legend_faces(ink: [u8; 3]) -> Vec<UndoFace> {
     link_button_legends(ink)
 }
@@ -1114,6 +1159,37 @@ fn sync_switcher(app: &mut App, compositor: &mut Compositor, texes: Faces, state
         app.set_polaroid_title_face(id);
     }
     sync_gallery(app, compositor, state);
+}
+
+#[derive(Default)]
+struct GuidePage {
+    tex: Option<TexId>,
+    title: Option<TexId>,
+    shown: Option<slot_ui::GuideView>,
+    titled: bool,
+    glyphs: slot_ui::GuideGlyphs,
+}
+
+fn sync_guide(app: &mut App, compositor: &mut Compositor, state: &mut GuidePage) {
+    let canvas = app.canvas();
+    let Some(guide) = app.guide() else {
+        state.shown = None;
+        state.titled = false;
+        return;
+    };
+    let view = guide.view(canvas);
+    if state.shown != Some(view) {
+        let face = guide.render(canvas, &mut state.glyphs);
+        let tex = upload(compositor, &mut state.tex, face);
+        state.shown = Some(view);
+        app.set_guide_page_face(tex, view);
+    }
+    if !state.titled {
+        let title = title_face(app.guide_title().unwrap_or_default());
+        let tex = upload(compositor, &mut state.title, title);
+        state.titled = true;
+        app.set_guide_title_face(tex);
+    }
 }
 
 fn close_gallery(app: &mut App, state: &mut Switcher) {
@@ -1371,7 +1447,7 @@ fn sync_game_bezel(app: &mut App, compositor: &mut Compositor, state: &mut Bezel
     let (w, h) = app.game_bezel_size();
     let last = state.image.as_ref().and_then(|image| image.2);
     let art = bezel_key(&pick, app.bezel_art(), last);
-    let shown = (platform, pick, art, (w, h));
+    let shown = (platform, pick, art, (w, h), app.authentic(platform));
     if state.image.as_ref() != Some(&shown) {
         let rgba = match &shown.1 {
             BezelPick::None | BezelPick::Ags102 => None,
@@ -1387,6 +1463,17 @@ fn sync_game_bezel(app: &mut App, compositor: &mut Compositor, state: &mut Bezel
                 })
                 .and_then(|path| game_bezel_face(&path, w, h)),
         };
+        app.set_bezel_column(
+            rgba.as_deref()
+                .map(|rgba| slot_gfx::bezel_column(rgba, (w, h)))
+                .unwrap_or_default(),
+        );
+        let rgba = rgba.map(|mut rgba| {
+            if shown.4 {
+                cast_screen_shadow(&mut rgba, w, h);
+            }
+            rgba
+        });
         let tex = rgba.map(|rgba| match state.tex {
             Some(id) => {
                 compositor.update_texture(id, w, h, &rgba);

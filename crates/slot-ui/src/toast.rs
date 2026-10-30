@@ -10,9 +10,11 @@ use crate::{CartFace, QuickRow};
 pub enum Toast {
     StateSaved,
     StateLoaded,
+    GameReset,
     ShotCaptured,
     ShotFailed,
     NeedsGpsp,
+    NeedsMgba,
     NoLink,
     LinkEnded,
     PeerEnded,
@@ -24,6 +26,11 @@ pub enum Toast {
     ShaderGrid,
     ShaderDot,
     ShaderSimpletex,
+    ShaderShimmerless,
+    ShaderAuthentic,
+    ModelGameBoy,
+    ModelPocket,
+    ModelLight,
     CardUnwritable,
     CardRepair,
     CardRepairCharge,
@@ -34,12 +41,14 @@ pub enum Toast {
 }
 
 impl Toast {
-    const FIXED: [Toast; 21] = [
+    const FIXED: [Toast; 28] = [
         Toast::StateSaved,
         Toast::StateLoaded,
+        Toast::GameReset,
         Toast::ShotCaptured,
         Toast::ShotFailed,
         Toast::NeedsGpsp,
+        Toast::NeedsMgba,
         Toast::NoLink,
         Toast::LinkEnded,
         Toast::PeerEnded,
@@ -51,6 +60,11 @@ impl Toast {
         Toast::ShaderGrid,
         Toast::ShaderDot,
         Toast::ShaderSimpletex,
+        Toast::ShaderShimmerless,
+        Toast::ShaderAuthentic,
+        Toast::ModelGameBoy,
+        Toast::ModelPocket,
+        Toast::ModelLight,
         Toast::CardUnwritable,
         Toast::CardRepair,
         Toast::CardRepairCharge,
@@ -124,9 +138,11 @@ impl Toast {
         match self {
             Toast::StateSaved => "State Saved",
             Toast::StateLoaded => "State Loaded",
+            Toast::GameReset => "Game Reset",
             Toast::ShotCaptured => "Screenshot Captured",
             Toast::ShotFailed => "Screenshot Failed",
             Toast::NeedsGpsp => "Please switch to gpSP",
+            Toast::NeedsMgba => "Please switch to mGBA",
             Toast::NoLink => "No link support",
             Toast::LinkEnded => "Link ended",
             Toast::PeerEnded => "Link was ended",
@@ -138,6 +154,11 @@ impl Toast {
             Toast::ShaderGrid => "Shader: Grid",
             Toast::ShaderDot => "Shader: Dot",
             Toast::ShaderSimpletex => "Shader: Simpletex",
+            Toast::ShaderShimmerless => "Shader: Shimmerless",
+            Toast::ShaderAuthentic => "Shader: Authentic",
+            Toast::ModelGameBoy => "Game Boy",
+            Toast::ModelPocket => "Game Boy Pocket",
+            Toast::ModelLight => "Game Boy Light",
             Toast::CardUnwritable => "Can't write to SD card",
             Toast::CardRepair | Toast::CardRepairCharge => "Can't write to SD card",
             Toast::CardRepaired => "SD card repaired",
@@ -155,7 +176,7 @@ fn bound_rows() -> impl Iterator<Item = QuickRow> {
 const REPAIR_HOLD_MS: crate::hud::Millis = 6_000;
 const WARNING_HOLD_MS: crate::hud::Millis = 4_000;
 
-const TOAST_W: u32 = 240;
+const TOAST_W: u32 = 256;
 const TOAST_H: u32 = 22;
 const TOAST_PX: f32 = 16.0;
 const TOAST_MIN_PX: f32 = 12.0;

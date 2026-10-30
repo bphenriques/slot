@@ -63,6 +63,16 @@ uniform vec2 u_origin;
 uniform vec4 u_rect;
 uniform vec2 u_fbo;
 uniform vec4 u_pic;
+uniform sampler2D u_ramp;
+uniform vec3 u_light;
+uniform vec3 u_dark;
+uniform mat3 u_response;
+uniform vec3 u_gamma;
+uniform vec3 u_least;
+uniform float u_grain;
+uniform vec4 u_lcd;
+uniform vec4 u_ink;
+uniform vec3 u_glass;
 varying vec2 v_uv;
 const vec3 offsets = vec3(3.141592654) * vec3(1.0 / 2.0, 1.0 / 2.0 - 2.0 / 3.0, 1.0 / 2.0 - 4.0 / 3.0);
 const vec3 luma_coeff = vec3(0.2126, 0.7152, 0.0722);
@@ -72,12 +82,93 @@ vec2 grid_band(vec2 x) {
 float dot_weight(vec2 f, vec2 o, float bloom) {
     return exp(-4.0 * length(f - (o + vec2(0.5))) * bloom);
 }
+// A Game Boy dot's ink, from the grey the core draws: dmg-3x's alpha.
+float ink(vec2 at) {
+    return min(u_ink.x * (1.0 - dot(texture2D(u_game, at).rgb, vec3(1.0 / 3.0))) + u_ink.y, 1.0);
+}
+// The ink anywhere on the screen, filtered between game pixels, and none past the picture.
+float ink_near(vec2 at, vec2 texel) {
+    vec2 lo = u_pic.xy + 0.5 * texel;
+    vec2 hi = u_pic.zw - 0.5 * texel;
+    vec2 cover = clamp(1.0 - max(lo - at, at - hi) * u_src, 0.0, 1.0);
+    return ink(clamp(at, lo, hi)) * cover.x * cover.y;
+}
 void main() {
     vec2 uv = u_uv.xy + v_uv * u_uv.zw;
     vec2 f = fract(uv * u_src);
     vec3 c = texture2D(u_game, uv).rgb;
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
-    if (!inside) {
+    if (u_mode > 5.5) {
+        // Authentic: an unlit LCD in room light, its panel running on past the picture to
+        // the edge of the screen. See authentic.rs.
+        vec2 texel = 1.0 / u_src;
+        vec2 centre = (floor(uv * u_src) + 0.5) * texel;
+        vec2 span = u_rect.zw * u_fbo / (u_uv.zw * u_src);
+        // The screen pixel along each game pixel's top and left edge is the gap between dots.
+        vec2 gap = step(f * span, vec2(1.0));
+        if (u_lcd.x > 0.5) {
+            // The core draws grey: how much ink each dot holds over the lit panel. A gap
+            // takes a share of the ink on either side of it, and none where gaps cross.
+            float a = 0.0;
+            if (inside) {
+                a = ink(centre);
+                if (gap.x + gap.y > 0.5) {
+                    vec2 back = centre - (gap.x > 0.5 ? vec2(texel.x, 0.0) : vec2(0.0, texel.y));
+                    float other = all(greaterThanEqual(back, u_pic.xy)) ? ink(back) : 0.0;
+                    a = gap.x + gap.y > 1.5 ? 0.0 : u_ink.z * (a + other);
+                }
+            }
+            // The dots' shadow on the reflector, half a game pixel down and to the left as
+            // dmg-3x casts it, blurred over about a pixel. Ink in front of it hides it.
+            vec2 from = uv + vec2(0.5, -0.5) * texel;
+            float shadow = ink_near(from - 0.5 * texel, texel) + ink_near(from + 0.5 * texel, texel)
+                + ink_near(from + vec2(0.5, -0.5) * texel, texel) + ink_near(from + vec2(-0.5, 0.5) * texel, texel);
+            shadow *= 0.25 * u_ink.w * (1.0 - 0.75 * a);
+            c = u_dark * a * (1.0 - u_glass.x * a * a) + u_light * (1.0 - shadow) * (u_glass.y - u_glass.z * a);
+        } else if (!inside) {
+            c = pow(u_light, vec3(1.0 / 2.2));
+        } else {
+            // Each 5-bit code's measured light, then the panel's colour response, then the
+            // reflector's white and the panel's black.
+            c = texture2D(u_game, centre).rgb;
+            vec3 code = (floor(c * 31.0 + 0.5) + 0.5) / 32.0;
+            vec2 pick = vec2(1.0 - u_lcd.y, u_lcd.y);
+            vec3 light = vec3(dot(texture2D(u_ramp, vec2(code.r, 0.5)).rg, pick),
+                              dot(texture2D(u_ramp, vec2(code.g, 0.5)).rg, pick),
+                              dot(texture2D(u_ramp, vec2(code.b, 0.5)).rg, pick));
+            vec3 lin = clamp(u_response * pow(light, u_gamma), u_least, vec3(1.0));
+            lin = mix(u_dark, u_light, lin);
+            // The measured colour is a whole pixel's: its cell and the dark grid around it.
+            // Light the cell so that the two together still average to it.
+            vec2 thin = min(1.0 / span, vec2(1.0));
+            float grid = thin.x * (1.0 - thin.y) * u_lcd.z + thin.y * (1.0 - thin.x) * u_lcd.w
+                + thin.x * thin.y * max(u_lcd.z, u_lcd.w);
+            // The reflector shows through the colour filter as a fine sparkle.
+            float speck = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+            float sparkle = 1.0 + u_grain * (step(0.9, speck) * 10.0 - 1.0);
+            lin = min(u_dark + (lin - u_dark) * sparkle / (1.0 - grid), vec3(1.0));
+            lin = mix(lin, u_dark, max(gap.x * u_lcd.z, gap.y * u_lcd.w));
+            c = pow(lin, vec3(1.0 / 2.2));
+        }
+        // The glass, as dmg-3x's border lays it over the screen: the room's light across the
+        // top right, and the shade of the bezel toward the bottom.
+        float sheen = 0.19 * max(v_uv.x - 0.14 - 0.87 * v_uv.y, 0.0);
+        float shade = max(v_uv.y - 0.55 - 0.05 * v_uv.x, 0.0) * (0.44 - 0.11 * v_uv.x);
+        c = mix(c, vec3(1.0), sheen) * (1.0 - shade);
+    } else if (!inside) {
+        // Past the picture, the source shows as it is.
+    } else if (u_mode > 4.5) {
+        vec2 hp = 0.5 * u_uv.zw * u_src / (u_rect.zw * u_fbo);
+        vec2 p = uv * u_src;
+        vec2 b = floor(p + hp);
+        vec2 t = clamp((p + hp - b) / (2.0 * hp), 0.0, 1.0);
+        vec2 lo = u_pic.xy * u_src + 0.5;
+        vec2 hi = u_pic.zw * u_src - 0.5;
+        vec2 a0 = clamp(b - 0.5, lo, hi) / u_src;
+        vec2 a1 = clamp(b + 0.5, lo, hi) / u_src;
+        vec3 top = mix(texture2D(u_game, a0).rgb, texture2D(u_game, vec2(a1.x, a0.y)).rgb, t.x);
+        vec3 bottom = mix(texture2D(u_game, vec2(a0.x, a1.y)).rgb, texture2D(u_game, a1).rgb, t.x);
+        c = mix(top, bottom, t.y);
     } else if (u_mode > 3.5) {
         c = pow(c, vec3(1.05));
         vec2 d = abs(f - 0.5);
@@ -151,8 +242,32 @@ pub const BLIT_FRAG: &str = r#"
 precision mediump float;
 uniform sampler2D u_tex;
 uniform vec3 u_gain;
+uniform float u_saturation;
+uniform float u_contrast;
 varying vec2 v_uv;
 void main() {
-    FRAG_COLOR = vec4(texture2D(u_tex, v_uv).rgb * u_gain, 1.0);
+    vec3 c = texture2D(u_tex, v_uv).rgb;
+    c = mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, 1.0 + u_saturation);
+    c = (c - 0.5) * (1.0 + u_contrast) + 0.5;
+    FRAG_COLOR = vec4(clamp(c, 0.0, 1.0) * u_gain, 1.0);
+}
+"#;
+
+/// The LCD's slow response: each channel moves from what the screen showed toward the new
+/// frame, more slowly while it turns lighter than while it turns darker.
+pub const GHOST_FRAG: &str = r#"
+precision mediump float;
+uniform sampler2D u_tex;
+uniform sampler2D u_prev;
+uniform vec2 u_keep;
+varying vec2 v_uv;
+void main() {
+    vec3 now = texture2D(u_tex, v_uv).rgb;
+    vec3 was = texture2D(u_prev, v_uv).rgb;
+    vec3 keep = mix(vec3(u_keep.y), vec3(u_keep.x), step(was, now));
+    vec3 c = mix(now, was, keep);
+    // Eight bits cannot hold the last steps of the fade; finish them.
+    c = mix(c, now, step(abs(now - was), vec3(1.5 / 255.0)));
+    FRAG_COLOR = vec4(c, 1.0);
 }
 "#;

@@ -40,6 +40,7 @@ pub struct Session {
     prefetch: Prefetch,
     reloading: bool,
     driven: bool,
+    sunlight_sent: Option<u8>,
 }
 
 impl Session {
@@ -69,6 +70,7 @@ impl Session {
             prefetch: Prefetch::default(),
             reloading: false,
             driven: false,
+            sunlight_sent: None,
         };
         // A game left running comes straight back. Its core loads on its own thread, so start it
         // now and let the card read overlap the rest of the boot. Waiting for the first update
@@ -166,6 +168,14 @@ impl Session {
         if let Some(emu) = &self.emu {
             emu.set_driven(driven);
         }
+    }
+
+    pub fn cpu_governor(&self) -> slot_power::CpuGovernor {
+        governor_for(
+            self.app.core(),
+            self.app.playing_platform(),
+            self.emu.is_some() && !self.core_paused(),
+        )
     }
 
     pub fn frame_clock(&self) -> crate::pacing::FrameClock {
@@ -382,6 +392,12 @@ impl Session {
                 emu.set_cheats(codes);
             }
         }
+        if let (Some(level), Some(emu)) = (self.app.sunlight(), &self.emu) {
+            if self.sunlight_sent != Some(level) {
+                emu.set_option(crate::core::SUNLIGHT_OPTION, &level.to_string());
+                self.sunlight_sent = Some(level);
+            }
+        }
         if repaint && self.held() && !self.app.link_active() {
             if let Some(emu) = &self.emu {
                 emu.refresh();
@@ -518,24 +534,25 @@ impl Session {
         matches!(self.app.phase(), Phase::Ejecting { .. })
     }
 
+    fn core_paused(&self) -> bool {
+        self.inserting()
+            || self.ejecting()
+            || self.showing_polaroids()
+            || self.dozing()
+            || (self.held() && !self.app.link_active())
+    }
+
     fn sync_speed(&self) {
         if let Some(emu) = &self.emu {
             emu.set_fast_quarters(u32::from(self.app.ff_speed()));
             emu.set_ff_sound(self.app.ff_sound());
-            emu.set_speed(
-                if self.inserting()
-                    || self.ejecting()
-                    || self.showing_polaroids()
-                    || self.dozing()
-                    || (self.held() && !self.app.link_active())
-                {
-                    Speed::Paused
-                } else if self.actually_fast_forwarding() {
-                    Speed::Fast
-                } else {
-                    Speed::Normal
-                },
-            );
+            emu.set_speed(if self.core_paused() {
+                Speed::Paused
+            } else if self.actually_fast_forwarding() {
+                Speed::Fast
+            } else {
+                Speed::Normal
+            });
             emu.set_rewinding(self.actually_rewinding());
             emu.set_turbo(self.app.turbo());
             emu.set_rewind_recording(self.app.records_rewind());
@@ -570,7 +587,7 @@ impl Session {
             Some(CoreState::Loading) => {}
             Some(CoreState::Ready) => {
                 if let (true, Some(emu)) = (self.app.palette_live(), &self.emu) {
-                    emu.set_option("mgba_gb_colors", self.app.gb_colors().core_name());
+                    emu.set_option("mgba_gb_colors", self.app.core_gb_colors().core_name());
                 }
                 self.app.on_core_ready()
             }
@@ -601,9 +618,9 @@ impl Session {
         let stem = stem.to_owned();
         let clean = self.app.starting_clean();
         let player = self.app.link_player();
-        let chosen = self.app.gb_colors();
-        let colour = self.app.colour_correction_for(platform);
-        let blending = self.app.blending_for(platform);
+        let chosen = self.app.core_gb_colors();
+        let colour = self.app.core_colour_correction_for(platform);
+        let blending = self.app.core_blending_for(platform);
         let join = std::thread::Builder::new()
             .name("slot-open".into())
             .spawn(move || {
@@ -685,6 +702,7 @@ impl Session {
         emu.set_driven(self.driven);
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);
+        self.sunlight_sent = None;
         true
     }
 
@@ -751,4 +769,32 @@ pub(crate) fn trace() -> bool {
 
 fn launch(step: &str) {
     eprintln!("slot: launch: {step} at {:.1} ms", crate::boot_time::ms());
+}
+
+fn governor_for(core: Core, platform: Platform, running: bool) -> slot_power::CpuGovernor {
+    if running && core == Core::Mgba && platform.hardware() == Platform::Gba {
+        slot_power::CpuGovernor::Performance
+    } else {
+        slot_power::CpuGovernor::Schedutil
+    }
+}
+
+#[cfg(test)]
+mod governor_tests {
+    use super::*;
+    use slot_power::CpuGovernor::{Performance, Schedutil};
+
+    #[test]
+    fn only_running_mgba_gba_uses_performance() {
+        for (core, platform, expected) in [
+            (Core::Mgba, Platform::Gba, Performance),
+            (Core::Mgba, Platform::Gbav, Performance),
+            (Core::Mgba, Platform::Gb, Schedutil),
+            (Core::Mgba, Platform::Gbc, Schedutil),
+            (Core::Gpsp, Platform::Gba, Schedutil),
+        ] {
+            assert_eq!(governor_for(core, platform, true), expected);
+            assert_eq!(governor_for(core, platform, false), Schedutil);
+        }
+    }
 }

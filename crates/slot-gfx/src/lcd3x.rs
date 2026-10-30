@@ -16,6 +16,8 @@ pub enum ScreenEffect {
     Grid,
     Dot,
     Simpletex,
+    Shimmerless,
+    Authentic,
 }
 
 impl ScreenEffect {

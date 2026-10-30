@@ -5,12 +5,14 @@ macro_rules! eprintln {
     }};
 }
 
+mod cpu;
 mod device;
 mod motor;
 mod power;
 mod refresh;
 mod sim;
 
+pub use cpu::{CpuGovernor, CpuGovernors};
 pub use device::{
     card_kernel_lines, card_mount_in, has_bit, motor_change, read_only, read_only_in,
     record_first_frame, rumble_node, stage_repair, take_repair_result, trace_first_frame,

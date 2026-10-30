@@ -323,10 +323,14 @@ pub enum Shortcut {
     FastForward,
     FastForwardToggle,
     Rewind,
+    SunlightUp,
+    SunlightDown,
+    Reset,
+    Guide,
 }
 
 impl Shortcut {
-    pub const ALL: [Shortcut; 15] = [
+    pub const ALL: [Shortcut; 19] = [
         Shortcut::SaveState,
         Shortcut::LoadState,
         Shortcut::Screenshot,
@@ -342,6 +346,10 @@ impl Shortcut {
         Shortcut::FastForward,
         Shortcut::FastForwardToggle,
         Shortcut::Rewind,
+        Shortcut::SunlightUp,
+        Shortcut::SunlightDown,
+        Shortcut::Reset,
+        Shortcut::Guide,
     ];
 
     pub fn label(self) -> &'static str {
@@ -359,8 +367,12 @@ impl Shortcut {
             Shortcut::ShaderNext => "Shader Next",
             Shortcut::ShaderBack => "Shader Back",
             Shortcut::FastForward => "Fast Forward",
-            Shortcut::FastForwardToggle => "Fast Forward Toggle",
+            Shortcut::FastForwardToggle => "FF Toggle",
             Shortcut::Rewind => "Rewind",
+            Shortcut::SunlightUp => "Sunlight Up",
+            Shortcut::SunlightDown => "Sunlight Down",
+            Shortcut::Reset => "Reset Game",
+            Shortcut::Guide => "Guide",
         }
     }
 
@@ -381,6 +393,10 @@ impl Shortcut {
             Shortcut::FastForward => "fast_forward",
             Shortcut::FastForwardToggle => "fast_forward_toggle",
             Shortcut::Rewind => "rewind",
+            Shortcut::SunlightUp => "sunlight_up",
+            Shortcut::SunlightDown => "sunlight_down",
+            Shortcut::Reset => "reset",
+            Shortcut::Guide => "guide",
         }
     }
 
@@ -402,6 +418,9 @@ impl Shortcut {
             Shortcut::FastForward => Binding::plain(Device::R2),
             Shortcut::FastForwardToggle => None,
             Shortcut::Rewind => Binding::plain(Device::L2),
+            Shortcut::SunlightUp | Shortcut::SunlightDown | Shortcut::Reset | Shortcut::Guide => {
+                None
+            }
         }
     }
 
@@ -455,7 +474,7 @@ impl Controls {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct ShortcutKeys {
-    keys: [Option<Binding>; 15],
+    keys: [Option<Binding>; 19],
 }
 
 impl Default for ShortcutKeys {

@@ -156,6 +156,7 @@ fn slot_state_round_trips_including_a_stem_with_an_equals_sign() {
         volume: 71,
         muted: true,
         clock_set: true,
+        gb_model: slot_store::GbModel::Light,
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -295,6 +296,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             cart_platform: None,
             brightness: 3,
             blue_light: 1,
+            saturation: 0,
+            contrast: 0,
             volume: 40,
             volume_hp: 40,
             muted: true,
@@ -342,6 +345,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             stretch_gbc: Stretch::Classic,
             blending_gba: Blending::Off,
             blending_gb: Blending::Off,
+            gb_model: slot_store::GbModel::Pocket,
             blending_gbc: Blending::Off,
             recents: Vec::new(),
             favorites: Vec::new(),
@@ -372,7 +376,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         wallpaper_tint: WallpaperTint::Medium,
         colour_correction_gbc: true,
-        shader_gbc: Shader::Grid,
+        shader_gbc: Shader::Shimmerless,
+        saturation: 4,
+        contrast: 7,
         bezel_gba: BezelPick::None,
         bezel_gb: BezelPick::Default,
         bezel_gbc: BezelPick::File("Pocket.png".into()),
@@ -409,7 +415,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "bezel_gb=default",
         "bezel_gbc=Pocket.png",
         "colour_correction_gbc=1",
-        "shader_gbc=grid",
+        "shader_gbc=shimmerless",
+        "saturation=4",
+        "contrast=7",
         "blending_gba=ghosting",
         "blending_gb=mix",
         "blending_gbc=off",
@@ -508,6 +516,27 @@ fn an_older_build_reads_the_new_speed_as_its_own_default() {
         FF_SPEEDS.contains(&FF_SPEED_DEFAULT),
         "the default is not one of the speeds the row offers"
     );
+}
+
+#[test]
+fn a_saturation_or_contrast_the_rows_do_not_offer_reads_as_off_and_keeps_the_rest() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for bad in [
+        "saturation=10\ncontrast=10\n",
+        "saturation=-1\ncontrast=-1\n",
+        "saturation=on\ncontrast=on\n",
+        "saturation=\ncontrast=\n",
+    ] {
+        std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!((s.saturation, s.contrast), (0, 0), "accepted {bad:?}");
+        assert_eq!(
+            (s.cart.as_deref(), s.brightness, s.volume),
+            (Some("Emerald"), 3, 40),
+            "{bad:?} took the rest of the card with it"
+        );
+    }
 }
 
 #[test]
@@ -841,5 +870,17 @@ fn a_frame_blending_the_rows_do_not_offer_reads_as_off() {
     assert!(
         read.clock_set,
         "the rest of the card was thrown away with it"
+    );
+}
+
+#[test]
+fn a_card_saved_with_the_test_builds_transparent_shader_keeps_it_as_authentic() {
+    assert_eq!(
+        slot_store::Shader::parse("transparent"),
+        Some(slot_store::Shader::Authentic)
+    );
+    assert_eq!(
+        slot_store::Shader::parse("authentic"),
+        Some(slot_store::Shader::Authentic)
     );
 }
