@@ -5,8 +5,8 @@
 <a href="LICENSE"><img src="https://img.shields.io/github/license/BrandonKowalski/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="License"></a>
 <a href="https://github.com/BrandonKowalski/slot/stargazers"><img src="https://img.shields.io/github/stars/BrandonKowalski/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Stars"></a>
 <a href="https://github.com/BrandonKowalski/slot/releases"><img src="https://img.shields.io/github/downloads/BrandonKowalski/slot/total?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Downloads"></a>
-<a href="https://slot-cfw.fyi"><img src="https://img.shields.io/badge/Guide-slot--cfw.fyi-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Guide"></a>
-<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Changelog"></a>
+<a href="https://slot-cfw.fyi"><img src="https://img.shields.io/badge/Guide-slot--cfw.fyi-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Docs"></a>
+<a href="https://discord.gg/NYRWsSuPUu"><img src="https://img.shields.io/badge/Discord-4d4d57?style=for-the-badge&labelColor=242429&logo=discord&logoColor=white" height="36" alt="Discord"></a>
 
 </div>
 
@@ -30,8 +30,11 @@ notes are in the [changelog](CHANGELOG.md).
 
 - **Lower input lag with automatic 120 Hz** on supported RG SP, RG34XX SP, and RG34XX
   panels. Other panel revisions keep their existing refresh rate.
-- ~~**Better battery life and less heat** with the `schedutil` CPU governor.~~
-  Included upstream since **v1.10.0**.
+- **Automatic CPU scaling** with `schedutil` for GB, GBC, gpSP, and paused play.
+  Running GBA games on mGBA use `performance` to keep frames on time.
+- **Authentic LCD shaders** recreate the reflective screens' colours, pixel grid, ghosting,
+  and glass, with shadows from the dots and bezel. Game Boy offers Game Boy, Pocket, and
+  Light models. Pick **Authentic** under **Settings > Screen > your system > Shader**.
 - ~~**LCD ghosting / interframe blending.**~~ Included upstream since **v1.10.0**
   as **Frame Blending** under Settings > Screen.
 - **Colour calibration** for the RG SP and RG34XXSP panels, based on an accurate 3x1D LUT
@@ -61,7 +64,12 @@ notes are in the [changelog](CHANGELOG.md).
   after the ROM to `Cheats/GBA`, `Cheats/GB` or `Cheats/GBC`. Cheats need the mGBA core.
 
 Existing blending preferences are kept: the old On setting becomes Mix, and Off stays Off.
-mGBA also offers upstream's LCD Ghosting mode.
+mGBA also offers upstream's Ghosting mode.
+
+Authentic moves ghosting and colour effects from mGBA's CPU filters to the GPU. That leaves
+enough CPU time for the tested GB and GBC games to run smoothly with `schedutil`.
+GBA on mGBA still misses frame handoffs with dynamic scaling, so slot selects `performance`
+for that combination and returns to `schedutil` when play pauses or ends.
 
 ## How to configure
 
@@ -74,7 +82,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.10.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.10.0-pvaibhav.1).
+The current release is [v1.12.0-pvaibhav.2](https://github.com/pvaibhav/slot/releases/tag/v1.12.0-pvaibhav.2).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ## Release cadence
@@ -88,6 +96,24 @@ I release new features as I build and test them. They are carried forward in eve
 ---
 
 # What does it look like?
+
+Authentic on Game Boy and Game Boy Color, rendered from captured game frames at 720×480
+with this release's shaders and bezels. The GBC look keeps the original screen's darker,
+reflective colours.
+
+<p align="center">
+<img src=".github/resources/screenshots/authentic-gb.png" width="48%" alt="Metroid II with the Authentic Game Boy model, green panel, blue-green dots, and bezel shadows">
+<img src=".github/resources/screenshots/authentic-gbc.png" width="48%" alt="Super Mario Bros. Deluxe with the Authentic Game Boy Color shader, reflective colours, and pixel grid">
+</p>
+
+<p align="center">Game Boy · Game Boy Color</p>
+
+<p align="center">
+<img src=".github/resources/screenshots/authentic-pocket.png" width="48%" alt="Metroid II with the Authentic Game Boy Pocket model and its grey-green reflective panel">
+<img src=".github/resources/screenshots/authentic-light.png" width="48%" alt="Metroid II with the Authentic Game Boy Light model and its turquoise panel">
+</p>
+
+<p align="center">Game Boy Pocket · Game Boy Light</p>
 
 <p align="center">
 <img src=".github/resources/screenshots/carousel.gif" width="48%" alt="Scrolling the cart carousel across the Game Boy Advance, Game Boy and Game Boy Color shelves">
@@ -114,6 +140,16 @@ I release new features as I build and test them. They are carried forward in eve
 
 If you have one of the untested devices, or have tried slot on a device not listed,
 please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues) and let me know how it went.
+
+---
+
+# Discord Community
+
+slot has a [Discord server](https://discord.gg/NYRWsSuPUu) for questions, sharing setups, and talking about the project.
+
+It is open to everyone in the slot universe. That includes folks running or building forks of slot.
+
+There is no reason for this community to be fragmented so long as we are having fun!
 
 ---
 

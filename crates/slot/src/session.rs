@@ -39,6 +39,7 @@ pub struct Session {
     prefetch: Prefetch,
     reloading: bool,
     driven: bool,
+    sunlight_sent: Option<u8>,
 }
 
 impl Session {
@@ -67,6 +68,7 @@ impl Session {
             prefetch: Prefetch::default(),
             reloading: false,
             driven: false,
+            sunlight_sent: None,
         };
         // A game left running comes straight back. Its core loads on its own thread, so start it
         // now and let the card read overlap the rest of the boot. Waiting for the first update
@@ -184,7 +186,7 @@ impl Session {
     pub fn step_emulator(&self, timeout: Duration) -> bool {
         self.emu.as_ref().is_some_and(|emu| {
             emu.tick();
-            emu.wait_frame(timeout)
+            !emu.wait_frame(timeout) && emu.locked()
         })
     }
 
@@ -341,6 +343,7 @@ impl Session {
             self.achievements.network_available();
         }
         self.home_connected = connected;
+        self.sink.hold_open(self.app.headphones());
         if let Some(emu) = &self.emu {
             emu.set_volume(self.app.output_volume());
         }
@@ -380,6 +383,12 @@ impl Session {
         if let Some(codes) = self.app.take_cheat_codes() {
             if let Some(emu) = &self.emu {
                 emu.set_cheats(codes);
+            }
+        }
+        if let (Some(level), Some(emu)) = (self.app.sunlight(), &self.emu) {
+            if self.sunlight_sent != Some(level) {
+                emu.set_option(crate::core::SUNLIGHT_OPTION, &level.to_string());
+                self.sunlight_sent = Some(level);
             }
         }
         if repaint && self.held() && !self.app.link_active() {
@@ -524,7 +533,7 @@ impl Session {
 
     fn sync_speed(&self) {
         if let Some(emu) = &self.emu {
-            emu.set_fast_steps(u32::from(self.app.ff_speed()));
+            emu.set_fast_quarters(u32::from(self.app.ff_speed()));
             emu.set_ff_sound(self.app.ff_sound());
             emu.set_speed(if self.core_paused() {
                 Speed::Paused
@@ -682,6 +691,7 @@ impl Session {
         emu.set_driven(self.driven);
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);
+        self.sunlight_sent = None;
         true
     }
 

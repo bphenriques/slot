@@ -2141,10 +2141,10 @@ fn a_game_boy_color_game_keeps_its_own_colour_and_shader() {
     );
     assert_eq!(
         (saved.shader_gb, saved.shader_gbc),
-        (Shader::Simpletex, Shader::Authentic),
+        (Shader::Simpletex, Shader::Shimmerless),
         "a Game Boy Color game's shader shortcut did not land on GBC alone"
     );
-    assert_eq!(s.app().screen_shader(), Shader::Authentic);
+    assert_eq!(s.app().screen_shader(), Shader::Shimmerless);
 }
 
 #[test]
@@ -2276,6 +2276,11 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
         ),
         (
             slot_input::Action::ShaderNext,
+            Shader::Shimmerless,
+            slot_ui::Toast::ShaderShimmerless,
+        ),
+        (
+            slot_input::Action::ShaderNext,
             Shader::Authentic,
             slot_ui::Toast::ShaderAuthentic,
         ),
@@ -2288,6 +2293,11 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
             slot_input::Action::ShaderPrev,
             Shader::Authentic,
             slot_ui::Toast::ShaderAuthentic,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
+            Shader::Shimmerless,
+            slot_ui::Toast::ShaderShimmerless,
         ),
         (
             slot_input::Action::ShaderPrev,
@@ -2375,6 +2385,7 @@ fn authentic_trades_the_game_boys_colour_ghosting_and_palette_rows_for_a_model()
     s.app_mut()
         .apply(slot_input::Action::ColourCorrectionToggle);
     assert!(s.app().core_colour_correction_for(Platform::Gb));
+    s.app_mut().apply(slot_input::Action::ShaderNext);
     s.app_mut().apply(slot_input::Action::ShaderNext);
     assert_eq!(s.app().screen_shader(), Shader::Authentic);
 

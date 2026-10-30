@@ -55,23 +55,25 @@ fn a_long_label_is_set_as_large_as_a_short_one() {
 }
 
 #[test]
-fn the_fast_forward_row_offers_off_and_the_four_ceilings_the_card_can_hold() {
-    assert_eq!(FF_SPEEDS, [0, 2, 3, 4, 6]);
+fn the_fast_forward_row_offers_off_a_slow_speed_and_the_four_ceilings() {
+    assert_eq!(FF_SPEEDS, [0, 6, 8, 12, 16, 24]);
     assert_eq!(
         FF_SPEEDS.map(QuickValue::speed),
         [
             Some(QuickValue::Off),
+            Some(QuickValue::Speed1_5),
             Some(QuickValue::Speed2),
             Some(QuickValue::Speed3),
             Some(QuickValue::Speed4),
             Some(QuickValue::Speed6),
         ]
     );
-    for other in [1, 5, 7, 9, 16, 28, 255] {
+    assert_eq!(QuickValue::Speed1_5.text(), "1.5×");
+    for other in [1, 2, 3, 4, 5, 7, 9, 28, 255] {
         assert_eq!(
             QuickValue::speed(other),
             None,
-            "{other}x is not a value the row has"
+            "{other} quarters is not a value the row has"
         );
     }
 }
@@ -109,7 +111,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
     );
     assert_eq!(
         QuickRow::SCREEN_GENERAL.map(QuickRow::label),
-        ["Brightness", "Blue Light"]
+        ["Brightness", "Blue Light", "Saturation", "Contrast"]
     );
     assert_eq!(
         QuickRow::SCREEN_GBA.map(QuickRow::label),
@@ -171,6 +173,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::Screenshots,
             QuickRow::Settings,
             QuickRow::ExitGame,
+            QuickRow::UndoReset,
             QuickRow::PlayScreen,
             QuickRow::PlayGameplay,
             QuickRow::ScreenGba,
@@ -185,7 +188,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::ScreenGeneral,
             QuickRow::UndoSave,
             QuickRow::UndoLoad,
-            QuickRow::Cheats
+            QuickRow::Cheats,
+            QuickRow::Guide
         ]
     );
     for page in [
@@ -229,6 +233,7 @@ fn the_values_read_as_the_menu_prints_them() {
     assert_eq!(
         QuickValue::ALL.map(QuickValue::text),
         [
+            "1.5×",
             "2×",
             "3×",
             "4×",
@@ -239,6 +244,7 @@ fn the_values_read_as_the_menu_prints_them() {
             "Grid",
             "Dot",
             "Simpletex",
+            "Shimmerless",
             "Authentic",
             "Game Boy",
             "Pocket",
@@ -265,13 +271,13 @@ fn the_values_read_as_the_menu_prints_them() {
             "7",
             "8",
             "9",
-            "SP Frame",
+            "SP Screen",
             "Integer",
             "Fit",
             "Classic",
             "Full Screen",
             "Mix",
-            "LCD Ghosting",
+            "Ghosting",
         ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);
@@ -353,9 +359,11 @@ fn the_in_game_pages_hold_their_rows_in_order() {
             QuickRow::Resume,
             QuickRow::UndoSave,
             QuickRow::UndoLoad,
+            QuickRow::UndoReset,
             QuickRow::States,
             QuickRow::Screenshots,
             QuickRow::Cheats,
+            QuickRow::Guide,
             QuickRow::Settings,
             QuickRow::ExitGame
         ]
@@ -383,7 +391,9 @@ fn the_in_game_pages_hold_their_rows_in_order() {
             QuickRow::ColourCorrection,
             QuickRow::Blending,
             QuickRow::PlayBrightness,
-            QuickRow::PlayBlueLight
+            QuickRow::PlayBlueLight,
+            QuickRow::PlaySaturation,
+            QuickRow::PlayContrast
         ]
     );
     for row in QuickRow::PLAY {
@@ -446,7 +456,7 @@ fn in_game_rows_read_as_the_menu_shows_them() {
 }
 
 #[test]
-fn a_hidden_palette_and_bezel_leave_seven_screen_rows() {
+fn a_hidden_palette_and_bezel_leave_nine_screen_rows() {
     let hidden = [QuickRow::Palette, QuickRow::Bezel, QuickRow::Model];
     assert_eq!(
         QuickRow::Shader.shown(&hidden),
@@ -457,51 +467,64 @@ fn a_hidden_palette_and_bezel_leave_seven_screen_rows() {
             QuickRow::ColourCorrection,
             QuickRow::Blending,
             QuickRow::PlayBrightness,
-            QuickRow::PlayBlueLight
+            QuickRow::PlayBlueLight,
+            QuickRow::PlaySaturation,
+            QuickRow::PlayContrast
         ]
     );
-    assert_eq!(QuickRow::PlayBlueLight.down(&hidden), QuickRow::Shader);
+    assert_eq!(QuickRow::PlayContrast.down(&hidden), QuickRow::Shader);
 }
 
 #[test]
 fn the_in_game_screen_panel_shows_three_rows_and_scrolls_the_rest() {
-    // Model shows only under the Authentic shader.
-    let model = [QuickRow::Model];
-    assert_eq!(slot_ui::quick_window(QuickRow::Shader, &model), (0, 3));
-    assert_eq!(slot_ui::quick_window(QuickRow::Bezel, &model), (0, 3));
-    assert_eq!(slot_ui::quick_window(QuickRow::Scale, &model), (1, 3));
-    assert_eq!(slot_ui::quick_window(QuickRow::Stretch, &model), (2, 3));
     assert_eq!(
-        slot_ui::quick_window(QuickRow::PlayBlueLight, &model),
-        (6, 3)
+        slot_ui::quick_window(QuickRow::Shader, &[QuickRow::Model]),
+        (0, 3)
+    );
+    assert_eq!(
+        slot_ui::quick_window(QuickRow::Bezel, &[QuickRow::Model]),
+        (0, 3)
+    );
+    assert_eq!(
+        slot_ui::quick_window(QuickRow::Scale, &[QuickRow::Model]),
+        (1, 3)
+    );
+    assert_eq!(
+        slot_ui::quick_window(QuickRow::Stretch, &[QuickRow::Model]),
+        (2, 3)
+    );
+    assert_eq!(
+        slot_ui::quick_window(QuickRow::PlayContrast, &[QuickRow::Model]),
+        (8, 3)
     );
     let hidden = [QuickRow::Palette, QuickRow::Bezel, QuickRow::Model];
     assert_eq!(
-        slot_ui::quick_window(QuickRow::PlayBlueLight, &hidden),
-        (4, 3)
+        slot_ui::quick_window(QuickRow::PlayContrast, &hidden),
+        (6, 3)
     );
 }
 
 #[test]
 fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
-    let model = [QuickRow::Model];
-    let top = slot_ui::quick_scroll(QuickRow::Shader, &model).expect("nine rows in three");
+    let top =
+        slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Model]).expect("eleven rows in three");
     assert!(
         (top.thumb_y - top.y).abs() < 0.5,
         "the thumb is not at the top"
     );
     assert!(
-        (top.thumb_h - top.h / 9.0).abs() < 0.5,
-        "the thumb is not one row of nine"
+        (top.thumb_h - top.h / 11.0).abs() < 0.5,
+        "the thumb is not one row of eleven"
     );
-    let end = slot_ui::quick_scroll(QuickRow::PlayBlueLight, &model).expect("nine rows in three");
+    let end = slot_ui::quick_scroll(QuickRow::PlayContrast, &[QuickRow::Model])
+        .expect("eleven rows in three");
     assert!(
         (end.thumb_y + end.thumb_h - (end.y + end.h)).abs() < 0.5,
         "the thumb is not at the bottom"
     );
     assert!(
         slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
-        "seven rows in three still scroll"
+        "nine rows in three still scroll"
     );
     assert_eq!(slot_ui::quick_scroll(QuickRow::Rumble, &[]), None);
     assert!(slot_ui::quick_scroll(QuickRow::GameUp, &[]).is_some());

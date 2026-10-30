@@ -1,11 +1,39 @@
-# v1.10.0-pvaibhav.1
+# v1.12.0-pvaibhav.2
 
-- Updates to upstream **v1.10.0**, with picture scaling and stretching options, matching Game Boy bezels, and a **GBA Video** shelf for carts in `Games/GBAV`.
-- Date & Time now uses cities, handles daylight saving automatically, and offers a 12-hour clock. Includes upstream's brightness, menu and shutdown fixes.
-- Upstream's **Frame Blending** replaces the old LCD Ghosting toggle. Existing On settings become **Mix**, preserving their appearance; Off stays Off. mGBA also offers **LCD Ghosting**.
-- Keeps this fork's automatic 120 Hz, display calibration, home Wi-Fi, label downloads, RetroAchievements, home-network linking and cheats. The CPU governor now uses upstream's implementation.
+- Adds **Authentic** LCD shaders for GB, GBC, and GBA. They draw each handheld's reflective colours, pixel grid, ghosting, and glass. Game Boy offers Game Boy, Pocket, and Light models.
+- Includes the latest local shader and bezel refinements, with blue-green Game Boy middle shades, darker GBC colours, dot shadows, and a soft shadow from the bezel onto the screen.
+- Selects **schedutil** for GB, GBC, gpSP, and paused play. Running GBA games on mGBA use **performance** to keep frames on time.
+- Builds on upstream **v1.12.0**, keeping game guides, Reset Game with Undo Reset, Boktai sunlight, Shimmerless, and this fork's existing additions.
 
-Unzip `slot-v1.10.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.10.0-pvaibhav.1/` onto SD2. Your games, saves, settings and credentials are preserved.
+Pick **Authentic** under **Settings > Screen > your system > Shader**. On Game Boy, the **Model** row selects the screen. Authentic supplies its own colours and ghosting, so their separate controls are hidden while it is selected. Your existing choices are kept.
+
+## Why schedutil now works
+
+Authentic moves ghosting and colour effects from mGBA's CPU filters to the GPU. The tested GB and GBC games then have enough CPU time to keep frames on schedule with dynamic CPU scaling. GBA on mGBA still misses frame handoffs under schedutil, so slot selects performance for that combination and returns to schedutil when play pauses or ends.
+
+## Authentic screenshots
+
+Rendered from captured game frames at 720×480
+with this release's shaders and bezels. The GBC look keeps the original screen's darker,
+reflective colours.
+
+<p align="center">
+<img src="https://raw.githubusercontent.com/pvaibhav/slot/v1.12.0-pvaibhav.2/.github/resources/screenshots/authentic-gb.png" width="48%" alt="Metroid II with the Authentic Game Boy model, green panel, blue-green dots, and bezel shadows">
+<img src="https://raw.githubusercontent.com/pvaibhav/slot/v1.12.0-pvaibhav.2/.github/resources/screenshots/authentic-gbc.png" width="48%" alt="Super Mario Bros. Deluxe with the Authentic Game Boy Color shader, reflective colours, and pixel grid">
+</p>
+
+<p align="center">Game Boy · Game Boy Color</p>
+
+<p align="center">
+<img src="https://raw.githubusercontent.com/pvaibhav/slot/v1.12.0-pvaibhav.2/.github/resources/screenshots/authentic-pocket.png" width="48%" alt="Metroid II with the Authentic Game Boy Pocket model and its grey-green reflective panel">
+<img src="https://raw.githubusercontent.com/pvaibhav/slot/v1.12.0-pvaibhav.2/.github/resources/screenshots/authentic-light.png" width="48%" alt="Metroid II with the Authentic Game Boy Light model and its turquoise panel">
+</p>
+
+<p align="center">Game Boy Pocket · Game Boy Light</p>
+
+## Install or update
+
+Unzip `slot-v1.12.0-pvaibhav.2-h700.zip`, then copy the contents of `slot-v1.12.0-pvaibhav.2/` onto SD2. Your games, saves, settings, and credentials are preserved.
 
 `Cheats.pack` and `Artwork.pack` are unchanged. Keep your existing copies, or put them in `Cheats/` and `Labels/` respectively.
 

@@ -296,6 +296,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             cart_platform: None,
             brightness: 3,
             blue_light: 1,
+            saturation: 0,
+            contrast: 0,
             volume: 40,
             volume_hp: 40,
             muted: true,
@@ -359,7 +361,7 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
     let s = SlotState {
         clock_set: true,
         rumble: false,
-        ff_speed: 2,
+        ff_speed: 8,
         ff_sound: true,
         colour_correction_gba: true,
         colour_correction_gb: false,
@@ -374,7 +376,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         wallpaper_tint: WallpaperTint::Medium,
         colour_correction_gbc: true,
-        shader_gbc: Shader::Grid,
+        shader_gbc: Shader::Shimmerless,
+        saturation: 4,
+        contrast: 7,
         bezel_gba: BezelPick::None,
         bezel_gb: BezelPick::Default,
         bezel_gbc: BezelPick::File("Pocket.png".into()),
@@ -411,7 +415,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "bezel_gb=default",
         "bezel_gbc=Pocket.png",
         "colour_correction_gbc=1",
-        "shader_gbc=grid",
+        "shader_gbc=shimmerless",
+        "saturation=4",
+        "contrast=7",
         "blending_gba=ghosting",
         "blending_gb=mix",
         "blending_gbc=off",
@@ -483,7 +489,8 @@ fn an_explicit_refresh_setting_is_retained() {
 
 #[test]
 fn every_speed_the_row_offers_round_trips_as_its_own_number() {
-    for speed in FF_SPEEDS {
+    assert_eq!(FF_SPEEDS, [0, 6, 8, 12, 16, 24]);
+    for (speed, written) in FF_SPEEDS.into_iter().zip(["0", "1.5", "2", "3", "4", "6"]) {
         let d = tmp_root();
         let s = SlotState {
             clock_set: true,
@@ -491,26 +498,45 @@ fn every_speed_the_row_offers_round_trips_as_its_own_number() {
             ..SlotState::default()
         };
         write_slot_state(d.path(), &s).unwrap();
-        assert_eq!(read_slot_state(d.path()), s, "{speed}x did not come back");
+        assert_eq!(read_slot_state(d.path()), s, "{written}x did not come back");
         let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
-        let want = format!("ff_speed={speed}");
+        let want = format!("ff_speed={written}");
         assert!(text.lines().any(|l| l == want), "no {want} in {text:?}");
     }
 }
 
 #[test]
 fn an_older_build_reads_the_new_speed_as_its_own_default() {
-    for speed in FF_SPEEDS.iter().filter(|&&n| n > 4) {
-        assert!(
-            !(2..=4).contains(speed),
-            "{speed}x is inside the range an older build accepts, so it would read as a speed"
-        );
-    }
+    assert!(
+        "1.5".parse::<u8>().is_err(),
+        "1.5x parses as a whole number, so an older build would read it as a speed"
+    );
     assert_eq!(SlotState::default().ff_speed, FF_SPEED_DEFAULT);
     assert!(
         FF_SPEEDS.contains(&FF_SPEED_DEFAULT),
         "the default is not one of the speeds the row offers"
     );
+}
+
+#[test]
+fn a_saturation_or_contrast_the_rows_do_not_offer_reads_as_off_and_keeps_the_rest() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for bad in [
+        "saturation=10\ncontrast=10\n",
+        "saturation=-1\ncontrast=-1\n",
+        "saturation=on\ncontrast=on\n",
+        "saturation=\ncontrast=\n",
+    ] {
+        std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!((s.saturation, s.contrast), (0, 0), "accepted {bad:?}");
+        assert_eq!(
+            (s.cart.as_deref(), s.brightness, s.volume),
+            (Some("Emerald"), 3, 40),
+            "{bad:?} took the rest of the card with it"
+        );
+    }
 }
 
 #[test]
@@ -531,6 +557,10 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
         "ff_speed=7\n",
         "ff_speed=8\n",
         "ff_speed=255\n",
+        "ff_speed=1.25\n",
+        "ff_speed=1.75\n",
+        "ff_speed=2.0\n",
+        "ff_speed=24\n",
     ] {
         std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
         let s = read_slot_state(d.path());

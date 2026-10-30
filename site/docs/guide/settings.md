@@ -26,6 +26,8 @@ Random picks a different wallpaper each boot.
 | --- | --- | --- |
 | Brightness | 0 to 9 | 5 |
 | Blue Light | Off, 1 to 9 | Off |
+| Saturation | Off, 1 to 9 | Off |
+| Contrast | Off, 1 to 9 | Off |
 
 ### Game Boy Advance, Game Boy Color and Game Boy
 
@@ -33,21 +35,21 @@ Each system has its own page.
 
 | Setting | Choices | Default |
 | --- | --- | --- |
-| Shader | GBA: Off, LCD3x, Grid, Dot. GB and GBC: Off, LCD3x, Grid, Simpletex | Grid on GBA, Simpletex on GB and GBC |
+| Shader | GBA: Off, LCD3x, Grid, Dot, Shimmerless. GB and GBC: Off, LCD3x, Grid, Simpletex, Shimmerless | Grid on GBA, Simpletex on GB and GBC |
 | Color Correction | On, Off | Off |
 | Palette | Game Boy only. Auto, then 48 palettes | Auto |
-| Scale | GBA: Fit, Integer, Full Screen. GB and GBC: SP Frame, Integer, Fit | Fit on GBA, SP Frame on GB and GBC |
+| Scale | GBA: Fit, Integer, Full Screen. GB and GBC: SP Screen, Integer, Fit | Fit on GBA, SP Screen on GB and GBC |
 | Stretch | GB and GBC only. Classic, Full Screen | Classic |
-| Frame Blending | Off, Mix, LCD Ghosting | Off |
+| Frame Blending | Off, Mix, Ghosting | Off |
 | Bezel | None, Default, AGS-102, your own | AGS-102 on 640×480 devices, None elsewhere |
 
-See [The Screen](screen.md) for what Scale, Stretch and Frame Blending do.
+See [The Screen](screen.md) for what Scale, Stretch, Frame Blending, Saturation and Contrast do.
 
 ## Gameplay
 
 | Setting | Choices | Default | Does |
 | --- | --- | --- | --- |
-| Fast Forward | Off, 2x, 3x, 4x, 6x | 6x | The top speed when fast-forwarding |
+| Fast Forward | Off, 1.5x, 2x, 3x, 4x, 6x | 6x | The top speed when fast-forwarding |
 | Fast Forward Sound | On, Off | Off | Sound while fast-forwarding |
 | Rewind | On, Off | On | Hold <kbd>L2</kbd> to go back |
 | Turbo Buttons | On, Off | On | Turbo A and Turbo B |

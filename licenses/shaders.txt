@@ -14,4 +14,16 @@ GNU General Public License version 2 or later.
 The paper texture (assets/paper.png, a 1024x1024 crop of textured_paper.png) is from the same shader.
 Changes: the grid bias is 1.0, so black pixels carry no grid.
 
+Authentic's Game Boy dot compositing, shadows and glass are adapted from
+Gameboy Classic Shader v0.2.2 by Harlequin, copyright (C) 2013,
+and its dmg-3x and gb-pocket-3x presets in the libretro shader collection.
+GNU General Public License version 3 or later.
+Changes: a single-pass dot and glass renderer, separate GPU frame response,
+and a shadow cast from the selected bezel's outline.
+Palette references: TWB64's DMG Ver. and Light Ver.; PixelShift's GB Old and
+GB Pocket. GBC colour references: BGB's reality photographs and colours,
+https://bgb.bircd.org/reality/ .
+Measured GBA/GBC colour ramps and GBA response: Pokefan531's
+Handheld-Colorspace-Shaders, https://github.com/Pokefan531/Handheld-Colorspace-Shaders .
+
 slot itself is GNU General Public License version 3 or later, which these licenses permit.

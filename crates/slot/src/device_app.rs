@@ -100,7 +100,7 @@ pub fn run() {
     let mut drawn = false;
     frontend.drive_emulator();
     let mut pacer = FramePacer::new(Instant::now());
-    let (mut frames, mut steps) = (0u32, 0u32);
+    let (mut frames, mut steps, mut stale) = (0u32, 0u32, 0u32);
     let mut said = Instant::now();
     loop {
         let deadline = pacer.deadline(frontend.frame_clock(), Instant::now());
@@ -134,9 +134,10 @@ pub fn run() {
                 frontend.advance(&mut input);
                 cpu.set(frontend.cpu_governor());
             }
-            let completed = frontend.step_emulator(STEP_TIMEOUT);
+            let late = frontend.step_emulator(STEP_TIMEOUT);
             steps += 1;
-            if !pacer.stepped(frontend.frame_clock(), Instant::now()) || !completed {
+            stale += u32::from(late);
+            if !pacer.stepped(frontend.frame_clock(), Instant::now()) || late {
                 break;
             }
         }
@@ -153,12 +154,12 @@ pub fn run() {
             frames += 1;
             if frames == 600 {
                 eprintln!(
-                    "slot: pace: {frames} presents, {steps} steps, {:.2} presents/s, {:.2} nominal fps, {} missed game periods",
+                    "slot: pace: {frames} presents, {steps} steps, {stale} stale, {:.2} presents/s, {:.2} nominal fps, {} missed game periods",
                     frames as f64 / said.elapsed().as_secs_f64(),
                     1.0 / frontend.frame_clock().period.as_secs_f64(),
                     pacer.dropped
                 );
-                (frames, steps) = (0, 0);
+                (frames, steps, stale) = (0, 0, 0);
                 said = Instant::now();
             }
         }
