@@ -1,11 +1,11 @@
-# v1.11.0-pvaibhav.1
+# v1.12.0-pvaibhav.1
 
-- Updates to upstream **v1.11.0**: fixes headphone buzzing after audio stops and adds a **1.5×** fast-forward speed.
-- **Fast Forward Toggle** starts and stops fast-forward with a single press. Assign it a button in Settings > Controls > Shortcuts; it is unbound by default.
-- Follows upstream's removal of the `schedutil` CPU governor after reports of stuttering, returning to the kernel default.
+- Updates to upstream **v1.12.0**: adds Boktai sunlight support, the Shimmerless shader, saturation and contrast controls, and improved bezel placement.
+- **Game guides**: put a text file named after your game in `Guides/GBA`, `Guides/GB` or `Guides/GBC`, then open Guide from the in-game menu.
+- Adds the **Reset Game** shortcut with Undo Reset, including when RetroAchievements is active, and fixes stray graphics when Game Boy screens turn back on.
 - Keeps this fork's automatic 120 Hz, display calibration, home Wi-Fi, label downloads, RetroAchievements, home-network linking and cheats.
 
-Unzip `slot-v1.11.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.11.0-pvaibhav.1/` onto SD2. Your games, saves, settings and credentials are preserved.
+Unzip `slot-v1.12.0-pvaibhav.1-h700.zip`, then copy the contents of `slot-v1.12.0-pvaibhav.1/` onto SD2. Your games, saves, settings and credentials are preserved.
 
 `Cheats.pack` and `Artwork.pack` are unchanged. Keep your existing copies, or put them in `Cheats/` and `Labels/` respectively.
 

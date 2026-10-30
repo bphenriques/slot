@@ -87,6 +87,10 @@ impl RetroCore for Tracked {
         self.core.run_frame(input);
         self.snapshot();
     }
+    fn reset(&mut self) {
+        self.core.reset();
+        self.timeline += 1;
+    }
     fn run_frame_linked(&mut self, p1: ButtonMask, p2: ButtonMask) {
         self.core.run_frame_linked(p1, p2);
         self.timeline += 1;

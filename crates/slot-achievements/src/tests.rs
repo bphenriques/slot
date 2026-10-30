@@ -230,6 +230,9 @@ impl RetroCore for TestCore {
     fn run_frame(&mut self, input: ButtonMask) {
         self.value = u8::from(input.0 != 0);
     }
+    fn reset(&mut self) {
+        self.value = 0;
+    }
     fn video_xrgb8888(&self) -> &[u8] {
         &[]
     }
@@ -263,6 +266,17 @@ impl RetroCore for TestCore {
             AchievementMemory::new([0..0x8000, 0x8000..0x48000])
         }
     }
+}
+
+#[test]
+fn resetting_a_tracked_game_restarts_the_core() {
+    let root = tempfile::tempdir().unwrap();
+    let service = Service::start_with(root.path().into(), Offline);
+    let mut core = service.wrap(Box::new(TestCore::default()));
+    core.run_frame(ButtonMask(1));
+    assert_eq!(core.serialize().unwrap(), vec![1]);
+    core.reset();
+    assert_eq!(core.serialize().unwrap(), vec![0]);
 }
 
 #[test]

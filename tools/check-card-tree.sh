@@ -13,7 +13,7 @@ for config in wifi retroachievements; do
     test ! -e "$out/Config/$config.toml"
 done
 test ! -e "$out/Config/slot.state"
-for folder in Games Labels Saves States Cheats; do
+for folder in Games Guides Labels Saves States Cheats; do
     for platform in GBA GBAV GB GBC; do
         test -d "$out/$folder/$platform"
     done

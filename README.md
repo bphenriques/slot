@@ -5,8 +5,8 @@
 <a href="LICENSE"><img src="https://img.shields.io/github/license/BrandonKowalski/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="License"></a>
 <a href="https://github.com/BrandonKowalski/slot/stargazers"><img src="https://img.shields.io/github/stars/BrandonKowalski/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Stars"></a>
 <a href="https://github.com/BrandonKowalski/slot/releases"><img src="https://img.shields.io/github/downloads/BrandonKowalski/slot/total?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Downloads"></a>
-<a href="https://slot-cfw.fyi"><img src="https://img.shields.io/badge/Guide-slot--cfw.fyi-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Guide"></a>
-<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Changelog"></a>
+<a href="https://slot-cfw.fyi"><img src="https://img.shields.io/badge/Guide-slot--cfw.fyi-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Docs"></a>
+<a href="https://discord.gg/NYRWsSuPUu"><img src="https://img.shields.io/badge/Discord-4d4d57?style=for-the-badge&labelColor=242429&logo=discord&logoColor=white" height="36" alt="Discord"></a>
 
 </div>
 
@@ -62,7 +62,7 @@ notes are in the [changelog](CHANGELOG.md).
   after the ROM to `Cheats/GBA`, `Cheats/GB` or `Cheats/GBC`. Cheats need the mGBA core.
 
 Existing blending preferences are kept: the old On setting becomes Mix, and Off stays Off.
-mGBA also offers upstream's LCD Ghosting mode.
+mGBA also offers upstream's Ghosting mode.
 
 ## How to configure
 
@@ -75,7 +75,7 @@ RetroAchievements credentials. Everything else is automatic.
 A release of this fork uses upstream's version with a suffix. `v1.4.0-pvaibhav.1` is the
 first release built on upstream 1.4.0, and `v1.4.0-pvaibhav.2` would be the second.
 
-The current release is [v1.11.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.11.0-pvaibhav.1).
+The current release is [v1.12.0-pvaibhav.1](https://github.com/pvaibhav/slot/releases/tag/v1.12.0-pvaibhav.1).
 Its [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
 ## Release cadence
@@ -115,6 +115,16 @@ I release new features as I build and test them. They are carried forward in eve
 
 If you have one of the untested devices, or have tried slot on a device not listed,
 please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues) and let me know how it went.
+
+---
+
+# Discord Community
+
+slot has a [Discord server](https://discord.gg/NYRWsSuPUu) for questions, sharing setups, and talking about the project.
+
+It is open to everyone in the slot universe. That includes folks running or building forks of slot.
+
+There is no reason for this community to be fragmented so long as we are having fun!
 
 ---
 

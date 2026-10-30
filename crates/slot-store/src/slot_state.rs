@@ -8,6 +8,9 @@ use crate::zone::Zone;
 
 pub const BRIGHTNESS_MAX: u8 = 9;
 pub const BLUE_LIGHT_MAX: u8 = 9;
+pub const SATURATION_MAX: u8 = 9;
+pub const CONTRAST_MAX: u8 = 9;
+pub const SUNLIGHT_MAX: u8 = 10;
 pub const VOLUME_MAX: u8 = 100;
 
 const UTC_OFFSET_MIN: i16 = -720;
@@ -178,11 +181,15 @@ impl BezelPick {
             BezelPick::None => "None".to_string(),
             BezelPick::Default => "Default".to_string(),
             BezelPick::Ags102 => "AGS-102".to_string(),
-            BezelPick::File(name) => name
-                .rsplit_once('.')
-                .map(|(stem, _)| stem)
-                .unwrap_or(name)
-                .to_string(),
+            BezelPick::File(name) => {
+                let stem = name
+                    .rsplit_once('.')
+                    .map_or(name.as_str(), |(stem, _)| stem);
+                match bezel_scale(name) {
+                    Some(scale) => stem[..stem.len() - scale.bezel_suffix().len()].to_string(),
+                    None => stem.to_string(),
+                }
+            }
         }
     }
 
@@ -205,7 +212,31 @@ pub enum Scale {
     FullScreen,
 }
 
+pub fn bezel_scale(name: &str) -> Option<Scale> {
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+    let stem = stem.to_ascii_lowercase();
+    [Scale::SpFrame, Scale::Integer, Scale::Fit]
+        .into_iter()
+        .find(|scale| stem.ends_with(scale.bezel_suffix()))
+}
+
+pub fn bezel_for_scale(name: &str, scale: Scale) -> Option<String> {
+    let from = bezel_scale(name)?;
+    let (stem, ext) = name.rsplit_once('.')?;
+    let base = &stem[..stem.len() - from.bezel_suffix().len()];
+    Some(format!("{base}{}.{ext}", scale.bezel_suffix()))
+}
+
 impl Scale {
+    pub fn bezel_suffix(self) -> &'static str {
+        match self {
+            Scale::SpFrame => "_spscreen",
+            Scale::Integer => "_integer",
+            Scale::Fit => "_fit",
+            Scale::FullScreen => "_fullscreen",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Scale::SpFrame => "sp-frame",
@@ -305,6 +336,8 @@ pub struct SlotState {
     pub cart_platform: Option<Platform>,
     pub brightness: u8,
     pub blue_light: u8,
+    pub saturation: u8,
+    pub contrast: u8,
     pub volume: u8,
     pub volume_hp: u8,
     pub muted: bool,
@@ -412,11 +445,24 @@ pub enum Shader {
     Grid,
     Dot,
     Simpletex,
+    Shimmerless,
 }
 
 impl Shader {
-    pub const GBA: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Dot];
-    pub const GB: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Simpletex];
+    pub const GBA: [Shader; 5] = [
+        Shader::Off,
+        Shader::Lcd3x,
+        Shader::Grid,
+        Shader::Dot,
+        Shader::Shimmerless,
+    ];
+    pub const GB: [Shader; 5] = [
+        Shader::Off,
+        Shader::Lcd3x,
+        Shader::Grid,
+        Shader::Simpletex,
+        Shader::Shimmerless,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -425,6 +471,7 @@ impl Shader {
             Shader::Grid => "grid",
             Shader::Dot => "dot",
             Shader::Simpletex => "simpletex",
+            Shader::Shimmerless => "shimmerless",
         }
     }
 
@@ -435,6 +482,7 @@ impl Shader {
             Shader::Grid,
             Shader::Dot,
             Shader::Simpletex,
+            Shader::Shimmerless,
         ]
         .into_iter()
         .find(|s| s.name() == name)
@@ -458,6 +506,8 @@ impl Default for SlotState {
             cart_platform: None,
             brightness: 5,
             blue_light: 0,
+            saturation: 0,
+            contrast: 0,
             volume: 60,
             volume_hp: 60,
             muted: false,
@@ -590,6 +640,8 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
         s.colour_correction_gbc as u8
     ));
     text.push_str(&format!("shader_gbc={}\n", s.shader_gbc.name()));
+    text.push_str(&format!("saturation={}\n", s.saturation));
+    text.push_str(&format!("contrast={}\n", s.contrast));
     text.push_str(&format!("wallpaper_tint={}\n", s.wallpaper_tint.key()));
     text.push_str(&format!("show_recents={}\n", s.show_recents as u8));
     text.push_str(&format!("show_titles={}\n", s.show_titles as u8));
@@ -628,6 +680,8 @@ fn parse(text: &str) -> Option<SlotState> {
     let mut cart_platform = None;
     let mut brightness = None;
     let mut blue_light = None;
+    let mut saturation = None;
+    let mut contrast = None;
     let mut volume = None;
     let mut volume_hp = None;
     let mut muted = None;
@@ -686,6 +740,8 @@ fn parse(text: &str) -> Option<SlotState> {
             "cart_platform" => cart_platform = platform_value(value),
             "brightness" => brightness = Some(level(value, BRIGHTNESS_MAX)?),
             "blue_light" => blue_light = Some(level(value, BLUE_LIGHT_MAX)?),
+            "saturation" => saturation = level(value, SATURATION_MAX),
+            "contrast" => contrast = level(value, CONTRAST_MAX),
             "volume" => volume = Some(level(value, VOLUME_MAX)?),
             "volume_hp" => volume_hp = Some(level(value, VOLUME_MAX)?),
             "muted" => muted = Some(level(value, 1)? == 1),
@@ -749,6 +805,8 @@ fn parse(text: &str) -> Option<SlotState> {
         cart_platform,
         brightness: brightness?,
         blue_light: blue_light?,
+        saturation: saturation.unwrap_or(fallback.saturation),
+        contrast: contrast.unwrap_or(fallback.contrast),
         volume: volume?,
         volume_hp: volume_hp.or(volume)?,
         muted: muted?,

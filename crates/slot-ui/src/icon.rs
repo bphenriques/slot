@@ -38,10 +38,11 @@ pub enum Icon {
     HeadphonesMuted,
     Wifi,
     Camera,
+    Sunlight,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 14] = [
+    pub const ALL: [Icon; 15] = [
         Icon::Volume,
         Icon::VolumeZero,
         Icon::VolumeMuted,
@@ -56,6 +57,7 @@ impl Icon {
         Icon::HeadphonesMuted,
         Icon::Wifi,
         Icon::Camera,
+        Icon::Sunlight,
     ];
 
     pub fn index(self) -> usize {
@@ -78,6 +80,7 @@ impl Icon {
             Icon::HeadphonesMuted => '\u{f07ce}',
             Icon::Wifi => '\u{f1eb}',
             Icon::Camera => '\u{f030}',
+            Icon::Sunlight => '\u{f0a72}',
         }
     }
 }
