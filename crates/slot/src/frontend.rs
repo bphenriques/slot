@@ -8,16 +8,16 @@ use slot_input::{InputSource, Millis};
 use slot_power::{Platform, Power};
 use slot_store::{format_stamp, BezelPick, Platform as Console};
 use slot_ui::{
-    badge_face, bezel_face, cart_shadow, cheat_name_face, chip_face, chip_shadow_face,
-    core_button_legends, date_time_text, default_game_bezel_face, delete_legends, footer_ink,
-    game_bezel_face, gb_cart_shadow, hint_face, icon_face, link_button_legends, menu_detail_face,
-    menu_face, photo_face, prompt_legends, quick_description_face, quick_label_face,
-    quick_legend_faces, quick_pointer_face, quick_value_face, quick_warning_value_face,
-    rebuild_count_face, rebuild_title_face, repair_legends, slot_back, slot_back_light, slot_front,
-    slot_front_light, socket_face, sticker_face, time_text, title_face, toast_face, wallpaper_face,
-    word_ink, BezelArt, CartFace, GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow,
-    QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX,
-    HUD_INK, LEGEND,
+    badge_face, bezel_face, cart_shadow, cast_screen_shadow, cheat_name_face, chip_face,
+    chip_shadow_face, core_button_legends, date_time_text, default_game_bezel_face, delete_legends,
+    footer_ink, game_bezel_face, gb_cart_shadow, hint_face, icon_face, link_button_legends,
+    menu_detail_face, menu_face, photo_face, prompt_legends, quick_description_face,
+    quick_label_face, quick_legend_faces, quick_pointer_face, quick_value_face,
+    quick_warning_value_face, rebuild_count_face, rebuild_title_face, repair_legends, slot_back,
+    slot_back_light, slot_front, slot_front_light, socket_face, sticker_face, time_text,
+    title_face, toast_face, wallpaper_face, word_ink, BezelArt, CartFace, GbShell, Icon, LinkBadge,
+    PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StickerFields, Toast,
+    UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -99,7 +99,8 @@ struct QuickPalette {
     shown: &'static str,
 }
 
-type BezelImage = (Console, BezelPick, Option<BezelArt>, (u32, u32));
+/// The bezel shown, and whether it shades an Authentic screen.
+type BezelImage = (Console, BezelPick, Option<BezelArt>, (u32, u32), bool);
 
 #[derive(Default)]
 struct BezelSync {
@@ -1386,7 +1387,7 @@ fn sync_game_bezel(app: &mut App, compositor: &mut Compositor, state: &mut Bezel
     let (w, h) = app.game_bezel_size();
     let last = state.image.as_ref().and_then(|image| image.2);
     let art = bezel_key(&pick, app.bezel_art(), last);
-    let shown = (platform, pick, art, (w, h));
+    let shown = (platform, pick, art, (w, h), app.authentic(platform));
     if state.image.as_ref() != Some(&shown) {
         let rgba = match &shown.1 {
             BezelPick::None | BezelPick::Ags102 => None,
@@ -1402,6 +1403,12 @@ fn sync_game_bezel(app: &mut App, compositor: &mut Compositor, state: &mut Bezel
                 })
                 .and_then(|path| game_bezel_face(&path, w, h)),
         };
+        let rgba = rgba.map(|mut rgba| {
+            if shown.4 {
+                cast_screen_shadow(&mut rgba, w, h);
+            }
+            rgba
+        });
         let tex = rgba.map(|rgba| match state.tex {
             Some(id) => {
                 compositor.update_texture(id, w, h, &rgba);

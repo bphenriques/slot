@@ -30,7 +30,12 @@ pub struct GamePass {
     u_light: gl::types::GLint,
     u_dark: gl::types::GLint,
     u_response: gl::types::GLint,
+    u_gamma: gl::types::GLint,
+    u_least: gl::types::GLint,
+    u_grain: gl::types::GLint,
     u_lcd: gl::types::GLint,
+    u_ink: gl::types::GLint,
+    u_glass: gl::types::GLint,
     ramp: gl::types::GLuint,
     screen: Screen,
     ghost: Ghost,
@@ -66,7 +71,7 @@ impl GamePass {
             Some(&crate::authentic::ramp_texture()),
         );
         let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_origin);
-        let (u_light, u_dark, u_response, u_lcd);
+        let (u_light, u_dark, u_response, u_gamma, u_least, u_grain, u_lcd, u_ink, u_glass);
         unsafe {
             gl::UseProgram(prog);
             gl::Uniform1i(crate::gl::uniform_location(prog, "u_game"), 0);
@@ -92,8 +97,13 @@ impl GamePass {
             u_light = crate::gl::uniform_location(prog, "u_light");
             u_dark = crate::gl::uniform_location(prog, "u_dark");
             u_response = crate::gl::uniform_location(prog, "u_response");
+            u_gamma = crate::gl::uniform_location(prog, "u_gamma");
+            u_least = crate::gl::uniform_location(prog, "u_least");
+            u_grain = crate::gl::uniform_location(prog, "u_grain");
             gl::Uniform1i(crate::gl::uniform_location(prog, "u_ramp"), 2);
             u_lcd = crate::gl::uniform_location(prog, "u_lcd");
+            u_ink = crate::gl::uniform_location(prog, "u_ink");
+            u_glass = crate::gl::uniform_location(prog, "u_glass");
         }
         Ok(GamePass {
             prog,
@@ -112,7 +122,12 @@ impl GamePass {
             u_light,
             u_dark,
             u_response,
+            u_gamma,
+            u_least,
+            u_grain,
             u_lcd,
+            u_ink,
+            u_glass,
             ramp,
             screen: Screen::Gba,
             ghost: Ghost::new()?,
@@ -283,8 +298,17 @@ impl GamePass {
                 let [r, g, b] = look.dark;
                 gl::Uniform3f(self.u_dark, r, g, b);
                 gl::UniformMatrix3fv(self.u_response, 1, gl::FALSE, look.response.as_ptr());
+                let [r, g, b] = look.gamma;
+                gl::Uniform3f(self.u_gamma, r, g, b);
+                let [r, g, b] = look.least;
+                gl::Uniform3f(self.u_least, r, g, b);
+                gl::Uniform1f(self.u_grain, look.grain);
                 let [x, y, z, w] = look.lcd;
                 gl::Uniform4f(self.u_lcd, x, y, z, w);
+                let [x, y, z, w] = look.ink;
+                gl::Uniform4f(self.u_ink, x, y, z, w);
+                let [x, y, z] = look.glass;
+                gl::Uniform3f(self.u_glass, x, y, z);
                 gl::ActiveTexture(gl::TEXTURE2);
                 gl::BindTexture(gl::TEXTURE_2D, self.ramp);
             }

@@ -58,6 +58,62 @@ pub fn default_game_bezel_face(colour: bool, kind: BezelArt, w: u32, h: u32) -> 
     }
 }
 
+/// How dark the bezel's shadow falls on the screen under it, where it is deepest.
+const BEZEL_SHADOW: f32 = 0.6;
+
+/// Lays the bezel's shadow on the screen in its window, as dmg-3x's border casts it in room
+/// light from the top right: the bezel's own outline moved down and to the left by a game
+/// pixel and a half and softened, so it shades the window's top and right edges.
+pub fn cast_screen_shadow(rgba: &mut [u8], w: u32, h: u32) {
+    let (w, h) = (w as usize, h as usize);
+    if w == 0 || h == 0 || rgba.len() < w * h * 4 {
+        return;
+    }
+    let reach = (h as f32 * 1.5 / 144.0).round().max(1.0) as usize;
+    // Past the image's edges the bezel carries on.
+    let mut shade: Vec<f32> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w + reach, (i / w).checked_sub(reach));
+            match y {
+                Some(y) if x < w => rgba[(y * w + x) * 4 + 3] as f32 / 255.0,
+                _ => 1.0,
+            }
+        })
+        .collect();
+    for _ in 0..3 {
+        soften(&mut shade, w, h, (reach / 2).max(1));
+    }
+    for (px, s) in rgba.chunks_exact_mut(4).zip(shade) {
+        let a = px[3] as f32 / 255.0;
+        let s = BEZEL_SHADOW * s * (1.0 - a);
+        let out = a + s;
+        if out > 0.0 {
+            for c in &mut px[..3] {
+                *c = (*c as f32 * a / out).round() as u8;
+            }
+        }
+        px[3] = (out * 255.0).round() as u8;
+    }
+}
+
+/// A box blur of radius `r` across and then down, holding the edges.
+fn soften(v: &mut [f32], w: usize, h: usize, r: usize) {
+    let mut line = Vec::new();
+    for (len, step, count, stride) in [(w, 1, h, w), (h, w, w, 1)] {
+        for n in 0..count {
+            let at = |i: usize| n * stride + i * step;
+            line.clear();
+            line.extend((0..len).map(|i| v[at(i)]));
+            let mut sum: f32 =
+                (0..=r).map(|i| line[i.min(len - 1)]).sum::<f32>() + line[0] * r as f32;
+            for i in 0..len {
+                v[at(i)] = sum / (2 * r + 1) as f32;
+                sum += line[(i + r + 1).min(len - 1)] - line[i.saturating_sub(r)];
+            }
+        }
+    }
+}
+
 const BEZEL_GRAIN_ROWS: usize = 10;
 
 fn panel_bezel(

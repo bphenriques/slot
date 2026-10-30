@@ -1066,6 +1066,69 @@ fn an_authentic_game_boy_draws_grey_as_dots_on_its_panel() {
     );
 }
 
+/// A DMG drawing `inside` at the stretched 4.5 by 3.33 screen pixels per game pixel.
+fn authentic_dmg(inside: impl Fn(usize, usize) -> [u8; 3]) -> Option<Vec<u8>> {
+    let (_g, _s, mut c) = compositor()?;
+    c.set_picture([
+        GB_RECT[0],
+        GB_RECT[1],
+        GB_RECT[0] + GB_RECT[2],
+        GB_RECT[1] + GB_RECT[3],
+    ]);
+    c.set_game_source_rect(GB_RECT);
+    c.fit((OUT_W, OUT_H));
+    c.set_screen_effect(ScreenEffect::Authentic);
+    c.set_screen_power(1.0);
+    c.set_authentic_screen(Screen::Dmg);
+    c.begin_frame();
+    c.upload_game(&gb_shaped(inside, [0, 0, 0]));
+    c.draw_game();
+    Some(c.read_frame())
+}
+
+/// The screen pixel in the middle of a dot, away from the gaps.
+fn dot_at(frame: &[u8], gx: usize, gy: usize) -> [u8; 3] {
+    px(
+        frame,
+        (gx as f32 * 4.5 + 2.25) as usize,
+        (gy as f32 * 10.0 / 3.0 + 1.67) as usize,
+    )
+}
+
+#[test]
+fn an_authentic_dmgs_middle_shades_lean_blue_green() {
+    let Some(frame) = authentic_dmg(|x, _| match x {
+        0..20 => [0xff; 3],
+        20..40 => [173; 3],
+        40..60 => [82; 3],
+        60..80 => [0; 3],
+        _ => [0xff; 3],
+    }) else {
+        return;
+    };
+    let [white, light, dark, black] = [10, 30, 50, 70].map(|gx| dot_at(&frame, gx, 72));
+    assert!(
+        light[2].min(dark[2]) > white[2].max(black[2]),
+        "the middle shades {light:?} and {dark:?} are no bluer than white {white:?} and black {black:?}"
+    );
+}
+
+#[test]
+fn an_authentic_game_boys_dots_cast_their_shadow_down_and_to_the_left() {
+    let Some(frame) = authentic_dmg(
+        |x, y| match (70..90).contains(&x) && (60..80).contains(&y) {
+            true => [0; 3],
+            false => [0xff; 3],
+        },
+    ) else {
+        return;
+    };
+    let (left, right) = (dot_at(&frame, 69, 70), dot_at(&frame, 90, 70));
+    let (below, above) = (dot_at(&frame, 80, 80), dot_at(&frame, 80, 59));
+    assert!(left[0] + 10 < right[0], "left {left:?}, right {right:?}");
+    assert!(below[0] + 10 < above[0], "below {below:?}, above {above:?}");
+}
+
 #[test]
 fn an_authentic_game_boy_fades_like_its_lcd_and_clears_slower_than_it_darkens() {
     let Some((_g, _s, mut c)) = compositor() else {
@@ -1104,4 +1167,44 @@ fn an_authentic_game_boy_fades_like_its_lcd_and_clears_slower_than_it_darkens() 
         lit - darkening,
         clearing - dark
     );
+}
+
+#[test]
+fn an_authentic_gbc_draws_white_and_black_at_bgbs_true_brightness() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    c.fit((OUT_W, OUT_H));
+    c.set_screen_effect(ScreenEffect::Authentic);
+    c.set_authentic_screen(Screen::Gbc);
+    c.set_screen_power(1.0);
+    // BGB measured whole pixels, dots and the grid between them, out of focus: average ten by
+    // ten game pixels in the middle of the screen, clear of the glass's sheen and shade.
+    let mut settled = |rgb: [u8; 3]| {
+        let shot = flat_shot(rgb);
+        for _ in 0..20 {
+            c.begin_frame();
+            c.upload_game(&shot);
+            c.draw_game();
+        }
+        let frame = c.read_frame();
+        let mut sum = [0.0f64; 3];
+        for y in 240..270 {
+            for x in 330..360 {
+                let p = px(&frame, x, y);
+                (0..3).for_each(|i| sum[i] += (p[i] as f64 / 255.0).powf(2.2));
+            }
+        }
+        sum.map(|v| ((v / 900.0).powf(1.0 / 2.2) * 255.0).round() as u8)
+    };
+    for (rgb, bgb) in [
+        ([0xff; 3], [0x86, 0x8c, 0x7a]),
+        ([0; 3], [0x0e, 0x19, 0x1c]),
+    ] {
+        let drawn = settled(rgb);
+        assert!(
+            (0..3).all(|i| drawn[i].abs_diff(bgb[i]) <= 3),
+            "{rgb:?} drew {drawn:?}, BGB's GBC reality draws {bgb:?}"
+        );
+    }
 }

@@ -3,18 +3,26 @@
 //! light away from it.
 //!
 //! Sources:
-//! - Game Boy Light shades: SameBoy's GBL palette; nobody has measured the Light.
-//! - Game Boy and Pocket shade colours: BGB's "reality" palettes, photographed under
-//!   calibrated light and corrected with a colour checker (bgb.bircd.org/reality); its
-//!   lightest and darkest shades. The compositing (each dot a share of ink over the lit
-//!   panel, the dot grid, the shadow the dots cast on the reflector, the lit panel around the picture) follows
-//!   Harlequin's gameboy shader and its dmg-3x preset from the libretro collection.
-//! - GBC and GBA colour response: Pokefan531's 2026 spectrophotometer measurements
+//! - Game Boy and Pocket: Harlequin's gameboy shader in its dmg-3x and gb-pocket-3x presets
+//!   (libretro glsl-shaders, handheld/console-border), settings, palettes, shadow and glass
+//!   reflection alike. Each dot is a share of ink over the lit panel; the gaps between dots
+//!   take some of their neighbours' ink; the dots cast a soft shadow on the reflector. Its
+//!   shades are TWB64's "DMG Ver." and PixelShift's "GB Old" and "GB Pocket" palettes, and,
+//!   as BGB's "reality" colours do, its middle shades turn blue-green.
+//! - Game Boy Light: TWB64's "Light Ver." lightest and darkest shades, on the Pocket's
+//!   panel and settings; nobody has measured the Light.
+//! - Ghosting: blended in shades of grey before the colours are applied, as BGB's "DMG
+//!   reality" frame blend does (bgb.bircd.org/reality), so a flickered shade between black
+//!   and white shows the LCD's own middle shade.
+//! - GBC: BGB's "GBC reality" colours at their true, dark reflective brightness, made from
+//!   photographs of an 8x8x8 cube of colours under calibrated light. Its white, its black
+//!   and the 2,560 colours of its test screen fit Pokefan531's measured ramp, raised to a
+//!   power for each channel, and a matrix to within about 5 levels of 255.
+//! - GBA colour response: Pokefan531's 2026 spectrophotometer measurements
 //!   (github.com/Pokefan531/Handheld-Colorspace-Shaders), per-code ramps and matrices.
-//! - Panel white tint: the Handheld Color Space Project's reflectance readings. Its contrast,
-//!   near 4:1 on the GBC and 5-6:1 on the GBA, is a 45/0 instrument reading; photographs of
-//!   the screens show more, so black here is an eighth of white on the GBC and a fourteenth
-//!   on the GBA.
+//! - GBA panel white tint: the Handheld Color Space Project's reflectance readings. Its
+//!   contrast, 5-6:1, is a 45/0 instrument reading; photographs of the screen show more, so
+//!   black here is a fourteenth of white.
 
 /// The screen an Authentic picture is drawn on.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -30,17 +38,32 @@ pub enum Screen {
 }
 
 pub(crate) struct Look {
-    /// A Game Boy's lit panel, behind and around the dots, in sRGB; a colour screen's lit
+    /// A Game Boy's panel, behind and around the dots, in sRGB; a colour screen's lit
     /// white, linear.
     pub light: [f32; 3],
-    /// A Game Boy's dot colour, in sRGB; a colour screen's black, linear.
+    /// A Game Boy's ink, in sRGB; a colour screen's black, linear.
     pub dark: [f32; 3],
     /// A colour screen's response, from the measured ramp's linear light to linear sRGB,
     /// column by column for the input's red, green and blue.
     pub response: [f32; 9],
+    /// The power that takes each channel's measured ramp to linear light.
+    pub gamma: [f32; 3],
+    /// How far below black, as a share of the way to white, a colour screen draws a colour
+    /// its response puts there.
+    pub least: [f32; 3],
+    /// How much of a colour screen's reflector sparkles through its colour filters: a tenth
+    /// of the screen's pixels this much brighter, the rest a little darker.
+    pub grain: f32,
     /// Game Boy (1) or colour (0), which ramp (0 GBA, 1 GBC), and how much the gaps between
     /// columns and rows darken.
     pub lcd: [f32; 4],
+    /// A Game Boy dot's ink: how much it gains as its grey darkens, what a white dot still
+    /// holds, the share of each neighbour's ink a gap takes, and how dark the dots' shadow
+    /// falls.
+    pub ink: [f32; 4],
+    /// How a Game Boy's ink and panel combine: the ink's contrast, the panel's light, and
+    /// how much of it a dot takes away.
+    pub glass: [f32; 3],
     /// The share of the last frame a pixel keeps each frame while it turns lighter, and
     /// while it turns darker: the LCD's slow response.
     pub ghost: [f32; 2],
@@ -79,76 +102,139 @@ fn linear(srgb: [f32; 3]) -> [f32; 3] {
     srgb.map(|c| c.powf(2.2))
 }
 
-/// How opaque a Game Boy's white dot and its black one are: an off dot still shades the
-/// panel a little, and an on one lets a little through (dmg-3x's baseline and contrast).
-const DOT_OFF: f32 = 0.08;
-const DOT_ON: f32 = 0.92;
+/// One Game Boy model's settings in Harlequin's shader.
+struct Dots {
+    panel: u32,
+    ink: u32,
+    baseline_alpha: f32,
+    grey_balance: f32,
+    contrast: f32,
+    screen_light: f32,
+    pixel_opacity: f32,
+    shadow_opacity: f32,
+}
 
-/// How bright a colour screen's white is drawn, in sRGB: dimmer than the device's white, as
-/// an unlit screen is, but not so dim that the game is hard to see.
+/// dmg-3x.
+const DMG: Dots = Dots {
+    panel: 0xa1a100,
+    ink: 0x005aaa,
+    baseline_alpha: 0.05,
+    grey_balance: 2.6,
+    contrast: 0.7,
+    screen_light: 0.85,
+    pixel_opacity: 0.9,
+    shadow_opacity: 0.9,
+};
+
+/// gb-pocket-3x.
+const POCKET: Dots = Dots {
+    panel: 0xa6ac84,
+    ink: 0x121922,
+    baseline_alpha: 0.03,
+    grey_balance: 3.5,
+    contrast: 0.8,
+    screen_light: 0.9,
+    pixel_opacity: 0.95,
+    shadow_opacity: 0.9,
+};
+
+/// The Pocket's settings, with the panel and ink that put its white and black on TWB64's
+/// Light shades, #00b581 and #004f3b.
+const LIGHT: Dots = Dots {
+    panel: 0x00cb90,
+    ink: 0x006550,
+    ..POCKET
+};
+
+/// How much of a dot's ink its shadow carries, for every unit of the model's shadow
+/// strength. Measured from dmg-3x drawing Metroid II at 3x: under a black sky the panel
+/// keeps 0.72 of its light where gaps cross, and the ink in front of a dot hides most of it.
+const SHADOW: f32 = 0.45;
+
+/// The share of each neighbour's ink a gap between dots takes (dmg-3x's neighbour blending).
+const GAP: f32 = 0.38;
+
+impl Dots {
+    fn look(&self, ghost: [f32; 2]) -> Look {
+        Look {
+            light: rgb(self.panel),
+            dark: rgb(self.ink),
+            response: [0.0; 9],
+            gamma: [2.2; 3],
+            least: [0.0; 3],
+            grain: 0.0,
+            lcd: [1.0, 0.0, 0.0, 0.0],
+            ink: [
+                3.0 / self.grey_balance,
+                self.baseline_alpha,
+                GAP,
+                self.contrast * self.shadow_opacity * SHADOW,
+            ],
+            glass: [
+                self.contrast,
+                self.screen_light,
+                self.contrast * self.pixel_opacity,
+            ],
+            ghost,
+        }
+    }
+}
+
+/// How bright the GBA's white is drawn, in sRGB: dimmer than the device's white, as an
+/// unlit screen is, but not so dim that the game is hard to see.
 const LIT: f32 = 0.82;
 
 impl Screen {
     pub(crate) fn look(self) -> Look {
-        // A dot's colour over the lit panel at its opacity: solve for the panel and the dot
-        // colour that put a white dot on the lightest measured shade and a black one on the
-        // darkest. The panel around the picture is then the one its white sits on.
-        let mono = |lightest, darkest, ghost| {
-            let (light, dark) = (rgb(lightest), rgb(darkest));
-            let step = [0, 1, 2].map(|i| (dark[i] - light[i]) / (DOT_ON - DOT_OFF));
-            let panel = [0, 1, 2].map(|i| (light[i] - DOT_OFF * step[i]).clamp(0.0, 1.0));
-            let ink = [0, 1, 2].map(|i| (panel[i] + step[i]).clamp(0.0, 1.0));
-            Look {
-                light: panel,
-                dark: ink,
-                response: [0.0; 9],
-                lcd: [1.0, 0.0, 0.0, 0.0],
-                ghost,
-            }
-        };
-        // White is the panel's tint at LIT; black is a share of white's light, a little
-        // tinted the way each panel's black measured.
-        let colour =
-            |tint, black: f32, black_tint: [f32; 3], lum: f32, m: [f32; 9], gaps, ghost| {
-                let white = linear(rgb(tint).map(|c| c * LIT));
-                let dark = [0, 1, 2].map(|i| white[i] * black * black_tint[i]);
-                Look {
-                    light: white,
-                    dark,
-                    response: m.map(|v| v * lum),
-                    lcd: gaps,
-                    ghost,
-                }
-            };
         match self {
             // The DMG's STN panel clears slowly and darkens faster (brickboy's 61 and 21 ms);
             // the Pocket's and the Light's answer about twice as fast. Nobody has measured them.
-            Screen::Dmg => mono(0x759833, 0x2e615a, [keep(61.0), keep(21.0)]),
-            Screen::Pocket => mono(0xadbf92, 0x5a635c, [keep(30.0), keep(10.0)]),
-            // SameBoy's Game Boy Light shades.
-            Screen::Light => mono(0x00cbdf, 0x00778c, [keep(30.0), keep(10.0)]),
-            Screen::Gbc => colour(
-                0xedfffc,
-                0.12,
-                [1.0, 1.0, 1.0],
-                0.8989,
-                [
-                    0.8944, 0.1091, 0.1447, 0.2179, 0.6312, 0.2837, -0.1125, 0.2597, 0.5716,
-                ],
-                [0.0, 1.0, 0.10, 0.25],
-                [keep(16.0), keep(8.0)],
-            ),
-            Screen::Gba => colour(
-                0xdef6ff,
-                0.07,
-                [1.02, 0.97, 1.06],
-                0.8915,
-                [
+            Screen::Dmg => DMG.look([keep(61.0), keep(21.0)]),
+            Screen::Pocket => POCKET.look([keep(30.0), keep(10.0)]),
+            Screen::Light => LIGHT.look([keep(30.0), keep(10.0)]),
+            // BGB's GBC reality white and black. Its blue lies outside sRGB, and BGB draws
+            // the red in it darker than the black level, as the screen's own red is.
+            Screen::Gbc => {
+                let (white, dark) = (linear(rgb(0x868c7a)), linear(rgb(0x0e191c)));
+                Look {
+                    light: white,
+                    dark,
+                    response: [
+                        0.9173, 0.0822, 0.1309, 0.1560, 0.6685, 0.1116, -0.0732, 0.2493, 0.7574,
+                    ],
+                    gamma: [2.2, 2.2 * 0.775, 2.2 * 0.725],
+                    least: [0, 1, 2].map(|i| -dark[i] / (white[i] - dark[i])),
+                    // A macro photograph shows a sparkly reflector through the filters, and
+                    // an opaque dark grid around the pixels, wider between rows.
+                    grain: 0.03,
+                    lcd: [0.0, 1.0, 0.6, 0.85],
+                    ink: [0.0; 4],
+                    glass: [0.0; 3],
+                    ghost: [keep(16.0), keep(8.0)],
+                }
+            }
+            // White is the panel's tint at LIT; black is a fourteenth of white's light, a
+            // little tinted the way the panel's black measured.
+            Screen::Gba => {
+                let white = linear(rgb(0xdef6ff).map(|c| c * LIT));
+                let tint = [1.02, 0.97, 1.06];
+                let response = [
                     0.8988, 0.1163, 0.1831, 0.2229, 0.6217, 0.2438, -0.1217, 0.2620, 0.5731,
-                ],
-                [0.0, 0.0, 0.45, 0.20],
-                [keep(20.0), keep(10.0)],
-            ),
+                ];
+                Look {
+                    light: white,
+                    dark: [0, 1, 2].map(|i| white[i] * 0.07 * tint[i]),
+                    response: response.map(|v| v * 0.8915),
+                    gamma: [2.2; 3],
+                    least: [0.0; 3],
+                    // The GBA's reflector glints under a lamp rather than showing grain.
+                    grain: 0.0,
+                    lcd: [0.0, 0.0, 0.45, 0.20],
+                    ink: [0.0; 4],
+                    glass: [0.0; 3],
+                    ghost: [keep(20.0), keep(10.0)],
+                }
+            }
         }
     }
 }
@@ -168,8 +254,10 @@ impl Ghost {
     pub fn new() -> Result<Self, crate::surface::GfxError> {
         use crate::pipeline::{SRC_H, SRC_W};
         let prog = crate::shaders::program(crate::shaders::BLIT_VERT, crate::shaders::GHOST_FRAG)?;
+        // Filtered, so the dots' shadow blurs between game pixels; the picture itself reads
+        // each pixel at its centre.
         let tex = [0, 1].map(|_| {
-            crate::gl::texture(SRC_W, SRC_H, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::RGBA, None)
+            crate::gl::texture(SRC_W, SRC_H, gl::LINEAR, gl::CLAMP_TO_EDGE, gl::RGBA, None)
         });
         let mut fbo = [0; 2];
         unsafe {
