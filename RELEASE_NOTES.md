@@ -24,12 +24,6 @@ reflective colours.
 
 <p align="center">Game Boy · Game Boy Color</p>
 
-<p align="center">
-<img src="https://raw.githubusercontent.com/pvaibhav/slot/v1.12.0-pvaibhav.2/.github/resources/screenshots/authentic-pocket.png" width="48%" alt="Metroid II with the Authentic Game Boy Pocket model and its grey-green reflective panel">
-<img src="https://raw.githubusercontent.com/pvaibhav/slot/v1.12.0-pvaibhav.2/.github/resources/screenshots/authentic-light.png" width="48%" alt="Metroid II with the Authentic Game Boy Light model and its turquoise panel">
-</p>
-
-<p align="center">Game Boy Pocket · Game Boy Light</p>
 
 ## Install or update
 

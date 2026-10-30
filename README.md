@@ -108,12 +108,6 @@ reflective colours.
 
 <p align="center">Game Boy · Game Boy Color</p>
 
-<p align="center">
-<img src=".github/resources/screenshots/authentic-pocket.png" width="48%" alt="Metroid II with the Authentic Game Boy Pocket model and its grey-green reflective panel">
-<img src=".github/resources/screenshots/authentic-light.png" width="48%" alt="Metroid II with the Authentic Game Boy Light model and its turquoise panel">
-</p>
-
-<p align="center">Game Boy Pocket · Game Boy Light</p>
 
 <p align="center">
 <img src=".github/resources/screenshots/carousel.gif" width="48%" alt="Scrolling the cart carousel across the Game Boy Advance, Game Boy and Game Boy Color shelves">
