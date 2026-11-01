@@ -30,13 +30,18 @@ jobs:
         run: task dist:device OUT="slot-${GITHUB_REF_NAME}"
 
       # pvaibhav ships the cheats beside the card; ours carries them, so a game has them at once.
-      # Without them the card still works, so a missing pack only warns.
+      # A release of his may leave the pack out as unchanged, so it comes from the newest that has
+      # one. Without them the card still works, so a missing pack only warns.
       - name: Add pvaibhav's cheat pack
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -u
           pack="slot-${GITHUB_REF_NAME}/Cheats/Cheats.pack"
-          curl -fsSL -o "$pack" https://github.com/pvaibhav/slot/releases/latest/download/Cheats.pack && test -s "$pack" \
-            || { rm -f "$pack"; echo "::warning::No Cheats.pack in pvaibhav's latest release; the card ships without cheats"; }
+          url="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/pvaibhav/slot/releases \
+            | jq -r '[.[] | select(.draft | not) | .assets[] | select(.name == "Cheats.pack")][0].browser_download_url // empty')"
+          { test -n "$url" && curl -fsSL -o "$pack" "$url" && test -s "$pack"; } \
+            || { rm -f "$pack"; echo "::warning::No Cheats.pack in pvaibhav's releases; the card ships without cheats"; }
 
       - name: Check what is about to ship
         run: sh tools/check-card-tree.sh "slot-${GITHUB_REF_NAME}"
