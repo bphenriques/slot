@@ -24,4 +24,7 @@ description: Merge a new pvaibhav/slot release into this fork and prepare the ma
 ## Gotchas
 
 - `shell.nix` broken: `nix-shell -p go-task rustup cmake jq zig cargo-zigbuild rsync file curl unzip`.
+- Cargo can't fetch mute over SSH: `export CARGO_NET_GIT_FETCH_WITH_CLI=true`.
+- A `--locked` error as `check:music` starts, after moving `rev`, is the taskfile reading the old
+  lock; the run then updates it, and later tasks are fine.
 - mGBA "dubious ownership": `rm -rf target-device/mgba` and rebuild.
