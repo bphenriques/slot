@@ -3,9 +3,11 @@ version: '3'
 vars:
   CORE: vendor/mgba_libretro.dylib
   GPSP_HOST: vendor/gpsp_libretro.dylib
+  GAMBATTE_HOST: vendor/gambatte_libretro.dylib
   MGBA_COMMIT: e31759b24e7a4e3899285ff720d7b573ac328ae7
   GPSP_COMMIT: 7b2dd37394e2822110cacef321e9bb291a305b77
   CHEATS_DB_COMMIT: 25da22340889d04bd6e3a8c116d2750af4157d4f
+  GAMBATTE_COMMIT: 77f2567d718b8973d02caa2daa8dce4953faf811
   EXFATPROGS_VERSION: 1.4.3
   EXFATPROGS_SHA256: 4b5052cba6ff9f6dcb1c63eeeac328620472c5b0b3caf3d38e4ada50e75469d3
   # mute's `music/` (the examples a card gets), in the checkout Cargo keeps of its pinned revision.
@@ -15,14 +17,14 @@ vars:
       jq -r '.packages[] | select(.name == "mute") | .manifest_path' |
       xargs dirname | xargs -I{} realpath {}/../../music
   SLOT_IN_PROCESS: >-
-    --test bios --test core --test core_options --test e2e --test emu --test gb_palette_recolour --test gpsp
+    --test bios --test core --test core_options --test e2e --test emu --test gb_palette_recolour --test gpsp --test gambatte_save
     --test link_ui --test mgba_gb_link --test mgba_link --test render_colour_correction
     --test render_gb_palette --test render_picture_modes --test render
     --test render_in_game_menu --test render_power_wake --test render_quick_menu
     --test render_shelf --test render_shelves --test render_screenshot --test render_gallery_stress --test render_clock
   IN_PROCESS: >-
     (package(slot) & (binary(bios) | binary(core) | binary(core_options) | binary(e2e) | binary(emu)
-    | binary(gb_palette_recolour) | binary(gpsp) | binary(link_ui) | binary(mgba_gb_link)
+    | binary(gb_palette_recolour) | binary(gpsp) | binary(gambatte_save) | binary(link_ui) | binary(mgba_gb_link)
     | binary(mgba_link) | binary(render_colour_correction) | binary(render_gb_palette)
     | binary(render_picture_modes) | binary(render) | binary(render_in_game_menu)
     | binary(render_power_wake) | binary(render_quick_menu) | binary(render_shelf)
@@ -52,7 +54,7 @@ tasks:
     env:
       SLOT_SILENT: '1'
     cmds:
-      - cargo nextest run --workspace --no-fail-fast -E 'not ({{.IN_PROCESS}})'
+      - cargo nextest run --workspace --features slot/romm --no-fail-fast -E 'not ({{.IN_PROCESS}})'
       - cargo test -p slot --no-fail-fast {{.SLOT_IN_PROCESS}}
       - cargo test -p slot-gfx --test pipeline
       - cargo test -p slot-ui --test render_row_edges
@@ -85,7 +87,7 @@ tasks:
   lint:device:
     desc: Clippy the device build, which the host lint never compiles
     cmds:
-      - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
+      - cargo clippy -p slot --no-default-features --features device -- -D warnings
 
   check:
     desc: Everything a CI run would do
@@ -101,12 +103,17 @@ tasks:
       The music's checks in slot, as AGENTS.md lists them: format, lint, slot's tests with its
       glue, then how far slot's own files have moved from upstream's, to keep to hooks. The music
       itself is checked in mute-player.
+    vars:
+      MUSIC_FILES: crates/slot/src/music_faces.rs crates/slot/src/app/music.rs crates/slot/src/audio/line_out.rs
     cmds:
-      - cargo fmt -p slot-ui -p slot -- --check
-      - cargo clippy -p slot-ui -p slot-input --tests -- -D warnings
-      - cargo clippy -p slot -p slot-services --no-default-features --features slot/device -- -D warnings
+      # Ours alone: upstream's own code is not kept to rustfmt, nor its tests to clippy.
+      - rustfmt --edition 2021 --check {{.MUSIC_FILES}}
+      - cargo clippy -p slot-ui -p slot-input -- -D warnings
+      - cargo clippy -p slot --no-default-features --features slot/device -- -D warnings
       - cargo clippy -p slot --no-default-features --features slot/device,slot/music-perf -- -D warnings
-      - cargo test -p slot-ui -p slot-input
+      # slot-ui as far as our hook: the quick menu.
+      - cargo test -p slot-ui --test quick_menu
+      - cargo test -p slot-input
       - cargo test -p slot --no-default-features --features slot/device --lib
       - cargo test -p slot --no-default-features --features slot/device --test evdev
       - git checkout -- crates/slot/tests/prefetch.rs
@@ -137,11 +144,12 @@ tasks:
 
   core:
     desc: >-
-      Build mGBA and fetch gpSP for this host. A missing core silently runs the mock (a test
+      Build mGBA and fetch gpSP and Gambatte for this host. A missing core silently runs the mock (a test
       pattern and a sine tone) instead
     cmds:
       - task: core:mgba:host
       - task: core:gpsp:host
+      - task: core:gambatte:host
 
   core:mgba:host:
     desc: Build mgba_libretro for this host from the pinned libretro/mgba commit and cores/mgba's patches
@@ -179,10 +187,30 @@ tasks:
     cmds:
       - sh cores/mgba/test/run.sh target/mgba/mgba {{.CORE}}
 
-  core:update:
-    desc: Rebuild mGBA and re-fetch gpSP for this host even if they are already vendored
+  core:gambatte:host:
+    desc: Fetch the host Gambatte core from the libretro buildbot
+    status:
+      - test -f {{.GAMBATTE_HOST}}
     cmds:
-      - rm -f {{.CORE}} {{.CORE}}.meta {{.GPSP_HOST}}
+      - |
+        set -euo pipefail
+        case "$(uname -m)" in
+          arm64)  arch=arm64 ;;
+          x86_64) arch=x86_64 ;;
+          *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+        esac
+        mkdir -p vendor
+        curl -fsSL -o vendor/gambatte-host.zip \
+          "https://buildbot.libretro.com/nightly/apple/osx/${arch}/latest/gambatte_libretro.dylib.zip"
+        unzip -o -q vendor/gambatte-host.zip -d vendor
+        rm -f vendor/gambatte-host.zip
+        file {{.GAMBATTE_HOST}} | grep -q Mach-O
+        echo "fetched {{.GAMBATTE_HOST}}"
+
+  core:update:
+    desc: Rebuild mGBA and re-fetch gpSP and Gambatte for this host even if they are already vendored
+    cmds:
+      - rm -f {{.CORE}} {{.CORE}}.meta {{.GPSP_HOST}} {{.GAMBATTE_HOST}}
       - task: core
 
   icons:
@@ -203,7 +231,7 @@ tasks:
         echo "fetched {{.ASSETS}}/{{.TTF}}"
 
   labels:index:
-    desc: Rebuild the CRC32 index of LaunchBox cart fronts built into slot-labels
+    desc: Rebuild the CRC32 index of LaunchBox cart fronts that Artwork.pack is built from
     cmds:
       - |
         set -euo pipefail
@@ -275,52 +303,80 @@ tasks:
       Run slot. against SLOT_ROOT, defaults to ./sdcard. SLOT_LINK_PORT moves the link
       session off 7211, which is what lets two copies on one machine link to each other -
       off-device both are on loopback, so the port is all that separates them
-    deps: [ core ]
+    deps: [ core, web ]
     env:
       SLOT_ROOT: '{{.SLOT_ROOT | default "./sdcard"}}'
       SLOT_SILENT: '0'
+      SLOT_WIFI: '1'
     cmds:
+      - mkdir -p "$SLOT_ROOT/System/web"
+      - cp -R web/dist/. "$SLOT_ROOT/System/web/"
       - cargo run --release -p slot
 
   run:bare:
     desc: Run with no title bar or border, for screenshots and screen capture
-    deps: [ core ]
+    deps: [ core, web ]
     env:
       SLOT_ROOT: '{{.SLOT_ROOT | default "./sdcard"}}'
       SLOT_SILENT: '0'
+      SLOT_WIFI: '1'
       SLOT_BARE: '1'
     cmds:
+      - mkdir -p "$SLOT_ROOT/System/web"
+      - cp -R web/dist/. "$SLOT_ROOT/System/web/"
       - cargo run --release -p slot
 
   run:4x3:
     desc: Run in a 4:3 window, as on the RG35XXSP, with the bezel around the screen
-    deps: [ core ]
+    deps: [ core, web ]
     env:
       SLOT_ROOT: '{{.SLOT_ROOT | default "./sdcard"}}'
       SLOT_SILENT: '0'
+      SLOT_WIFI: '1'
       SLOT_WINDOW: '1280x960'
     cmds:
+      - mkdir -p "$SLOT_ROOT/System/web"
+      - cp -R web/dist/. "$SLOT_ROOT/System/web/"
       - cargo run --release -p slot
 
   run:debug:
     desc: Run an unoptimised build, for a debugger. Will not hold 60 fps.
-    deps: [ core ]
+    deps: [ core, web ]
     env:
       SLOT_ROOT: '{{.SLOT_ROOT | default "./sdcard"}}'
       SLOT_SILENT: '0'
+      SLOT_WIFI: '1'
     cmds:
+      - mkdir -p "$SLOT_ROOT/System/web"
+      - cp -R web/dist/. "$SLOT_ROOT/System/web/"
       - cargo run -p slot
+
+  web:
+    desc: Build the Server web page into web/dist
+    dir: web
+    sources:
+      - src/**/*
+      - public/**/*
+      - index.html
+      - package.json
+      - vite.config.ts
+    generates:
+      - dist/index.html
+    cmds:
+      - bun install --frozen-lockfile
+      - bun run build
 
   dist:
     desc: Build the copy-to-SD2 tree, OUT defaults to ./dist
-    deps: [ core, release ]
+    deps: [ core, release, web ]
     vars:
       OUT: '{{.OUT | default "dist"}}'
     cmds:
       - rm -rf {{.OUT}}
       - ./target/release/slot --init-root {{.OUT}}
       - cp target/release/slot {{.OUT}}/System/slot
-      - cp {{.CORE}} {{.GPSP_HOST}} {{.OUT}}/System/
+      - cp {{.CORE}} {{.GPSP_HOST}} {{.GAMBATTE_HOST}} {{.OUT}}/System/
+      - cp -R web/dist {{.OUT}}/System/web
       - 'echo "dist ready at {{.OUT}}, copy its contents to SD2"'
 
   core:device:
@@ -372,6 +428,43 @@ tasks:
         vendor/gpsp-src.sha vendor/gpsp-src.meta
       - task: core:gpsp
 
+  core:gambatte:
+    desc: >-
+      Build the aarch64 linux Gambatte core from its pinned source archive, which ships beside it
+      as its GPL-2.0 section 3(a) corresponding source
+    status:
+      - test -f vendor/gambatte_libretro.so
+      - test -f vendor/gambatte-src.tar.gz
+      - test "$(cat vendor/gambatte-src.sha 2>/dev/null)" = "{{.GAMBATTE_COMMIT}}"
+      - test "$(cat vendor/gambatte_libretro.so.meta 2>/dev/null)" = "$(sh cores/gambatte/build.sh stamp {{.GAMBATTE_COMMIT}})"
+      - test "$(cat vendor/gambatte-src.meta 2>/dev/null)" = "$(sh cores/gambatte/build.sh stamp {{.GAMBATTE_COMMIT}})"
+    cmds:
+      - |
+        set -euo pipefail
+        mkdir -p vendor
+        rm -f vendor/gambatte_libretro.so vendor/gambatte_libretro.so.meta \
+              vendor/gambatte-src.tar.gz vendor/gambatte-src.sha vendor/gambatte-src.meta
+        curl -fsSL -o vendor/gambatte-src.tar.gz \
+          "https://github.com/libretro/gambatte-libretro/archive/{{.GAMBATTE_COMMIT}}.tar.gz"
+        tar -tzf vendor/gambatte-src.tar.gz | grep "^gambatte-libretro-{{.GAMBATTE_COMMIT}}/Makefile$" > /dev/null
+      - task: device:sh
+        vars:
+          CMD: >-
+            sh cores/gambatte/build.sh build {{.GAMBATTE_COMMIT}} vendor/gambatte-src.tar.gz
+            target-device/gambatte vendor/gambatte_libretro.so
+      - file vendor/gambatte_libretro.so | grep -q aarch64
+      - echo "{{.GAMBATTE_COMMIT}}" > vendor/gambatte-src.sha
+      - cp vendor/gambatte_libretro.so.meta vendor/gambatte-src.meta
+      - 'echo "built vendor/gambatte_libretro.so from vendor/gambatte-src.tar.gz @ {{.GAMBATTE_COMMIT}}"'
+
+  core:gambatte:update:
+    desc: Refetch Gambatte's source archive and rebuild the core from it, even if the set is current
+    cmds:
+      - >-
+        rm -f vendor/gambatte_libretro.so vendor/gambatte_libretro.so.meta vendor/gambatte-src.tar.gz
+        vendor/gambatte-src.sha vendor/gambatte-src.meta
+      - task: core:gambatte
+
   core:gpsp:test:
     desc: Prove gpSP's Advance Wars session-flip patch still fixes what it was written for
     deps: [ core:gpsp ]
@@ -415,35 +508,30 @@ tasks:
         if [ "$(uname -s)-$(uname -m)" = "Linux-aarch64" ]; then
           sh -c '{{.CMD}}'
         else
+          set --
+          if [ -f .git ]; then
+            # Worktrees point outside /src; preserve those paths inside the container.
+            common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+            git_dir="$(git rev-parse --absolute-git-dir)"
+            set -- -v "$common_dir:$common_dir:ro" -v "$git_dir:$git_dir:ro"
+          fi
           # arm64 even on an x86_64 host, which then needs binfmt emulation. The volumes keep
           # the pinned toolchain and the crates between runs. Rootful Docker on Linux leaves
           # what it wrote owned by root, so it is handed back to the caller.
-          docker run --rm --platform linux/arm64 -e HOST_IDS="$(id -u):$(id -g)" \
+          docker run --rm --platform linux/arm64 "$@" -e HOST_IDS="$(id -u):$(id -g)" \
             -v slot-cargo:/usr/local/cargo -v slot-rustup:/usr/local/rustup \
             -v "$PWD":/src -w /src rust:1-bullseye sh -c '{{.CMD}}
             s=$?; find /src -xdev -user 0 -exec chown "$HOST_IDS" {} +; exit $s'
         fi
-
-  network:tools:
-    desc: Bundle iw and its ARM64 libraries for BaseOS channel queries
-    status:
-      - test -f vendor/slot-net/iw
-      - test -f vendor/slot-net/versions.txt
-      - file vendor/slot-net/iw | grep -q aarch64
-    cmds:
-      - task: device:sh
-        vars:
-          CMD: sh network/build-tools.sh
 
   build:device:
     desc: >-
       Build for the H700: natively on an arm64 Linux box; elsewhere cross-compiled with zig for
       the device's glibc (bullseye's, as the container had it), minutes faster than compiling
       inside an emulated arm64 container
-    deps: [network:tools]
     vars:
       FEATURES: '{{.FEATURES | default "slot/device"}}'
-      PACKAGES: -p slot -p slot-services --no-default-features --features {{.FEATURES}}
+      PACKAGES: -p slot --no-default-features --features {{.FEATURES}}
     cmds:
       - |
         set -eu
@@ -454,8 +542,7 @@ tasks:
           cargo zigbuild --profile device --target aarch64-unknown-linux-gnu.2.31 \
             --target-dir target-device {{.PACKAGES}}
           mkdir -p target-device/device
-          cp target-device/aarch64-unknown-linux-gnu/device/slot \
-            target-device/aarch64-unknown-linux-gnu/device/slot-services target-device/device/
+          cp target-device/aarch64-unknown-linux-gnu/device/slot target-device/device/
         fi
       - file target-device/device/slot | grep -q aarch64
       - 'echo "built target-device/device/slot"'
@@ -473,7 +560,7 @@ tasks:
 
   dist:device:
     desc: Build the SD2 tree for an H700 device, OUT defaults to ./dist-device
-    deps: [ core:device, core:gpsp, fsck:exfat, build:device ]
+    deps: [ core:device, core:gpsp, core:gambatte, fsck:exfat, build:device, web ]
     vars:
       OUT: '{{.OUT | default "dist-device"}}'
     cmds:
@@ -482,22 +569,20 @@ tasks:
         vars:
           CMD: ./target-device/device/slot --init-root {{.OUT}}
       - cp target-device/device/slot {{.OUT}}/System/slot
-      - cp target-device/device/slot-services {{.OUT}}/System/
-      - cp network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example {{.MUTE_MUSIC}}/music.txt.example {{.OUT}}/Config/
+      - cp crates/slot-achievements/retroachievements.toml.example {{.MUTE_MUSIC}}/music.txt.example {{.OUT}}/Config/
       - cp {{.MUTE_MUSIC}}/music-eq.txt {{.OUT}}/Config/music-eq.txt.example
-      - mkdir {{.OUT}}/System/slot-net
-      - cp vendor/slot-net/iw vendor/slot-net/*.so.* {{.OUT}}/System/slot-net/
       - cp -R card/System/* {{.OUT}}/System/
+      - cp -R web/dist {{.OUT}}/System/web
       - for d in Bezels Cheats Labels Wallpapers; do cp card/$d/README.txt {{.OUT}}/$d/; done
       - file vendor/mgba_libretro.so | grep -q aarch64
       - file vendor/gpsp_libretro.so | grep -q aarch64
+      - file vendor/gambatte_libretro.so | grep -q aarch64
       - cp vendor/mgba_libretro.so {{.OUT}}/System/
       - cp vendor/gpsp_libretro.so {{.OUT}}/System/
+      - cp vendor/gambatte_libretro.so {{.OUT}}/System/
       - cp vendor/fsck.exfat {{.OUT}}/System/
       - cp -r licenses {{.OUT}}/System/licenses
       - cp vendor/exfatprogs-{{.EXFATPROGS_VERSION}}.tar.gz {{.OUT}}/System/licenses/
-      - cp -r vendor/slot-net/licenses/. {{.OUT}}/System/licenses/
-      - cp vendor/slot-net/versions.txt {{.OUT}}/System/licenses/slot-net.meta
       - |
         set -euo pipefail
         sha="$(cat vendor/gpsp-src.sha)"
@@ -505,6 +590,14 @@ tasks:
         cp vendor/gpsp-src.meta "{{.OUT}}/System/licenses/gpsp-${sha}.meta"
         for p in cores/gpsp/*.patch; do
           cp "$p" "{{.OUT}}/System/licenses/gpsp-$(basename "$p")"
+        done
+      - |
+        set -euo pipefail
+        sha="$(cat vendor/gambatte-src.sha)"
+        cp vendor/gambatte-src.tar.gz "{{.OUT}}/System/licenses/gambatte-${sha}.tar.gz"
+        cp vendor/gambatte-src.meta "{{.OUT}}/System/licenses/gambatte-${sha}.meta"
+        for p in cores/gambatte/*.patch; do
+          cp "$p" "{{.OUT}}/System/licenses/gambatte-$(basename "$p")"
         done
       - |
         set -euo pipefail
@@ -517,14 +610,14 @@ tasks:
 
   deploy:device:
     desc: Build and push onto a device over adb, then restart it. SD defaults to /mnt/sdcard
-    deps: [ core:device, core:gpsp, fsck:exfat, build:device ]
+    deps: [ core:device, core:gpsp, core:gambatte, fsck:exfat, build:device ]
     cmds:
       - task: deploy:push
         vars: { SD: '{{.SD}}' }
 
   deploy:all:
     desc: Build and push onto every attached adb device, then restart each. SD defaults to /mnt/sdcard
-    deps: [ core:device, core:gpsp, fsck:exfat, build:device ]
+    deps: [ core:device, core:gpsp, core:gambatte, fsck:exfat, build:device ]
     vars:
       SERIALS:
         sh: adb devices | awk 'NR > 1 && $2 == "device" {print $1}'
@@ -545,20 +638,17 @@ tasks:
       - "{{.ADB}} wait-for-device"
       - file vendor/mgba_libretro.so | grep -q aarch64
       - file vendor/gpsp_libretro.so | grep -q aarch64
+      - file vendor/gambatte_libretro.so | grep -q aarch64
       - "{{.ADB}} push target-device/device/slot '{{.SD}}/System/slot'"
       - for f in card/System/*; do {{.ADB}} push "$f" '{{.SD}}/System/'; done
       - "{{.ADB}} push vendor/mgba_libretro.so '{{.SD}}/System/mgba_libretro.so'"
       - "{{.ADB}} push vendor/gpsp_libretro.so '{{.SD}}/System/gpsp_libretro.so'"
+      - "{{.ADB}} push vendor/gambatte_libretro.so '{{.SD}}/System/gambatte_libretro.so'"
       - "{{.ADB}} push vendor/fsck.exfat '{{.SD}}/System/fsck.exfat'"
       - "{{.ADB}} push licenses '{{.SD}}/System/'"
       - "{{.ADB}} push vendor/exfatprogs-{{.EXFATPROGS_VERSION}}.tar.gz '{{.SD}}/System/licenses/'"
-      - "{{.ADB}} push target-device/device/slot-services '{{.SD}}/System/slot-services'"
-      - "{{.ADB}} push network/wifi.toml.example crates/slot-achievements/retroachievements.toml.example {{.MUTE_MUSIC}}/music.txt.example '{{.SD}}/Config/'"
+      - "{{.ADB}} push crates/slot-achievements/retroachievements.toml.example {{.MUTE_MUSIC}}/music.txt.example '{{.SD}}/Config/'"
       - "{{.ADB}} push {{.MUTE_MUSIC}}/music-eq.txt '{{.SD}}/Config/music-eq.txt.example'"
-      - "{{.ADB}} shell mkdir -p '{{.SD}}/System/slot-net'"
-      - "{{.ADB}} push vendor/slot-net/iw vendor/slot-net/*.so.* '{{.SD}}/System/slot-net/'"
-      - "{{.ADB}} push vendor/slot-net/licenses/. '{{.SD}}/System/licenses/'"
-      - "{{.ADB}} push vendor/slot-net/versions.txt '{{.SD}}/System/licenses/slot-net.meta'"
       - |
         set -euo pipefail
         sha="$(cat vendor/gpsp-src.sha)"
@@ -566,6 +656,14 @@ tasks:
         {{.ADB}} push vendor/gpsp-src.meta "{{.SD}}/System/licenses/gpsp-${sha}.meta"
         for p in cores/gpsp/*.patch; do
           {{.ADB}} push "$p" "{{.SD}}/System/licenses/gpsp-$(basename "$p")"
+        done
+      - |
+        set -euo pipefail
+        sha="$(cat vendor/gambatte-src.sha)"
+        {{.ADB}} push vendor/gambatte-src.tar.gz "{{.SD}}/System/licenses/gambatte-${sha}.tar.gz"
+        {{.ADB}} push vendor/gambatte-src.meta "{{.SD}}/System/licenses/gambatte-${sha}.meta"
+        for p in cores/gambatte/*.patch; do
+          {{.ADB}} push "$p" "{{.SD}}/System/licenses/gambatte-$(basename "$p")"
         done
       - |
         set -euo pipefail

@@ -666,14 +666,32 @@ impl Platform for DevicePlatform {
     }
 
     fn set_clock(&mut self, secs: i64) {
-        ran(
-            "date",
-            Command::new("date").arg(format!("-s@{secs}")).status(),
-        );
-        ran(
-            "hwclock",
-            Command::new("hwclock").args(["-w", "-u"]).status(),
-        );
+        write_clock(secs);
+    }
+
+    // BaseOS runs ntpd once the network is up, keeps the clock right while it stays up, and
+    // writes the RTC as it goes.
+    fn network_time(&self) -> Option<bool> {
+        let out = Command::new(TIMEDATECTL)
+            .args(["show", "-p", "NTP", "--value"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
+        match String::from_utf8_lossy(&out.stdout).trim() {
+            "yes" => Some(true),
+            "no" => Some(false),
+            _ => None,
+        }
+    }
+
+    fn set_network_time(&mut self, on: bool) {
+        let value = if on { "true" } else { "false" };
+        std::thread::spawn(move || {
+            ran(
+                "timedatectl",
+                Command::new(TIMEDATECTL).args(["set-ntp", value]).status(),
+            );
+        });
     }
 
     fn relink_adb(&mut self) -> bool {
@@ -800,6 +818,19 @@ pub fn take_repair_result(file: &Path) -> Option<RepairResult> {
         "clean" => RepairResult::Clean,
         _ => RepairResult::Failed,
     })
+}
+
+const TIMEDATECTL: &str = "/usr/bin/timedatectl";
+
+fn write_clock(secs: i64) {
+    ran(
+        "date",
+        Command::new("date").arg(format!("-s@{secs}")).status(),
+    );
+    ran(
+        "hwclock",
+        Command::new("hwclock").args(["-w", "-u"]).status(),
+    );
 }
 
 #[cfg(test)]

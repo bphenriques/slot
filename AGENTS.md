@@ -51,11 +51,12 @@ Once it is in mute-player, move `rev` in `crates/slot/Cargo.toml` to its commit.
 ## Check before you finish
 
 ```sh
-nix-shell --run "cargo fmt -p slot -p slot-ui"
+nix-shell --run "rustfmt --edition 2021 crates/slot/src/music_faces.rs crates/slot/src/app/music.rs crates/slot/src/audio/line_out.rs"
 nix-shell --run "task check:music"
 ```
 
-`check:music` checks formatting, lints, runs slot's tests with its glue, and ends with
+Only our files are formatted: upstream's own are not kept to rustfmt, and `cargo fmt` would rewrite
+them. `check:music` checks formatting, lints, runs slot's tests with its glue, and ends with
 `footprint`: slot's own files as changed from upstream's. A footprint that grew is a hook too
 many.
 

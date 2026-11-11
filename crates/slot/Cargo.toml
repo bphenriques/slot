@@ -11,6 +11,7 @@ host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
 device = ["slot-gfx/device"]
 # The music's performance log, for a build to measure on the device.
 music-perf = ["mute/perf"]
+romm = []
 
 [dependencies]
 slot-labels = { path = "../slot-labels" }
@@ -32,9 +33,26 @@ libloading = { workspace = true }
 libc = { workspace = true }
 lz4_flex = { workspace = true }
 png = { workspace = true }
+qrcode = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+zip = { workspace = true }
+ureq = { workspace = true }
+tungstenite = { workspace = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
+crc32fast = { workspace = true }
+flate2 = { workspace = true }
+jpeg-decoder = { workspace = true }
+image-webp = { workspace = true }
 
 [dev-dependencies]
 lofty.workspace = true
 mute-audio = { git = "https://github.com/bphenriques/mute-player", rev = "74e853e02751e16177d411a78eab0d87b4d4082f" }
 slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
 tempfile = { workspace = true }
+rqrr = "0.11"
+
+[[test]]
+name = "romm_ui"
+required-features = ["romm"]

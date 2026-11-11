@@ -9,7 +9,8 @@ description: Commit, push and tag a vX.Y.Z-bphenriques.N release of this fork, t
    of `RELEASE_NOTES.md` is `# <tag>` (the workflow refuses otherwise).
 2. **Commit** on `bphenriques-improvements`, author `4727729+bphenriques@users.noreply.github.com`
    only, then `git push origin bphenriques-improvements`.
-3. **Tag.** `git tag <tag> && git push origin <tag>`. To retag after a fix:
+3. **Tag.** `git tag -m <tag> <tag> && git push origin <tag>` (tags are signed, so they need a
+   message). To retag after a fix:
    `git tag -d <tag> && git push origin :refs/tags/<tag>`, then tag again. The workflow
    republishes the release with the new card and notes.
 4. **Confirm.** Local `gh` is not logged in, so use the public API:

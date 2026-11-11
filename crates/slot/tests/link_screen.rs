@@ -117,8 +117,6 @@ fn sprites() -> LinkSprites {
         clicks: s(13, CLICKS_W, CLICKS_H),
         arrow_left: s(14, ARROW_W, ARROW_H),
         arrow_right: s(15, ARROW_W, ARROW_H),
-        net_home: s(16, NET_W, NET_H),
-        net_direct: s(17, NET_W, NET_H),
     }
 }
 
@@ -157,59 +155,6 @@ fn texes(out: &[Draw]) -> Vec<TexId> {
             _ => None,
         })
         .collect()
-}
-
-#[test]
-fn cable_carts_draw_the_plug_under_the_port_and_wireless_carts_the_adapter() {
-    let s = sprites();
-    let mut out = Vec::new();
-    draw_link_art(
-        Canvas::FRAMED,
-        GameMenu::Pick(LinkRow::Host),
-        LinkKind::Cable,
-        0,
-        &s,
-        &mut out,
-    );
-    let t = texes(&out);
-    let plug = t
-        .iter()
-        .position(|x| *x == s.plug_host.tex)
-        .expect("no plug");
-    let port = t.iter().position(|x| *x == s.port.tex).expect("no port");
-    assert!(
-        port > plug,
-        "the port must be drawn over a plug that goes into it"
-    );
-    assert!(!t.contains(&s.adapter.tex));
-
-    out.clear();
-    draw_link_art(
-        Canvas::FRAMED,
-        GameMenu::Pick(LinkRow::Host),
-        LinkKind::Wireless,
-        0,
-        &s,
-        &mut out,
-    );
-    let t = texes(&out);
-    assert!(t.contains(&s.adapter.tex) && !t.contains(&s.plug_host.tex));
-}
-
-#[test]
-fn a_joiner_holds_the_gray_plug() {
-    let s = sprites();
-    let mut out = Vec::new();
-    draw_link_art(
-        Canvas::FRAMED,
-        GameMenu::Pick(LinkRow::Join),
-        LinkKind::Cable,
-        0,
-        &s,
-        &mut out,
-    );
-    let t = texes(&out);
-    assert!(t.contains(&s.plug_join.tex) && !t.contains(&s.plug_host.tex));
 }
 
 #[test]
@@ -329,33 +274,4 @@ fn the_adapter_calls_out_with_its_arcs_while_working() {
         t.contains(&s.arcs_right[0].tex) && t.contains(&s.arcs_left[0].tex),
         "no arcs while working"
     );
-}
-
-#[test]
-fn the_network_plate_is_printed_on_the_console_only_on_the_role_picker() {
-    let s = sprites();
-    let plate = |menu: GameMenu, home: bool| {
-        let mut out = Vec::new();
-        draw_network_label(slot_ui::Canvas::FRAMED, menu, home, &s, &mut out);
-        out
-    };
-    let home = plate(GameMenu::Pick(LinkRow::Host), true);
-    let direct = plate(GameMenu::Pick(LinkRow::Join), false);
-    assert!(
-        matches!(home[..], [Draw::Tex { tex, x, y, .. }] if tex == s.net_home.tex && x == NET_X && y == NET_Y)
-    );
-    assert!(matches!(direct[..], [Draw::Tex { tex, .. }] if tex == s.net_direct.tex));
-    // Nothing else says which network: once a link is starting, seated or gone it is decided.
-    for menu in [
-        working(LinkRow::Host, 0),
-        failed(0),
-        GameMenu::Linked {
-            role: LinkRow::Host,
-            worked: 0,
-            since: 0,
-            opened: false,
-        },
-    ] {
-        assert!(plate(menu, true).is_empty());
-    }
 }

@@ -3,8 +3,8 @@ mod common;
 use common::tmp_root;
 use slot_store::{
     atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, Blending,
-    GbPalette, Platform, Recent, Scale, Shader, SlotState, Stretch, WallpaperPick, WallpaperTint,
-    Zone, FF_SPEEDS, FF_SPEED_DEFAULT,
+    Core, GbPalette, Platform, Recent, Scale, Shader, SlotState, Stretch, WallpaperPick,
+    WallpaperTint, Zone, FF_SPEEDS, FF_SPEED_DEFAULT,
 };
 use tempfile::tempdir;
 
@@ -22,7 +22,7 @@ fn fork_ghosting_preferences_migrate_to_upstream_blending_and_survive_a_rewrite(
     assert_eq!(state.cart_platform, Some(Platform::Gba));
     assert_eq!(state.brightness, 3);
     assert_eq!(state.volume, 40);
-    assert!(state.muted && state.home_wifi_enabled);
+    assert!(state.muted);
     assert!(!state.high_refresh);
     assert_eq!(state.zone, Zone::parse("Asia/Kolkata").unwrap());
     assert_eq!(
@@ -151,7 +151,8 @@ fn slot_state_round_trips_including_a_stem_with_an_equals_sign() {
     let d = tmp_root();
     let s = SlotState {
         cart: Some("Cheats = On".into()),
-        brightness: 3,
+        brightness: 0,
+        dim: 2,
         blue_light: 9,
         volume: 71,
         muted: true,
@@ -295,6 +296,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             cart: Some("Emerald".into()),
             cart_platform: None,
             brightness: 3,
+            dim: 0,
             blue_light: 1,
             saturation: 0,
             contrast: 0,
@@ -312,7 +314,6 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             ),
             clock_24h: true,
             rumble: true,
-            home_wifi_enabled: false,
             ff_speed: FF_SPEED_DEFAULT,
             ff_sound: false,
             colour_correction_gba: false,
@@ -335,6 +336,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             show_titles: false,
             left_stick_dpad: true,
             lid_off_min: None,
+            wifi_off: false,
+            network_time: false,
             bezel_gba: BezelPick::Ags102,
             bezel_gb: BezelPick::Ags102,
             bezel_gbc: BezelPick::Ags102,
@@ -347,6 +350,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             blending_gb: Blending::Off,
             gb_model: slot_store::GbModel::Pocket,
             blending_gbc: Blending::Off,
+            gb_core: Core::Mgba,
             recents: Vec::new(),
             favorites: Vec::new(),
             shelf: None,
@@ -654,28 +658,6 @@ fn an_offset_outside_the_range_of_real_zones_reads_as_default() {
     ] {
         std::fs::write(d.path().join("Config/slot.state"), body).unwrap();
         assert_eq!(read_slot_state(d.path()), SlotState::default(), "{body}");
-    }
-}
-
-#[test]
-fn home_wifi_defaults_off_and_malformed_optional_flag_preserves_old_settings() {
-    let d = tmp_root();
-    let s = SlotState {
-        home_wifi_enabled: true,
-        volume: 30,
-        zone: Zone::parse("Asia/Kathmandu").unwrap(),
-        ..SlotState::default()
-    };
-    write_slot_state(d.path(), &s).unwrap();
-    assert!(read_slot_state(d.path()).home_wifi_enabled);
-    let path = d.path().join("Config/slot.state");
-    let text = std::fs::read_to_string(&path).unwrap();
-    for replacement in ["", "home_wifi_enabled=broken"] {
-        std::fs::write(&path, text.replace("home_wifi_enabled=1", replacement)).unwrap();
-        let restored = read_slot_state(d.path());
-        assert!(!restored.home_wifi_enabled);
-        assert_eq!(restored.volume, 30);
-        assert_eq!(restored.zone, Zone::parse("Asia/Kathmandu").unwrap());
     }
 }
 

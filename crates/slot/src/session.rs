@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use slot_input::{Action, Btn, Chord, Contexts, Entry, Gestures, Millis, Mod, RawEvent};
 use slot_retro::Rumble;
@@ -18,10 +18,11 @@ use crate::frames::FrameRef;
 use crate::input::Pad;
 use crate::persist;
 use crate::prefetch::Prefetch;
+use crate::print_scene::Cue;
 
 pub struct Session {
     achievements: slot_achievements::Service,
-    home_connected: bool,
+    wifi_up: bool,
     root: PathBuf,
     app: App,
     emu: Option<EmuHandle>,
@@ -41,6 +42,7 @@ pub struct Session {
     reloading: bool,
     driven: bool,
     sunlight_sent: Option<u8>,
+    buzz_ends: Option<Instant>,
 }
 
 impl Session {
@@ -51,7 +53,7 @@ impl Session {
     pub fn boot_with(root: PathBuf, sink: Box<dyn AudioSink>) -> Self {
         let mut session = Session {
             achievements: slot_achievements::Service::start(root.clone()),
-            home_connected: false,
+            wifi_up: false,
             app: App::boot(&root),
             root,
             emu: None,
@@ -71,6 +73,7 @@ impl Session {
             reloading: false,
             driven: false,
             sunlight_sent: None,
+            buzz_ends: None,
         };
         // A game left running comes straight back. Its core loads on its own thread, so start it
         // now and let the card read overlap the rest of the boot. Waiting for the first update
@@ -97,6 +100,22 @@ impl Session {
         }
         crate::audio::volume::apply(&mut samples, self.app.output_volume());
         self.sink.ring().mix(&samples);
+    }
+
+    fn play_print_cue(&mut self, cue: Cue) {
+        match cue {
+            Cue::Buzz => {
+                self.play_sfx(Sfx::PrintBuzz);
+                let left = Duration::from_secs_f32(Sfx::PrintBuzz.tail());
+                self.buzz_ends = Some(Instant::now() + left);
+            }
+            Cue::Tear => self.play_sfx(Sfx::Tear),
+            Cue::BuzzOff => {
+                if self.buzz_ends.take().is_some_and(|end| Instant::now() < end) {
+                    self.sink.ring().hush();
+                }
+            }
+        }
     }
 
     pub fn audio_queued(&self) -> usize {
@@ -233,6 +252,19 @@ impl Session {
         let latched = self.gestures.ff_latched();
         self.gestures.set_context(self.app.input_context());
         let mut entries = self.app.binding_table().entries();
+        if self.app.restart_chord() {
+            entries.insert(
+                0,
+                Entry {
+                    chord: Chord {
+                        modifier: Some(Mod::Select),
+                        button: Btn::Start,
+                    },
+                    action: Action::Restart,
+                    contexts: Contexts::ALL,
+                },
+            );
+        }
         if self.app.repair_offered() {
             let chord = Chord {
                 modifier: Some(Mod::Select),
@@ -345,11 +377,11 @@ impl Session {
 
     pub fn update(&mut self, dt: f32) {
         self.bridge_link(|app| app.update(dt));
-        let connected = self.app.home_connected();
-        if connected && !self.home_connected {
+        let up = self.app.wifi_up();
+        if up && !self.wifi_up {
             self.achievements.network_available();
         }
-        self.home_connected = connected;
+        self.wifi_up = up;
         self.sink.hold_open(self.app.headphones());
         if let Some(emu) = &self.emu {
             emu.set_volume(self.app.output_volume());
@@ -366,7 +398,9 @@ impl Session {
         let mut repaint = false;
         if let Some(p) = self.app.take_gb_colors() {
             if let Some(emu) = &self.emu {
-                emu.set_option("mgba_gb_colors", p.core_name());
+                for (key, value) in crate::core::palette_options(self.app.core(), p) {
+                    emu.set_option(key, value);
+                }
                 repaint = true;
             }
         }
@@ -421,6 +455,9 @@ impl Session {
         let music = self.app.music_owns_audio();
         self.sink.ring().set_yielded(music);
         self.line_out.follow(self.app.music_volume());
+        for cue in self.app.take_print_cues() {
+            self.play_print_cue(cue);
+        }
         self.sync_core();
         self.sync_reload();
         // A double-tapped R2 latches fast forward; music has nothing to latch.
@@ -587,7 +624,11 @@ impl Session {
             Some(CoreState::Loading) => {}
             Some(CoreState::Ready) => {
                 if let (true, Some(emu)) = (self.app.palette_live(), &self.emu) {
-                    emu.set_option("mgba_gb_colors", self.app.core_gb_colors().core_name());
+                    for (key, value) in
+                        crate::core::palette_options(self.app.core(), self.app.core_gb_colors())
+                    {
+                        emu.set_option(key, value);
+                    }
                 }
                 self.app.on_core_ready()
             }
@@ -607,7 +648,7 @@ impl Session {
         else {
             return;
         };
-        let core = slot_store::core_for_platform(&self.root, stem, platform);
+        let core = slot_store::core_for_platform(&self.root, stem, platform, self.app.gb_core());
         launch(&format!("opening {stem} on {}", core.as_str()));
         self.app.set_core(core);
         self.app.set_platform(platform);
@@ -637,10 +678,11 @@ impl Session {
                 launch("core opened");
                 let sav = persist::read_sav(&root, platform, &stem);
                 launch("save read");
-                // gpSP turns down the database's encrypted codes and holds 20 at most.
+                // gpSP turns down the database's encrypted codes and holds 20 at most. Gambatte's
+                // cheats are not wired up yet.
                 let cheats = match core {
                     Core::Mgba => crate::cheats::load(&root, platform, &stem, &rom),
-                    Core::Gpsp => Vec::new(),
+                    Core::Gpsp | Core::Gambatte => Vec::new(),
                 };
                 launch("cheats read");
                 Loaded {

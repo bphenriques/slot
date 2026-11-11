@@ -13,6 +13,8 @@
 *.dylib
 *.so
 
+.r2*
+
 .DS_Store
 /.idea/
 /target-device
@@ -27,3 +29,4 @@
 
 # A local checkout of mute to build against, as AGENTS.md says: never committed.
 /.cargo/config.toml
+/.task/
