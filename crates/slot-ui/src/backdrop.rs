@@ -5,7 +5,8 @@ use slot_gfx::{Canvas, Draw, TexId, OUT_H, OUT_W};
 
 use crate::art;
 
-const DEFAULT_PNG: &[u8] = include_bytes!("../../../assets/background_default.png");
+pub const SLOT_WALLPAPER_PNG: &[u8] = include_bytes!("../../../assets/background_default.png");
+const DEFAULT_PNG: &[u8] = SLOT_WALLPAPER_PNG;
 const BEZEL_GB_PNG: &[u8] = include_bytes!("../../../assets/bezel_gb.png");
 const BEZEL_GBC_PNG: &[u8] = include_bytes!("../../../assets/bezel_gbc.png");
 const BEZEL_GB_FIT_3X2_PNG: &[u8] = include_bytes!("../../../assets/bezel_gb_fit_3x2.png");
@@ -27,7 +28,9 @@ const BEZEL_AUTHENTIC_POCKET_4X3_PNG: &[u8] =
     include_bytes!("../../../assets/bezel_authentic_pocket_4x3.png");
 const BEZEL_AUTHENTIC_GBA_4X3_PNG: &[u8] =
     include_bytes!("../../../assets/bezel_authentic_gba_4x3.png");
-const BLUR_PNG: &[u8] = include_bytes!("../../../assets/background_default_blur.png");
+pub const SLOT_BLUR_WALLPAPER_PNG: &[u8] =
+    include_bytes!("../../../assets/background_default_blur.png");
+const BLUR_PNG: &[u8] = SLOT_BLUR_WALLPAPER_PNG;
 
 const SCRIM: f32 = 0.62;
 
@@ -89,6 +92,32 @@ pub fn default_game_bezel_face(colour: bool, kind: BezelArt, w: u32, h: u32) -> 
     match kind {
         BezelArt::Default => panel_bezel(&src, (sw, sh), (w, h), true),
         _ => art::cover_rgba(&src, sw, sh, w, h),
+    }
+}
+
+/// Takes the glass's reflection out of Authentic's own bezel art and keeps its shade. Over
+/// the screen the art is the white sheen laid on the black shade, so a pixel lets through
+/// `(1 - shade)(1 - sheen)` of the screen and adds `sheen` of white: the sheen is the white
+/// it adds, and the shade what is left of the light it holds back. The lens's lip, just
+/// inside the solid bezel, is left as drawn.
+pub fn clear_glass_reflection(rgba: &mut [u8], w: u32, h: u32) {
+    let (w, h) = (w as usize, h as usize);
+    if rgba.len() < w * h * 4 {
+        return;
+    }
+    let solid: Vec<bool> = rgba.chunks_exact(4).map(|px| px[3] == 255).collect();
+    let near_solid = |x: usize, y: usize| {
+        (y.saturating_sub(2)..(y + 3).min(h))
+            .any(|y| (x.saturating_sub(2)..(x + 3).min(w)).any(|x| solid[y * w + x]))
+    };
+    for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+        if px[3] == 0 || solid[i] || near_solid(i % w, i / w) {
+            continue;
+        }
+        let a = px[3] as f32 / 255.0;
+        let sheen = px[..3].iter().map(|&c| c as f32).sum::<f32>() / (3.0 * 255.0) * a;
+        let shade = (1.0 - (1.0 - a) / (1.0 - sheen).max(1e-3)).max(0.0);
+        px.copy_from_slice(&[0, 0, 0, (shade * 255.0).round() as u8]);
     }
 }
 
@@ -198,6 +227,18 @@ pub fn blur_background() -> Option<&'static [u8]> {
         .as_deref()
 }
 
+pub fn reference_ground_covers((w, h): (u32, u32)) -> bool {
+    h == OUT_H && w <= OUT_W
+}
+
+pub fn default_background_at(w: u32, h: u32) -> Option<Vec<u8>> {
+    art::cover_bytes(DEFAULT_PNG, w, h)
+}
+
+pub fn blur_background_at(w: u32, h: u32) -> Option<Vec<u8>> {
+    art::cover_bytes(BLUR_PNG, w, h)
+}
+
 pub fn draw_ground(canvas: Canvas, face: Option<(TexId, u32)>, out: &mut Vec<Draw>) {
     let Some(face) = face else {
         return;
@@ -214,7 +255,7 @@ pub fn draw_backdrop(canvas: Canvas, face: Option<(TexId, u32)>, out: &mut Vec<D
         x: 0.0,
         y: 0.0,
         w: canvas.w,
-        h: OUT_H as f32,
+        h: canvas.h,
         colour: [0.0, 0.0, 0.0, SCRIM],
     });
 }
@@ -224,7 +265,7 @@ fn ground(canvas: Canvas, (tex, tex_w): (TexId, u32)) -> Draw {
         x: 0.0,
         y: 0.0,
         w: canvas.w,
-        h: OUT_H as f32,
+        h: canvas.h,
         tex,
         alpha: 1.0,
         uv: canvas.cover(tex_w as f32),

@@ -25,17 +25,49 @@ fn boot_with_a_seated_cart_never_shows_the_shelf() {
 }
 
 #[test]
-fn boot_reseats_the_cart_fresh_only_with_auto_load_off() {
-    for auto_load in [true, false] {
+fn resume_on_power_on_alone_decides_whether_boot_reseats_the_cart_fresh() {
+    for (resume_insert, resume_power_on) in [(true, true), (true, false), (false, true), (false, false)] {
         let d = tmp_root_with_carts(&["Emerald"]);
         let s = SlotState {
-            auto_load,
+            resume_insert,
+            resume_power_on,
             ..seated("Emerald")
         };
         write_slot_state(d.path(), &s).unwrap();
         let a = App::boot(d.path());
         assert!(matches!(a.phase(), Phase::Inserting { .. }));
-        assert_eq!(a.starting_clean(), !auto_load, "auto_load {auto_load}");
+        assert_eq!(
+            a.starting_clean(),
+            !resume_power_on,
+            "resume_insert {resume_insert} resume_power_on {resume_power_on}"
+        );
+    }
+}
+
+#[test]
+fn an_old_auto_load_state_becomes_the_two_resume_rows() {
+    for (value, insert, power_on) in [
+        ("1", true, true),
+        ("power", false, true),
+        ("0", false, false),
+    ] {
+        let d = tmp_root_with_carts(&["Emerald"]);
+        write_slot_state(d.path(), &seated("Emerald")).unwrap();
+        let path = d.path().join("Config/slot.state");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("resume_insert=1\n"), "{text}");
+        assert!(text.contains("resume_power_on=1\n"), "{text}");
+        let old = text
+            .lines()
+            .filter(|l| !l.starts_with("resume_"))
+            .map(|l| format!("{l}\n"))
+            .collect::<String>()
+            + &format!("auto_load={value}\neject_save=0\n");
+        std::fs::write(&path, old).unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!((s.resume_insert, s.resume_power_on), (insert, power_on), "{value}");
+        let a = App::boot(d.path());
+        assert_eq!(a.starting_clean(), !power_on, "{value}");
     }
 }
 

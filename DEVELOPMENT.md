@@ -3,7 +3,7 @@
 The rules for working here, for people and agents alike, are in `AGENTS.md`; this is the longer
 guide.
 
-This fork is upstream slot (pvaibhav/slot, itself BrandonKowalski/slot) plus a music and
+This fork is upstream slot (pvaibhav/slot, itself slot-cfw/slot) plus a music and
 audiobook player. Keep it that way: new behaviour lives in new crates and modules, upstream
 files change only at a few one-line hooks, so `git merge upstream/...` stays cheap.
 
@@ -108,7 +108,7 @@ Over adb instead: `task deploy:device`. Logs: `Logs/slot.log` on the card (or
 
 - Commit only features the owner has tested end to end on the device; never per change.
 - Author email `4727729+bphenriques@users.noreply.github.com`; no other address ever.
-- Never push or tag without an explicit go. The version is `v1.14.0-bphenriques.1`, shown on About from the nearest tag.
+- Never push or tag without an explicit go. The version is `v1.15.3-bphenriques.1`, shown on About from the nearest tag.
 - `stash@{0}` is old music work from before the v1.7.0 merge; drop it once happy.
 
 ## Device quirks

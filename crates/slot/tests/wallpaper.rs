@@ -104,6 +104,28 @@ fn shelf_wallpaper_ignores_case_and_shows_nothing_without_a_file() {
 }
 
 #[test]
+fn a_shelf_without_a_file_shows_default_png() {
+    let d = all_shelves_card(&["GBA.png", "Default.png"]);
+    assert_eq!(
+        on_shelf(&d, "gb").shown_wallpaper().as_deref(),
+        Some("Default.png")
+    );
+    assert_eq!(
+        on_shelf(&d, "gbav").shown_wallpaper().as_deref(),
+        Some("GBA.png")
+    );
+}
+
+#[test]
+fn default_png_is_listed_for_decoding() {
+    let d = all_shelves_card(&["GBA.png", "default.png"]);
+    assert_eq!(
+        on_shelf(&d, "gba").shelf_wallpapers(),
+        ["GBA.png", "default.png"]
+    );
+}
+
+#[test]
 fn shelf_wallpaper_changes_when_the_shelf_does() {
     let d = all_shelves_card(&["GB.png", "GBC.png", "GBA.png", "GBAV.png"]);
     let mut a = on_shelf(&d, "gba");
@@ -265,5 +287,197 @@ fn only_pngs_are_picked() {
     assert!(
         pick(d.path(), 0).is_some(),
         "an upper case extension was skipped"
+    );
+}
+
+fn collection_card(names: &[&str], collection_pngs: &[&str]) -> tempfile::TempDir {
+    let (d, _) = papers(names);
+    let cols = d.path().join("Collections");
+    std::fs::create_dir_all(&cols).unwrap();
+    std::fs::write(cols.join("Puzzlers.txt"), "gba/Emerald\n").unwrap();
+    std::fs::write(cols.join("Dozers.txt"), "gba/Emerald\n").unwrap();
+    std::fs::write(cols.join("order.txt"), "Puzzlers\nDozers\n").unwrap();
+    let art = d.path().join("Wallpapers/Collections");
+    std::fs::create_dir_all(&art).unwrap();
+    for n in collection_pngs {
+        write_png(&art, n);
+    }
+    d
+}
+
+fn on_collection(d: &tempfile::TempDir, name: &str, wallpaper: WallpaperPick) -> App {
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            wallpaper,
+            shelf: Some(format!("collection/{name}")),
+            shelf_cart: Some(Recent {
+                platform: Platform::Gba,
+                stem: "Emerald".into(),
+            }),
+            collection: Some(name.into()),
+            ..SlotState::default()
+        },
+    )
+    .unwrap();
+    let a = App::boot(d.path());
+    assert_eq!(a.shelf_platform_name(), Some(name));
+    a
+}
+
+#[test]
+fn a_collection_png_shows_on_its_shelf() {
+    let d = collection_card(&[], &["Puzzlers.png"]);
+    let mut a = on_collection(&d, "Puzzlers", WallpaperPick::Default);
+    assert_eq!(
+        a.shown_wallpaper().as_deref(),
+        Some("Collections/Puzzlers.png")
+    );
+}
+
+#[test]
+fn a_collection_png_shows_even_with_wallpaper_off() {
+    let d = collection_card(&[], &["Puzzlers.png"]);
+    let mut a = on_collection(&d, "Puzzlers", WallpaperPick::None);
+    assert_eq!(
+        a.shown_wallpaper().as_deref(),
+        Some("Collections/Puzzlers.png")
+    );
+}
+
+#[test]
+fn a_pngless_collection_shows_the_normal_wallpaper() {
+    let d = collection_card(&["duck.png"], &["Puzzlers.png"]);
+    let mut a = on_collection(&d, "Dozers", WallpaperPick::File("duck.png".into()));
+    assert_eq!(a.shown_wallpaper().as_deref(), Some("duck.png"));
+}
+
+#[test]
+fn under_shelf_a_pngless_collection_does_not_borrow_favorites_png() {
+    let d = collection_card(&["Favorites.png", "GBA.png"], &["Puzzlers.png"]);
+    let mut a = on_collection(&d, "Dozers", WallpaperPick::Shelf);
+    assert_eq!(a.shown_wallpaper(), None);
+}
+
+#[test]
+fn under_shelf_a_pngless_collection_shows_default_png() {
+    let d = collection_card(&["Favorites.png", "Default.png"], &["Puzzlers.png"]);
+    let mut a = on_collection(&d, "Dozers", WallpaperPick::Shelf);
+    assert_eq!(a.shown_wallpaper().as_deref(), Some("Default.png"));
+}
+
+#[test]
+fn wallpaper_name_matches_without_regard_to_case() {
+    let d = collection_card(&[], &["puzzlers.PNG"]);
+    let mut a = on_collection(&d, "Puzzlers", WallpaperPick::Default);
+    assert_eq!(
+        a.shown_wallpaper().as_deref(),
+        Some("Collections/puzzlers.PNG")
+    );
+}
+
+#[test]
+fn collection_pngs_are_preloaded() {
+    let d = collection_card(&["duck.png"], &["Puzzlers.png"]);
+    let a = on_collection(&d, "Dozers", WallpaperPick::File("duck.png".into()));
+    let names = a.shelf_wallpapers();
+    assert!(names.contains(&"Collections/Puzzlers.png".to_string()), "{names:?}");
+    assert!(names.contains(&"duck.png".to_string()), "{names:?}");
+}
+
+#[test]
+fn collection_pngs_send_the_wallpaper_through_the_decode_worker() {
+    let d = collection_card(&["duck.png"], &["Puzzlers.png"]);
+    let a = on_collection(&d, "Dozers", WallpaperPick::File("duck.png".into()));
+    assert!(a.wallpapers_preload());
+    let plain = collection_card(&["duck.png"], &[]);
+    let b = on_collection(&plain, "Dozers", WallpaperPick::File("duck.png".into()));
+    assert!(!b.wallpapers_preload());
+}
+
+#[test]
+fn collection_pngs_are_read_at_boot_not_every_frame() {
+    let d = collection_card(&[], &[]);
+    let mut a = on_collection(&d, "Puzzlers", WallpaperPick::None);
+    assert_eq!(a.shown_wallpaper(), None);
+    write_png(&d.path().join("Wallpapers/Collections"), "Puzzlers.png");
+    assert_eq!(a.shown_wallpaper(), None);
+    assert!(!a.wallpapers_preload());
+    let mut b = App::boot(d.path());
+    assert_eq!(
+        b.shown_wallpaper().as_deref(),
+        Some("Collections/Puzzlers.png")
+    );
+}
+
+fn booted_with(wallpaper: WallpaperPick) -> (tempfile::TempDir, App) {
+    let (d, _) = papers(&[]);
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            wallpaper,
+            ..SlotState::default()
+        },
+    )
+    .unwrap();
+    let a = App::boot(d.path());
+    (d, a)
+}
+
+#[test]
+fn the_first_boot_puts_slots_wallpapers_on_the_card() {
+    let d = common::tmp_root_with_carts(&["Emerald"]);
+    let a = App::boot(d.path());
+    let dir = d.path().join("Wallpapers");
+    assert_eq!(
+        std::fs::read(dir.join("Slot.png")).unwrap(),
+        slot_ui::SLOT_WALLPAPER_PNG
+    );
+    assert_eq!(
+        std::fs::read(dir.join("Slot Blur.png")).unwrap(),
+        slot_ui::SLOT_BLUR_WALLPAPER_PNG
+    );
+    assert_eq!(a.wallpaper(), WallpaperPick::File("Slot.png".into()));
+    let saved = slot_store::read_slot_state(d.path());
+    assert_eq!(saved.wallpaper, WallpaperPick::File("Slot.png".into()));
+    assert!(saved.wallpapers_given);
+}
+
+#[test]
+fn default_blur_moves_to_slot_blur_png() {
+    let (_d, a) = booted_with(WallpaperPick::Blur);
+    assert_eq!(a.wallpaper(), WallpaperPick::File("Slot Blur.png".into()));
+}
+
+#[test]
+fn another_pick_is_kept_when_slots_wallpapers_arrive() {
+    let (d, a) = booted_with(WallpaperPick::Shelf);
+    assert_eq!(a.wallpaper(), WallpaperPick::Shelf);
+    assert!(d.path().join("Wallpapers/Slot.png").exists());
+}
+
+#[test]
+fn deleted_slot_wallpapers_stay_deleted() {
+    let (d, _) = booted_with(WallpaperPick::Default);
+    let dir = d.path().join("Wallpapers");
+    std::fs::remove_file(dir.join("Slot.png")).unwrap();
+    std::fs::remove_file(dir.join("Slot Blur.png")).unwrap();
+    let a = App::boot(d.path());
+    assert!(!dir.join("Slot.png").exists());
+    assert!(!dir.join("Slot Blur.png").exists());
+    assert_eq!(a.resolved_wallpaper(), WallpaperPick::None);
+}
+
+#[test]
+fn a_users_slot_png_is_not_overwritten() {
+    let (d, dir) = papers(&["Slot.png"]);
+    let mine = std::fs::read(dir.join("Slot.png")).unwrap();
+    App::boot(d.path());
+    assert_eq!(std::fs::read(dir.join("Slot.png")).unwrap(), mine);
+    assert_eq!(
+        std::fs::read(dir.join("Slot Blur.png")).unwrap(),
+        slot_ui::SLOT_BLUR_WALLPAPER_PNG
     );
 }

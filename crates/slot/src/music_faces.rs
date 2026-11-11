@@ -93,11 +93,11 @@ fn slot_s(draw: KitDraw, textures: &[TexId]) -> Draw {
 mod tests {
     #[test]
     fn a_music_menu_sits_where_slot_s_quick_menu_would() {
-        use slot_ui::{quick_row_top, QuickRow};
+        use slot_ui::{quick_row_top, Canvas, QuickRow};
         let first = QuickRow::MAIN[0];
         assert_eq!(
             mute_ui::music_menu_top(QuickRow::MAIN.len()),
-            quick_row_top(first, &[]).round()
+            quick_row_top(Canvas::FRAMED, first, &[]).round()
         );
     }
 }

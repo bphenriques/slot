@@ -23,7 +23,7 @@ fn booted(wifi: bool) -> (TempDir, App) {
     (d, a)
 }
 
-fn open_tools(a: &mut App) {
+fn open_network(a: &mut App) {
     a.apply(Action::QuickMenu);
     while a.quick_menu() != Some(QuickRow::Network) {
         press(a, Btn::Down);
@@ -32,15 +32,21 @@ fn open_tools(a: &mut App) {
 }
 
 #[test]
-fn row_shown_only_while_connected() {
+fn the_row_asks_for_wifi_until_connected() {
     for wifi in [false, true] {
         let (_d, mut a) = booted(wifi);
-        open_tools(&mut a);
-        assert_eq!(a.quick_menu(), Some(QuickRow::Network), "wifi.conf {wifi}");
+        open_network(&mut a);
+        assert!(a.quick_menu().is_some_and(|r| r.page() == QuickRow::NETWORK), "wifi.conf {wifi}");
+        while a.quick_menu() != Some(QuickRow::FetchArt) {
+            press(&mut a, Btn::Down);
+        }
+        press(&mut a, Btn::A);
+        assert!(a.update_text().is_some(), "wifi.conf {wifi}");
+        assert!(a.fetch_art().is_none(), "wifi.conf {wifi}");
     }
     let (_d, mut a) = booted(true);
     common::connect(&mut a);
-    open_tools(&mut a);
+    open_network(&mut a);
     assert_eq!(a.quick_menu(), Some(QuickRow::Server));
     assert!(!a.hidden_rows().contains(&QuickRow::FetchArt));
 }
@@ -495,4 +501,62 @@ fn already_connected_skips_the_connecting_line() {
         a.fetch_art_lines(),
         vec!["Fetching Art".to_string()]
     );
+}
+
+#[cfg(feature = "nds")]
+#[test]
+fn fetch_box_art_is_hidden_on_one_panel() {
+    let (_d, mut a) = booted(true);
+    common::connect(&mut a);
+    assert!(a.hidden_rows().contains(&QuickRow::FetchBoxArt));
+}
+
+#[cfg(feature = "nds")]
+fn box_run() -> (TempDir, App, FakeArt) {
+    let (d, mut a) = booted(true);
+    a.set_two_panels(true);
+    common::connect(&mut a);
+    let art = FakeArt::default();
+    a.set_art_jobs(Box::new(art.clone()));
+    assert!(!a.hidden_rows().contains(&QuickRow::FetchBoxArt));
+    open_network(&mut a);
+    while a.quick_menu() != Some(QuickRow::FetchBoxArt) {
+        press(&mut a, Btn::Down);
+    }
+    press(&mut a, Btn::A);
+    (d, a, art)
+}
+
+#[cfg(feature = "nds")]
+#[test]
+fn fetch_box_art_shows_on_two_panels_and_asks_for_the_job() {
+    let (_d, a, art) = box_run();
+    assert_eq!(art.asked(), vec![ArtJob::FetchBoxArt]);
+    assert!(matches!(a.fetch_art(), Some(FetchArt::Running(run)) if run.boxes), "{:?}", a.fetch_art());
+}
+
+#[cfg(feature = "nds")]
+#[test]
+fn fetch_box_art_counts_up_and_ends_on_a_summary() {
+    let (_d, mut a, art) = box_run();
+    art.send(&mut a, ArtEvent::Counted(2));
+    art.send(&mut a, ArtEvent::BoxLanded { stem: "Emerald".into(), platform: Platform::Gba });
+    let lines = a.fetch_art_lines();
+    assert_eq!(lines, vec!["Fetching Box Art".to_string(), "1 of 2".to_string()]);
+    art.send(&mut a, ArtEvent::Missed { stem: "Fusion".into() });
+    art.send(&mut a, ArtEvent::Done { landed: 1, missed: vec!["Fusion".into()] });
+    advance(&mut a, 100.0);
+    assert!(
+        matches!(a.fetch_art(), Some(FetchArt::Summary { landed: 1, featured: None, .. })),
+        "{:?}",
+        a.fetch_art()
+    );
+}
+
+#[cfg(feature = "nds")]
+#[test]
+fn b_stops_fetch_box_art() {
+    let (_d, mut a, art) = box_run();
+    press(&mut a, Btn::B);
+    assert_eq!(art.asked(), vec![ArtJob::FetchBoxArt, ArtJob::Cancel]);
 }

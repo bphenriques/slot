@@ -10,7 +10,7 @@ hide:
 <summary>Over the Air</summary>
 Make sure you are connected to Wi-Fi.
 
-From the shelf, open the menu and pick Network → Check for Updates.
+From the shelf, open the menu and pick System → Check for Updates.
 
 The OTA updater will reach out to GitHub to see if there is a new release of slot or BaseOS.
 
@@ -42,7 +42,7 @@ Update from your computer with the card in hand.
 1.  Download the latest release
     { .step-title role="heading" aria-level="3" }
 
-    Go fetch the [latest slot release](https://github.com/BrandonKowalski/slot/releases/latest) from GitHub and unzip it.
+    Go fetch the [latest slot release](https://github.com/slot-cfw/slot/releases/latest) from GitHub and unzip it.
 
 2.  Replace the `System/` folder
     { .step-title role="heading" aria-level="3" }

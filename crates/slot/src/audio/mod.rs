@@ -1,6 +1,7 @@
 mod alsa;
 #[cfg(feature = "host")]
 mod host;
+mod jack;
 mod line_out;
 mod pacer;
 mod ring;
@@ -13,6 +14,7 @@ pub mod volume;
 pub use alsa::AlsaSink;
 #[cfg(feature = "host")]
 pub use host::HostAudio;
+pub use jack::{follows_jack, Jack, RouteWatch};
 pub use line_out::LineOut;
 pub use pacer::Pacer;
 pub use ring::{ring_capacity, Ring};

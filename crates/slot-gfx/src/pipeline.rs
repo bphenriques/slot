@@ -11,11 +11,29 @@ pub const SRC_H: u32 = OUT_H / SCALE;
 
 pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
+/// How each new frame meets the ones before it, at the game's own size before any scaling.
+/// Authentic always draws its LCD's response, whatever this is.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum FrameBlend {
+    #[default]
+    Off,
+    /// Each frame half and half with the one before it.
+    Mix,
+    /// Authentic's LCD response for the screen in play: each pixel slow to change, slower
+    /// while it turns lighter.
+    Ghosting,
+}
+
 const FULL: [f32; 4] = [0.0, 0.0, OUT_W as f32, OUT_H as f32];
 
 pub struct GamePass {
     prog: gl::types::GLuint,
-    game: gl::types::GLuint,
+    /// The game's last two frames, the newest at `game[at]`.
+    game: [gl::types::GLuint; 2],
+    at: usize,
+    /// How many of `game` hold frames of the picture now showing, up to both.
+    held: usize,
+    blend: FrameBlend,
     u_rect: gl::types::GLint,
     u_bright: gl::types::GLint,
     u_uv: gl::types::GLint,
@@ -37,9 +55,9 @@ pub struct GamePass {
     u_ink: gl::types::GLint,
     u_glass: gl::types::GLint,
     u_sheen: gl::types::GLint,
-    /// How much of the glass's sheen and shade the shader lays over Authentic: none when the
-    /// bezel carries the glass itself.
-    sheen: f32,
+    /// How much of the glass's sheen and of its shade the shader lays over Authentic: none
+    /// when the bezel carries the glass itself, and no sheen when the reflection is off.
+    sheen: [f32; 2],
     ramp: gl::types::GLuint,
     screen: Screen,
     ghost: Ghost,
@@ -57,7 +75,9 @@ pub struct GamePass {
 impl GamePass {
     pub fn new() -> Result<Self, GfxError> {
         let prog = crate::shaders::program(RECT_VERT, GAME_FRAG)?;
-        let game = crate::gl::texture(SRC_W, SRC_H, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::BGRA, None);
+        let game = [0, 1].map(|_| {
+            crate::gl::texture(SRC_W, SRC_H, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::BGRA, None)
+        });
         let paper = crate::gl::texture(
             1,
             1,
@@ -111,9 +131,14 @@ impl GamePass {
             u_glass = crate::gl::uniform_location(prog, "u_glass");
             u_sheen = crate::gl::uniform_location(prog, "u_sheen");
         }
+        let mut ghost = Ghost::new()?;
+        ghost.set_filter(gl::NEAREST);
         Ok(GamePass {
             prog,
             game,
+            at: 0,
+            held: 0,
+            blend: FrameBlend::Off,
             u_rect,
             u_bright,
             u_uv,
@@ -135,10 +160,10 @@ impl GamePass {
             u_ink,
             u_glass,
             u_sheen,
-            sheen: 1.0,
+            sheen: [1.0; 2],
             ramp,
             screen: Screen::Gba,
-            ghost: Ghost::new()?,
+            ghost,
             paper,
             paper_size: 1.0,
             effect: ScreenEffect::Lcd3x,
@@ -162,7 +187,7 @@ impl GamePass {
         let foot = self.bottom;
         match self.fills {
             true => (0.0, 0.0, OUT_W as f32, OUT_H as f32 - foot),
-            false => screen_rect_above(self.power, foot),
+            false => screen_rect_above(crate::Canvas::FRAMED, self.power, foot),
         }
     }
 
@@ -178,6 +203,25 @@ impl GamePass {
         self.pic = rect;
     }
 
+    pub fn fbo_scale(&self) -> [f32; 2] {
+        self.fbo_scale
+    }
+
+    pub fn origin(&self) -> [f32; 2] {
+        self.origin
+    }
+
+    pub fn picture_out(&self) -> [f32; 4] {
+        let (rx, ry, rw, rh) = placed_in(self.frame(), self.layout);
+        let [sx, sy, sw, sh] = self.src;
+        let [p0, q0, p1, q1] = self.pic;
+        let (u0, v0) = (p0.max(sx), q0.max(sy));
+        let (u1, v1) = (p1.min(sx + sw), q1.min(sy + sh));
+        let x = rx + (u0 - sx) / sw * rw;
+        let y = ry + (v0 - sy) / sh * rh;
+        [x, y, (u1 - u0) / sw * rw, (v1 - v0) / sh * rh]
+    }
+
     pub fn set_fbo_scale(&mut self, x: f32, y: f32) {
         self.fbo_scale = [x, y];
     }
@@ -186,15 +230,59 @@ impl GamePass {
         self.origin = [x, y];
     }
 
-    pub fn set_effect(&mut self, effect: ScreenEffect) {
+    pub fn set_effect(&mut self, effect: ScreenEffect, quad: &Quad) {
         if effect != self.effect {
-            self.ghost.reset();
+            self.effect = effect;
+            self.ghost.set_filter(match effect {
+                ScreenEffect::Authentic => gl::LINEAR,
+                _ => gl::NEAREST,
+            });
+            self.reblend(quad);
         }
-        self.effect = effect;
     }
 
-    pub fn set_glass(&mut self, on: bool) {
-        self.sheen = if on { 1.0 } else { 0.0 };
+    pub fn set_blend(&mut self, blend: FrameBlend, quad: &Quad) {
+        if blend != self.blend {
+            self.blend = blend;
+            self.reblend(quad);
+        }
+    }
+
+    /// Blend from the next frame on with nothing before it: the picture jumped.
+    pub fn cut(&mut self) {
+        self.held = 0;
+        self.ghost.reset();
+    }
+
+    /// Blend the last two frames again the new way, so a paused game shows the change.
+    /// Ghosting starts from the frame before; its longer history is gone.
+    fn reblend(&mut self, quad: &Quad) {
+        self.ghost.reset();
+        let (game, last) = (self.game[self.at], self.game[1 - self.at]);
+        match (self.blend(), self.held) {
+            (_, 0) | (FrameBlend::Off, _) => {}
+            // One frame since the last cut: it is all there is to blend the next one with.
+            (_, 1) => self.ghost.respond(game, [0.0; 2], quad),
+            (FrameBlend::Mix, _) => {
+                self.ghost.respond(last, [0.0; 2], quad);
+                self.ghost.mix(game, last, quad);
+            }
+            (FrameBlend::Ghosting, _) => {
+                self.ghost.respond(last, [0.0; 2], quad);
+                self.ghost.respond(game, self.screen.look().ghost, quad);
+            }
+        }
+    }
+
+    fn blend(&self) -> FrameBlend {
+        match self.effect {
+            ScreenEffect::Authentic => FrameBlend::Ghosting,
+            _ => self.blend,
+        }
+    }
+
+    pub fn set_glass(&mut self, sheen: bool, shade: bool) {
+        self.sheen = [sheen, shade].map(|on| if on { 1.0 } else { 0.0 });
     }
 
     pub fn set_screen(&mut self, screen: Screen) {
@@ -223,8 +311,12 @@ impl GamePass {
         if xrgb8888.len() < (SRC_W * SRC_H * 4) as usize {
             return;
         }
+        let last = self.game[self.at];
+        self.at = 1 - self.at;
+        let game = self.game[self.at];
+        self.held = (self.held + 1).min(2);
         unsafe {
-            gl::BindTexture(gl::TEXTURE_2D, self.game);
+            gl::BindTexture(gl::TEXTURE_2D, game);
             gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
             gl::TexSubImage2D(
                 gl::TEXTURE_2D,
@@ -238,9 +330,10 @@ impl GamePass {
                 xrgb8888.as_ptr() as *const std::ffi::c_void,
             );
         }
-        if self.effect == ScreenEffect::Authentic {
-            self.ghost
-                .respond(self.game, self.screen.look().ghost, quad);
+        match self.blend() {
+            FrameBlend::Off => {}
+            FrameBlend::Mix => self.ghost.mix(game, last, quad),
+            FrameBlend::Ghosting => self.ghost.respond(game, self.screen.look().ghost, quad),
         }
     }
 
@@ -251,9 +344,10 @@ impl GamePass {
             }
             _ => self.src,
         };
-        let shown = match self.effect {
-            ScreenEffect::Authentic => self.ghost.texture().unwrap_or(self.game),
-            _ => self.game,
+        let game = self.game[self.at];
+        let shown = match self.blend() {
+            FrameBlend::Off => game,
+            FrameBlend::Mix | FrameBlend::Ghosting => self.ghost.texture().unwrap_or(game),
         };
         self.draw_source(shown, quad, src, self.layout);
     }
@@ -321,7 +415,7 @@ impl GamePass {
                 gl::Uniform4f(self.u_ink, x, y, z, w);
                 let [x, y, z] = look.glass;
                 gl::Uniform3f(self.u_glass, x, y, z);
-                gl::Uniform1f(self.u_sheen, self.sheen);
+                gl::Uniform2f(self.u_sheen, self.sheen[0], self.sheen[1]);
                 gl::ActiveTexture(gl::TEXTURE2);
                 gl::BindTexture(gl::TEXTURE_2D, self.ramp);
             }
@@ -361,7 +455,7 @@ fn whole_scale(at: f32, len: f32, texels: f32, out: f32) -> (f32, f32) {
 impl Drop for GamePass {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteTextures(1, &self.game);
+            gl::DeleteTextures(2, self.game.as_ptr());
             gl::DeleteTextures(1, &self.paper);
             gl::DeleteTextures(1, &self.ramp);
             gl::DeleteProgram(self.prog);

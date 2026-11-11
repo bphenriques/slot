@@ -12,11 +12,17 @@ pub const W: u32 = 1280;
 pub const H: u32 = 661;
 
 pub const GB_W: u32 = 1024;
-pub const GB_H: u32 = 901;
+pub const GB_H: u32 = GB_W * crate::cart::GB_LABEL_H / crate::cart::GB_LABEL_W;
+#[cfg(feature = "nds")]
+pub const DS_W: u32 = 1024;
+#[cfg(feature = "nds")]
+pub const DS_H: u32 = 1104;
 
 pub fn size(platform: Platform) -> (u32, u32) {
     match platform {
         Platform::Gba | Platform::Gbav => (W, H),
+        #[cfg(feature = "nds")]
+        Platform::Nds => (DS_W, DS_H),
         Platform::Gb | Platform::Gbc => (GB_W, GB_H),
     }
 }

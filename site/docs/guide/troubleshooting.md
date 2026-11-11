@@ -4,7 +4,7 @@
 
 - Is it unzipped? slot doesn't read `.zip` or `.7z`.
 - Is it right in `Games/GBA`, `Games/GB` or `Games/GBC`, and not in a nested directory?
-- Did slot boot since you added it? Restart from Settings → About.
+- Did slot boot since you added it? Restart from Settings → System → About.
 - Does it end in `.gba`, `.gb` or `.gbc`? GBA games only show up in `Games/GBA`.
 
 ## My save / save state is missing
@@ -33,7 +33,7 @@ slot spots a new label with the same name and redraws it. If it still looks wron
 
 ## Reporting a bug
 
-Please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues). It helps a lot if you attach:
+Please [open an issue on GitHub](https://github.com/slot-cfw/slot/issues). It helps a lot if you attach:
 
 - `Logs/slot.log`, the run you're on
 - `Logs/slot.log.1`, the run before it. If slot crashed and you rebooted, this is the one

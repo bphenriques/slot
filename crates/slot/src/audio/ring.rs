@@ -31,8 +31,10 @@ pub struct Ring {
     yielded: AtomicBool,
     overruns: AtomicU64,
     underruns: AtomicU64,
+    xruns: AtomicU64,
     consuming: AtomicBool,
     priming: AtomicBool,
+    awake: AtomicBool,
 }
 
 impl Ring {
@@ -56,8 +58,10 @@ impl Ring {
             muted: AtomicBool::new(false),
             overruns: AtomicU64::new(0),
             underruns: AtomicU64::new(0),
+            xruns: AtomicU64::new(0),
             consuming: AtomicBool::new(true),
             priming: AtomicBool::new(false),
+            awake: AtomicBool::new(false),
         }
     }
 
@@ -76,6 +80,7 @@ impl Ring {
         self.rate.store(sample_rate, Ordering::Relaxed);
         self.overruns.store(0, Ordering::Relaxed);
         self.underruns.store(0, Ordering::Relaxed);
+        self.xruns.store(0, Ordering::Relaxed);
         self.consuming.store(true, Ordering::Relaxed);
         self.priming.store(false, Ordering::Relaxed);
     }
@@ -200,9 +205,18 @@ impl Ring {
         self.underruns.load(Ordering::Relaxed)
     }
 
+    pub fn note_xrun(&self) {
+        self.xruns.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn xruns(&self) -> u64 {
+        self.xruns.load(Ordering::Relaxed)
+    }
+
     pub fn clear_faults(&self) {
         self.overruns.store(0, Ordering::Relaxed);
         self.underruns.store(0, Ordering::Relaxed);
+        self.xruns.store(0, Ordering::Relaxed);
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -216,6 +230,14 @@ impl Ring {
     pub fn set_muted(&self, muted: bool) {
         self.muted.store(muted, Ordering::Relaxed);
         self.room.notify_all();
+    }
+
+    pub fn set_awake(&self, awake: bool) {
+        self.awake.store(awake, Ordering::Relaxed);
+    }
+
+    pub fn awake(&self) -> bool {
+        self.awake.load(Ordering::Relaxed)
     }
 
     pub fn muted(&self) -> bool {

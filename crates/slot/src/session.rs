@@ -26,6 +26,8 @@ pub struct Session {
     root: PathBuf,
     app: App,
     emu: Option<EmuHandle>,
+    /// How many cores have been started, so a new one's frames are known for a new picture.
+    launches: u64,
     opening: Option<Opening>,
     sink: Box<dyn AudioSink>,
     line_out: LineOut,
@@ -57,6 +59,7 @@ impl Session {
             app: App::boot(&root),
             root,
             emu: None,
+            launches: 0,
             opening: None,
             sink,
             line_out: LineOut::default(),
@@ -111,7 +114,11 @@ impl Session {
             }
             Cue::Tear => self.play_sfx(Sfx::Tear),
             Cue::BuzzOff => {
-                if self.buzz_ends.take().is_some_and(|end| Instant::now() < end) {
+                if self
+                    .buzz_ends
+                    .take()
+                    .is_some_and(|end| Instant::now() < end)
+                {
                     self.sink.ring().hush();
                 }
             }
@@ -174,6 +181,10 @@ impl Session {
         self.achievements.sync_status()
     }
 
+    pub fn ring(&self) -> std::sync::Arc<crate::audio::Ring> {
+        self.sink.ring()
+    }
+
     pub fn app_mut(&mut self) -> &mut App {
         &mut self.app
     }
@@ -206,8 +217,12 @@ impl Session {
 
     pub fn step_emulator(&self, timeout: Duration) -> bool {
         self.emu.as_ref().is_some_and(|emu| {
-            emu.tick();
-            !emu.wait_frame(timeout) && emu.locked()
+            if crate::ds_view::playing(self) {
+                emu.step_ahead(timeout)
+            } else {
+                emu.tick();
+                !emu.wait_frame(timeout) && emu.locked()
+            }
         })
     }
 
@@ -229,6 +244,11 @@ impl Session {
 
     pub fn frame_ready(&self) -> bool {
         self.emu.as_ref().is_some_and(EmuHandle::frame_ready)
+    }
+
+    /// How many cores have been started: a new one's frames are a new picture.
+    pub fn launches(&self) -> u64 {
+        self.launches
     }
 
     pub fn frames_published(&self) -> u64 {
@@ -414,13 +434,6 @@ impl Session {
                 }
             }
         }
-        if let Some(blending) = self.app.take_blending() {
-            if let Some(emu) = &self.emu {
-                let (key, value) = crate::core::blend_option(self.app.core(), blending);
-                emu.set_option(key, value);
-                repaint = true;
-            }
-        }
         if let Some(codes) = self.app.take_cheat_codes() {
             if let Some(emu) = &self.emu {
                 emu.set_cheats(codes);
@@ -449,6 +462,7 @@ impl Session {
                 self.app.peer_lost();
             }
         }
+        self.sink.ring().set_awake(self.app.expects_sound());
         if let Some(sfx) = self.app.take_sfx() {
             self.play_sfx(sfx);
         }
@@ -661,7 +675,6 @@ impl Session {
         let player = self.app.link_player();
         let chosen = self.app.core_gb_colors();
         let colour = self.app.core_colour_correction_for(platform);
-        let blending = self.app.core_blending_for(platform);
         let join = std::thread::Builder::new()
             .name("slot-open".into())
             .spawn(move || {
@@ -671,9 +684,7 @@ impl Session {
                 };
                 launch("resume state read");
                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
-                let mut opened = open_core(
-                    &root, core, platform, serial, colour, blending, palette, player,
-                );
+                let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
                 crate::core::apply_game_boy_player(&mut *opened.core, core, platform, &rom);
                 launch("core opened");
                 let sav = persist::read_sav(&root, platform, &stem);
@@ -683,6 +694,8 @@ impl Session {
                 let cheats = match core {
                     Core::Mgba => crate::cheats::load(&root, platform, &stem, &rom),
                     Core::Gpsp | Core::Gambatte => Vec::new(),
+                    #[cfg(feature = "nds")]
+                    Core::Dsperate => Vec::new(),
                 };
                 launch("cheats read");
                 Loaded {
@@ -744,6 +757,7 @@ impl Session {
         emu.set_driven(self.driven);
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);
+        self.launches += 1;
         self.sunlight_sent = None;
         true
     }

@@ -6,12 +6,12 @@
 
 # slot, with music
 
-[slot](https://github.com/BrandonKowalski/slot) is Brandon Kowalski's bespoke, Game Boy-centric
+[slot](https://github.com/slot-cfw/slot) is Brandon Kowalski's bespoke, Game Boy-centric
 frontend for the Anbernic RG SP. This is [pvaibhav's fork](https://github.com/pvaibhav/slot) of it,
 with a music and audiobook player built in: [mute](https://github.com/bphenriques/mute-player).
 Everything else, what slot does, setting it up, supported devices and the guide at
 [slot-cfw.fyi](https://slot-cfw.fyi), is as upstream documents it: see
-[pvaibhav's README](https://github.com/pvaibhav/slot) and [Brandon's](https://github.com/BrandonKowalski/slot).
+[pvaibhav's README](https://github.com/pvaibhav/slot) and [Brandon's](https://github.com/slot-cfw/slot).
 
 > [!WARNING]
 > **Experimental, and built with AI assistance.** This fork adds a music and audiobook player
@@ -70,12 +70,12 @@ QUICK MENU › MUSIC plays what is on the card, offline.
 
 ## Getting it
 
-Download the zip from the [current release](https://github.com/bphenriques/slot/releases/tag/v1.14.0-bphenriques.1)
+Download the zip from the [current release](https://github.com/bphenriques/slot/releases/tag/v1.15.3-bphenriques.1)
 and put it on the card as upstream's guide says for slot. Its
 [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
-A release uses upstream's version with a `-bphenriques` suffix: `v1.14.0-bphenriques.1` is the
-first built on upstream 1.14.0, and `v1.14.0-bphenriques.2` would be the second.
+A release uses upstream's version with a `-bphenriques` suffix: `v1.15.3-bphenriques.1` is the
+first built on upstream 1.15.3, and `v1.15.3-bphenriques.2` would be the second.
 
 ## Credits
 

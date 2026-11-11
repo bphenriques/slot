@@ -746,7 +746,14 @@ fn both_b_and_menu_take_the_about_screen_back_to_the_quick_menu() {
     ] {
         let (mut s, _motor) = common::session_with_platform(d.path());
         s.app_mut().apply(slot_input::Action::QuickMenu);
-        for _ in 0..slot_ui::QuickRow::About.position(&[]) {
+        for _ in 0..slot_ui::QuickRow::System.position(&[]) {
+            s.app_mut()
+                .apply(slot_input::Action::GbaDown(slot_input::Btn::Down));
+        }
+        s.app_mut()
+            .apply(slot_input::Action::GbaDown(slot_input::Btn::A));
+        let hidden = s.app().hidden_rows();
+        for _ in 0..slot_ui::QuickRow::About.position(&hidden) {
             s.app_mut()
                 .apply(slot_input::Action::GbaDown(slot_input::Btn::Down));
         }
@@ -835,7 +842,7 @@ fn start_on_the_shelf_opens_the_core_picker_on_the_carts_current_core() {
     app.apply(Action::GbaDown(Btn::B));
     let_it_close(&mut app);
 
-    slot_store::write_selected_core(d.path(), "Emerald", Core::Gpsp).unwrap();
+    slot_store::write_selected_core(d.path(), Platform::Gba, "Emerald", Core::Gpsp).unwrap();
     app.apply(Action::GbaDown(Btn::Start));
     assert_eq!(
         app.core_picker(),
@@ -852,7 +859,10 @@ fn choosing_a_core_writes_it_and_closes() {
     app.apply(Action::GbaDown(Btn::Right));
     app.apply(Action::GbaDown(Btn::A));
 
-    assert_eq!(slot_store::core_for_platform(d.path(), "Emerald", Platform::Gba, Core::Mgba), Core::Gpsp);
+    assert_eq!(
+        slot_store::core_for_platform(d.path(), "Emerald", Platform::Gba, Core::Mgba),
+        Core::Gpsp
+    );
     assert_eq!(
         slot_store::core_for_platform(d.path(), "Zzz", Platform::Gba, Core::Mgba),
         Core::Mgba,
@@ -961,7 +971,10 @@ fn a_mid_hop_writes_where_the_chip_is_heading() {
     app.apply(Action::GbaDown(Btn::Right));
     app.update(0.05);
     app.apply(Action::GbaDown(Btn::A));
-    assert_eq!(slot_store::core_for_platform(d.path(), "Emerald", Platform::Gba, Core::Mgba), Core::Gpsp);
+    assert_eq!(
+        slot_store::core_for_platform(d.path(), "Emerald", Platform::Gba, Core::Mgba),
+        Core::Gpsp
+    );
 }
 
 #[test]
@@ -1015,7 +1028,10 @@ fn shutting_the_lid_closes_the_picker_without_writing() {
     app.apply(Action::GbaDown(Btn::Right));
     app.apply(Action::LidClose);
     assert_eq!(app.core_picker(), None, "the picker survived the lid");
-    assert_eq!(slot_store::core_for_platform(d.path(), "Emerald", Platform::Gba, Core::Mgba), Core::Mgba);
+    assert_eq!(
+        slot_store::core_for_platform(d.path(), "Emerald", Platform::Gba, Core::Mgba),
+        Core::Mgba
+    );
 }
 
 #[test]
@@ -1355,7 +1371,10 @@ fn the_open_cart_rests_over_the_shelf_with_its_lid_turned() {
     );
     let left = at(swap.0)[0] - at(cancel.0)[0] - seen(cancel.1);
     let right = at(choose.0)[0] - at(swap.0)[0] - seen(swap.1);
-    assert!((left - right).abs() <= 1.0, "Swap is not spread: {left} {right}");
+    assert!(
+        (left - right).abs() <= 1.0,
+        "Swap is not spread: {left} {right}"
+    );
 }
 
 #[test]
@@ -1508,7 +1527,12 @@ fn the_highlighted_cart_becomes_the_lid_rather_than_a_second_cart() {
 
     let (_, lid, turn) = turned_at(&out, f.lid).expect("no lid");
     let want = grown(
-        lid_from(Canvas::FRAMED, shelf_cart_at(rest, 1.0), 0.0).0,
+        lid_from(
+            Canvas::FRAMED,
+            shelf_cart_at(slot_ui::Canvas::FRAMED, rest, 1.0),
+            0.0,
+        )
+        .0,
         TURN_PAD as f32,
     );
     assert!(
@@ -1521,7 +1545,7 @@ fn the_highlighted_cart_becomes_the_lid_rather_than_a_second_cart() {
     let slid = frame(&app);
     let (_, lid, turn) = turned_at(&slid, f.lid).expect("the lid vanished mid-slide");
     assert_eq!(turn, 0.0, "the lid turned while it slid");
-    let shelf = shelf_cart_at(rest, 1.0);
+    let shelf = shelf_cart_at(slot_ui::Canvas::FRAMED, rest, 1.0);
     let want = grown(
         Placed {
             y: shelf.y - SLIDE_UP * 0.5,
@@ -1732,7 +1756,10 @@ fn the_open_waits_on_the_shelf_for_its_faces() {
     app.set_core_board_faces(f.board, f.lid);
     app.update(0.016);
     let out = frame(&app);
-    let shelf = grown(shelf_cart_at(rest, 1.0), TURN_PAD as f32);
+    let shelf = grown(
+        shelf_cart_at(slot_ui::Canvas::FRAMED, rest, 1.0),
+        TURN_PAD as f32,
+    );
     let (_, lid, _) = turned_at(&out, f.lid).expect("no lid once the faces arrived");
     assert!(
         near(lid, [shelf.x, shelf.y, shelf.w, shelf.h]),
@@ -2282,7 +2309,7 @@ fn a_jumped_to_letter_is_set_at_the_titles_size_on_its_baseline() {
     assert_eq!(h, slot_ui::TITLE_LINE_H as f32);
     assert_eq!(
         y + h,
-        slot_ui::slot_name_y() + slot_ui::HINT_H as f32,
+        slot_ui::slot_name_y(slot_ui::Canvas::FRAMED) + slot_ui::HINT_H as f32,
         "the letter left the title's baseline"
     );
 }
@@ -2307,7 +2334,7 @@ fn the_shelf_name_is_set_at_the_letters_size_on_its_baseline() {
     assert_eq!(h, slot_ui::TITLE_LINE_H as f32);
     assert_eq!(
         y + h,
-        slot_ui::slot_name_y() + slot_ui::HINT_H as f32,
+        slot_ui::slot_name_y(slot_ui::Canvas::FRAMED) + slot_ui::HINT_H as f32,
         "the shelf name left the title's baseline"
     );
 }
@@ -2381,6 +2408,24 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
 }
 
 #[test]
+fn the_lcd_shader_draws_lcd3x_on_a_3_by_2_panel_and_the_grid_lcd_elsewhere() {
+    let d = common::tmp_root_with_carts(&["Emerald"]);
+    let (mut s, _motor) = common::session_with_platform(d.path());
+    s.app_mut().apply(slot_input::Action::Insert);
+    s.app_mut().apply(slot_input::Action::ShaderPrev);
+    assert_eq!(s.app().screen_shader(), slot_store::Shader::Lcd3x);
+    for (panel, want) in [
+        ((720, 480), slot_gfx::ScreenEffect::Lcd3x),
+        ((640, 480), slot_gfx::ScreenEffect::LcdGrid),
+        ((1024, 768), slot_gfx::ScreenEffect::LcdGrid),
+        ((720, 480), slot_gfx::ScreenEffect::Lcd3x),
+    ] {
+        s.app_mut().set_panel(panel);
+        assert_eq!(s.app().screen_effect(), want, "{panel:?}");
+    }
+}
+
+#[test]
 fn the_shader_shortcut_does_nothing_on_the_shelf() {
     let d = common::tmp_root_with_carts(&["Emerald", "Fusion"]);
     let (mut s, _motor) = common::session_with_platform(d.path());
@@ -2427,7 +2472,7 @@ fn buttons_during_shutdown_never_reach_the_game() {
 
 #[test]
 fn authentic_trades_the_game_boys_colour_ghosting_and_palette_rows_for_a_model() {
-    use slot_store::{Blending, GbColors, GbPalette, Platform, Shader};
+    use slot_store::{GbColors, GbPalette, Platform, Shader};
     use slot_ui::QuickRow;
     let d = common::tmp_root_with_gb_carts(&["Tetris", "Zelda"]);
     let (mut s, _motor) = common::session_with_platform(d.path());
@@ -2455,7 +2500,6 @@ fn authentic_trades_the_game_boys_colour_ghosting_and_palette_rows_for_a_model()
     // The setting stays as chosen; only the core is told to leave the picture alone.
     assert!(app.colour_correction_for(Platform::Gb));
     assert!(!app.core_colour_correction_for(Platform::Gb));
-    assert_eq!(app.core_blending_for(Platform::Gb), Blending::Off);
     assert_eq!(
         app.core_gb_colors(),
         GbColors::Palette(GbPalette::GRAYSCALE)

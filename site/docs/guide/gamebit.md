@@ -8,7 +8,7 @@ You need Wi-Fi set up first. Open the menu on the shelf and go to Network to joi
 
 Once you are connected to a Wi-Fi network:
 
-1. Open the menu on the shelf and pick Network → Gamebit.
+1. Open the menu on the shelf and pick Tools → Gamebit.
 2. The device prints a receipt with a QR code and a PIN.
 3. Scan the QR code on the receipt, or go to slot.local and enter the PIN.
 
@@ -56,7 +56,7 @@ Each platform has a Bezels tab for uploading and removing bezels. See [Bezels](c
 
 ## BIOS
 
-Each platform has a BIOS tab. BIOS files are optional. See [BIOS](customizing.md#bios).
+Each platform has a BIOS tab. BIOS files are optional. See [BIOS](playing.md#bios).
 
 ## Boot logo
 

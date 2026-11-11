@@ -99,7 +99,7 @@ fn on_updates() -> (TempDir, App, FakeJobs) {
     assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
     connect(&mut a);
     a.apply(Action::QuickMenu);
-    while a.quick_menu() != Some(QuickRow::Network) {
+    while a.quick_menu() != Some(QuickRow::System) {
         press(&mut a, Btn::Down);
     }
     press(&mut a, Btn::A);
@@ -274,7 +274,7 @@ fn every_failure_has_its_own_words() {
         (
             UpdateFail::NoWifi,
             "Could not join Wi-Fi",
-            "Check Wi-Fi in the General menu.",
+            "Check Wi-Fi in the System menu.",
         ),
         (
             UpdateFail::Offline,
@@ -305,6 +305,8 @@ fn every_failure_has_its_own_words() {
     for (fail, title, detail) in want {
         let (_d, mut a, jobs) = on_updates();
         press(&mut a, Btn::A);
+        jobs.send(&mut a, UpdateEvent::Available(vec![release()]));
+        press(&mut a, Btn::A);
         jobs.send(&mut a, UpdateEvent::Failed(fail.clone()));
         assert_eq!(text(&a), Some((title.into(), detail.into())), "{fail:?}");
         press(&mut a, Btn::B);
@@ -313,16 +315,50 @@ fn every_failure_has_its_own_words() {
 }
 
 #[test]
-fn leaving_the_network_page_mid_check_drops_the_result() {
+fn a_check_that_cannot_reach_the_server_says_to_try_again_later() {
+    for fail in [
+        UpdateFail::Offline,
+        UpdateFail::Download,
+        UpdateFail::Bad,
+        UpdateFail::Checksum,
+    ] {
+        let (_d, mut a, jobs) = on_updates();
+        press(&mut a, Btn::A);
+        jobs.send(&mut a, UpdateEvent::Failed(fail.clone()));
+        assert_eq!(
+            text(&a),
+            Some((
+                "Could not fetch update info".into(),
+                "Try again later.".into()
+            )),
+            "{fail:?}"
+        );
+        press(&mut a, Btn::B);
+        assert!(!a.update_shown());
+    }
+    let (_d, mut a, jobs) = on_updates();
+    press(&mut a, Btn::A);
+    jobs.send(&mut a, UpdateEvent::Failed(UpdateFail::NoWifi));
+    assert_eq!(
+        text(&a),
+        Some((
+            "Could not join Wi-Fi".into(),
+            "Check Wi-Fi in the System menu.".into()
+        ))
+    );
+}
+
+#[test]
+fn leaving_the_system_page_mid_check_drops_the_result() {
     let (_d, mut a, jobs) = on_updates();
     press(&mut a, Btn::A);
     press(&mut a, Btn::B);
     assert!(on_updates_row(&a));
     press(&mut a, Btn::B);
-    assert_eq!(a.quick_menu(), Some(QuickRow::Network));
+    assert_eq!(a.quick_menu(), Some(QuickRow::System));
     jobs.send(&mut a, UpdateEvent::Available(vec![release()]));
     assert!(!a.update_shown());
-    assert_eq!(a.quick_menu(), Some(QuickRow::Network));
+    assert_eq!(a.quick_menu(), Some(QuickRow::System));
 }
 
 #[test]
@@ -398,6 +434,10 @@ fn session_on_about(wifi: bool) -> (TempDir, slot::session::Session) {
     let (mut s, _motor) = common::session_with_platform(d.path());
     s.app_mut().set_update_jobs(Box::new(FakeJobs::default()));
     s.app_mut().apply(Action::QuickMenu);
+    s.app_mut().apply(Action::GbaDown(Btn::Up));
+    s.app_mut().apply(Action::GbaUp(Btn::Up));
+    s.app_mut().apply(Action::GbaDown(Btn::A));
+    s.app_mut().apply(Action::GbaUp(Btn::A));
     s.app_mut().apply(Action::GbaDown(Btn::Up));
     s.app_mut().apply(Action::GbaUp(Btn::Up));
     s.app_mut().apply(Action::GbaDown(Btn::A));
