@@ -228,7 +228,13 @@ tasks:
         in the serial batch (mgba_link, gpsp, core_options, bios, core, link_ui). The aarch64 vendor
         cores cannot load on this x86_64 host, so the mock stands in and they fail; upstream tested
         them on its own host, on this release."'
-      - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" SKIP_CORE_TESTS="{{.SKIP}}" SKIP_CARGO_CORE_TESTS="{{.SKIP_CARGO_CORE_TESTS}}" task test test:card
+      - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" SKIP_CORE_TESTS="{{.SKIP}}" SKIP_CARGO_CORE_TESTS="{{.SKIP_CARGO_CORE_TESTS}}" task test
+      - >-
+        sh -c 'mkdir -p "{{.ROOT_DIR}}/target-check/binshim"
+        && for c in mkdir rm chmod mv sleep bash; do ln -sfn "$(type -P "$c")" "{{.ROOT_DIR}}/target-check/binshim/$c"; done
+        && ln -sfn "$(type -P bash)" "{{.ROOT_DIR}}/target-check/binshim/sh"'
+      - >-
+        cd "{{.WT}}" && proot -b "{{.ROOT_DIR}}/target-check/binshim:/bin" task test:card
       - git worktree remove --force "{{.WT}}"
       - >-
         git tag -a "{{.VERSION}}" -m "slot {{.VERSION}}" -m "Checked: {{.SHA}}"

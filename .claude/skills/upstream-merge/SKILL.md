@@ -20,8 +20,9 @@ description: Merge a new pvaibhav/slot release into this fork and prepare the ma
    `README.md`, and the version line in `DEVELOPMENT.md`.
 5. **Report** conflicts, footprint, and anything new worth trying or scoping. Stop there: releasing
    is the `release` skill, on the owner's go — and it is `task tag:music`, not upstream's `task
-   tag`: this x86_64 host cannot load the aarch64 vendor cores, so the suite's eleven
-   vendored-core tests fail here and upstream's host-core plumbing is macOS-shaped.
+   tag`: this x86_64 host cannot load the aarch64 vendor cores, so the suite's 59 vendored-core
+   tests fail here, the card suites need a `/bin` proot shim, and upstream's host-core plumbing is
+   macOS-shaped.
 
 ## Gotchas
 
