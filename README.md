@@ -70,16 +70,17 @@ QUICK MENU › MUSIC plays what is on the card, offline.
 
 ## Getting it
 
-Download the zip from the [current release](https://github.com/bphenriques/slot/releases/tag/v1.15.3-bphenriques.1)
+Download the zip from the [current release](https://github.com/bphenriques/slot/releases/tag/v1.16.0-bphenriques.1)
 and put it on the card as upstream's guide says for slot. Its
 [release notes](RELEASE_NOTES.md) describe the changes since the previous fork release.
 
-A release uses upstream's version with a `-bphenriques` suffix: `v1.15.3-bphenriques.1` is the
-first built on upstream 1.15.3, and `v1.15.3-bphenriques.2` would be the second.
+A release uses upstream's version with a `-bphenriques` suffix: `v1.16.0-bphenriques.1` is the
+first built on upstream 1.16.0, and `v1.16.0-bphenriques.2` would be the second.
 
 ## Credits
 
-slot is Brandon Kowalski's, with art by [Markus](https://github.com/MarkusMaribu); mGBA and
-gpSP play the games; pvaibhav's fork adds its own features on top. As upstream says, its frontend
-was put together with Claude, and this fork's player was written with AI assistance too.
+slot is Brandon Kowalski's, with art by [Markus](https://github.com/MarkusMaribu); mGBA, gpSP,
+Gambatte and armGBA play the games; pvaibhav's fork adds its own features on top. As upstream
+says, its frontend was put together with Claude, and this fork's player was written with AI
+assistance too.
 Licences, and every crate the player links, are in `System/licenses/` on the card.

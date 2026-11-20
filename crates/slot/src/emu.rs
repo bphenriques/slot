@@ -78,6 +78,7 @@ enum Cmd {
     Sav(Sender<Option<Vec<u8>>>),
     Thumb(Sender<Option<Vec<u8>>>),
     BeginLink(u16, Box<dyn LinkChannel>),
+    BeginLiveLink(u16, Box<dyn LinkChannel>),
     EndLink,
     BeginCable(u8, Box<dyn LinkChannel>),
     SetOption(String, String),
@@ -95,7 +96,6 @@ struct Shared {
     state: AtomicU8,
     rewind: AtomicBool,
     rewind_fill: AtomicU8,
-    turbo: AtomicBool,
     recording: AtomicBool,
     stop: AtomicBool,
     volume: AtomicU8,
@@ -178,7 +178,6 @@ impl EmuHandle {
             state: AtomicU8::new(CoreState::Loading as u8),
             rewind: AtomicBool::new(false),
             rewind_fill: AtomicU8::new(0),
-            turbo: AtomicBool::new(true),
             recording: AtomicBool::new(true),
             stop: AtomicBool::new(false),
             volume: AtomicU8::new(100),
@@ -255,6 +254,16 @@ impl EmuHandle {
             &self.cmds,
             &self.shared,
             Cmd::BeginLink(client_id, transport),
+        );
+    }
+
+    /// A link for a core that waits inside a frame for the other device: its packets cross as
+    /// it sends and polls them.
+    pub fn begin_live_link(&self, client_id: u16, transport: Box<dyn LinkChannel>) {
+        request(
+            &self.cmds,
+            &self.shared,
+            Cmd::BeginLiveLink(client_id, transport),
         );
     }
 
@@ -416,10 +425,6 @@ impl EmuHandle {
         if self.shared.rewind.swap(on, Ordering::Relaxed) != on {
             self.wake();
         }
-    }
-
-    pub fn set_turbo(&self, on: bool) {
-        self.shared.turbo.store(on, Ordering::Relaxed);
     }
 
     pub fn set_rewind_recording(&self, on: bool) {
@@ -665,6 +670,7 @@ impl Worker {
         let mut turbo_frame = 0u32;
         let mut transport: Option<Box<dyn LinkChannel>> = None;
         let mut cable: Option<Cable> = None;
+        let mut live: Option<Live> = None;
         let mut cable_presents = 0u32;
         let mut cable_stalls = 0u32;
         let mut cable_said = Instant::now();
@@ -674,7 +680,14 @@ impl Worker {
         let mut owed = 0u32;
         while !self.shared.stop.load(Ordering::Relaxed) {
             for cmd in self.cmds.try_iter() {
-                self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+                self.apply(
+                    cmd,
+                    core.as_mut(),
+                    &mut transport,
+                    &mut cable,
+                    &mut live,
+                    &link,
+                );
             }
 
             if let Some(t) = transport.as_mut() {
@@ -706,13 +719,26 @@ impl Worker {
                             }
                         }
                     }
-                    None => drain_transport(t.as_mut(), &link, MAX_LINK_PACKETS_PER_PRESENT),
+                    None => match &live {
+                        Some(Live::Closed) => while t.try_recv().is_some() {},
+                        Some(Live::Linked) | None => {
+                            drain_transport(t.as_mut(), &link, MAX_LINK_PACKETS_PER_PRESENT)
+                        }
+                    },
                 }
                 if t.peer_ended() {
                     self.shared.peer_ended.store(true, Ordering::Relaxed);
                 }
                 if t.is_closed() {
                     self.shared.link_lost.store(true, Ordering::Relaxed);
+                }
+                if matches!(live, Some(Live::Linked)) && (t.peer_ended() || t.is_closed()) {
+                    // The other device is gone. Until the app ends the session, armGBA would
+                    // wait out its three-second timeout on every transfer, so its cable comes
+                    // out now and the game plays on alone.
+                    core.stop_link();
+                    link.unplug();
+                    live = Some(Live::Closed);
                 }
             }
             core.pump_link();
@@ -805,11 +831,7 @@ impl Worker {
                     ran += 1;
                     let last = ran >= ceiling
                         || (speed == Speed::Fast && cost.last(began.elapsed(), budget));
-                    let input = match self.shared.turbo.load(Ordering::Relaxed) {
-                        true => mask_for(core.takes_xy(), input, turbo_frame),
-                        false if core.takes_xy() => input,
-                        false => input.without_turbo(),
-                    };
+                    let input = mask_for(core.takes_xy(), input, turbo_frame);
                     turbo_frame = turbo_frame.wrapping_add(1);
                     core.set_frame_skip(!last);
                     let frame_began = Instant::now();
@@ -1004,7 +1026,14 @@ impl Worker {
                         }
                         Wait::Request => {
                             for cmd in self.cmds.try_iter() {
-                                self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+                                self.apply(
+                                    cmd,
+                                    core.as_mut(),
+                                    &mut transport,
+                                    &mut cable,
+                                    &mut live,
+                                    &link,
+                                );
                             }
                             if self.shared.stop.load(Ordering::Relaxed)
                                 || self.speed() != Speed::Normal
@@ -1041,7 +1070,14 @@ impl Worker {
             }
             while !self.wait_until(deadline) {
                 for cmd in self.cmds.try_iter() {
-                    self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+                    self.apply(
+                        cmd,
+                        core.as_mut(),
+                        &mut transport,
+                        &mut cable,
+                        &mut live,
+                        &link,
+                    );
                 }
                 let driven_normal = self.shared.driven.load(Ordering::Relaxed)
                     && speed == Speed::Normal
@@ -1057,7 +1093,14 @@ impl Worker {
             }
         }
         for cmd in self.cmds.try_iter() {
-            self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+            self.apply(
+                cmd,
+                core.as_mut(),
+                &mut transport,
+                &mut cable,
+                &mut live,
+                &link,
+            );
         }
         ring.set_muted(false);
         ring.set_idle(false);
@@ -1073,6 +1116,7 @@ impl Worker {
         core: &mut dyn RetroCore,
         transport: &mut Option<Box<dyn LinkChannel>>,
         cable: &mut Option<Cable>,
+        live: &mut Option<Live>,
         link: &Link,
     ) {
         match cmd {
@@ -1110,18 +1154,24 @@ impl Worker {
                 let _ = reply.send(crate::thumb::png(core.video_xrgb8888()));
             }
             Cmd::BeginLink(client_id, t) => {
-                self.shared.link_lost.store(false, Ordering::Relaxed);
-                self.shared.peer_ended.store(false, Ordering::Relaxed);
-                self.shared.bios_mismatch.store(false, Ordering::Relaxed);
+                self.clear_link_flags();
                 link.clear();
                 core.start_link(client_id);
                 link.set_active(true);
                 *transport = Some(t);
             }
+            Cmd::BeginLiveLink(client_id, t) => {
+                self.clear_link_flags();
+                link.clear();
+                let wire = Wire(Arc::new(Mutex::new(t)));
+                link.plug(Box::new(wire.clone()));
+                core.start_link(client_id);
+                link.set_active(true);
+                *live = Some(Live::Linked);
+                *transport = Some(Box::new(wire));
+            }
             Cmd::BeginCable(player, t) => {
-                self.shared.link_lost.store(false, Ordering::Relaxed);
-                self.shared.peer_ended.store(false, Ordering::Relaxed);
-                self.shared.bios_mismatch.store(false, Ordering::Relaxed);
+                self.clear_link_flags();
                 let mut c = Cable::new(player);
                 let mut wire = t;
                 if player == 0 {
@@ -1148,11 +1198,11 @@ impl Worker {
                 self.shared.cuts.fetch_add(1, Ordering::Relaxed);
             }
             Cmd::EndLink => {
-                self.shared.link_lost.store(false, Ordering::Relaxed);
-                self.shared.peer_ended.store(false, Ordering::Relaxed);
-                self.shared.bios_mismatch.store(false, Ordering::Relaxed);
+                self.clear_link_flags();
                 *cable = None;
+                *live = None;
                 core.stop_link();
+                link.unplug();
                 if let Some(t) = transport.as_mut() {
                     t.send_end();
                 }
@@ -1161,6 +1211,12 @@ impl Worker {
                 link.set_active(false);
             }
         }
+    }
+
+    fn clear_link_flags(&self) {
+        self.shared.link_lost.store(false, Ordering::Relaxed);
+        self.shared.peer_ended.store(false, Ordering::Relaxed);
+        self.shared.bios_mismatch.store(false, Ordering::Relaxed);
     }
 
     fn frame_done(&self, served: u64) {
@@ -1244,6 +1300,46 @@ fn pack_touch(at: Option<(u8, u8)>) -> u32 {
 
 fn unpack_touch(packed: u32) -> Option<(u8, u8)> {
     (packed != NO_TOUCH).then_some(((packed >> 8) as u8, packed as u8))
+}
+
+/// A live link's transport, shared by the worker, which watches and ends it, and the core's
+/// link, which sends and polls through it mid-frame.
+#[derive(Clone)]
+struct Wire(Arc<Mutex<Box<dyn LinkChannel>>>);
+
+impl Wire {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Box<dyn LinkChannel>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl LinkChannel for Wire {
+    fn send(&mut self, flags: i32, buf: &[u8]) {
+        self.lock().send(flags, buf);
+    }
+
+    fn try_recv(&mut self) -> Option<Vec<u8>> {
+        self.lock().try_recv()
+    }
+
+    fn is_closed(&self) -> bool {
+        self.lock().is_closed()
+    }
+
+    fn send_end(&mut self) {
+        self.lock().send_end();
+    }
+
+    fn peer_ended(&self) -> bool {
+        self.lock().peer_ended()
+    }
+}
+
+/// A live link: carrying the core's packets, or closed once the other device is gone, until the
+/// session ends.
+enum Live {
+    Linked,
+    Closed,
 }
 
 fn flush_outbound(transport: &mut Option<Box<dyn LinkChannel>>, link: &Link) {

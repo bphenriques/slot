@@ -407,10 +407,12 @@ impl Session {
             emu.set_volume(self.app.output_volume());
         }
         if let Some((client_id, transport)) = self.app.take_link_transport() {
+            let live = crate::core::links_live(self.app.core());
             match &self.emu {
-                Some(emu) => match self.app.link_player() {
-                    Some(player) => emu.begin_cable(player, transport),
-                    None => emu.begin_link(client_id, transport),
+                Some(emu) => match (self.app.link_player(), live) {
+                    (Some(player), _) => emu.begin_cable(player, transport),
+                    (None, true) => emu.begin_live_link(client_id, transport),
+                    (None, false) => emu.begin_link(client_id, transport),
                 },
                 None => eprintln!("slot: link: a transport arrived with no core to run it"),
             }
@@ -439,9 +441,10 @@ impl Session {
                 emu.set_cheats(codes);
             }
         }
-        if let (Some(level), Some(emu)) = (self.app.sunlight(), &self.emu) {
+        let sunlight = crate::core::sunlight_option(self.app.core()).zip(self.app.sunlight());
+        if let (Some((key, level)), Some(emu)) = (sunlight, &self.emu) {
             if self.sunlight_sent != Some(level) {
-                emu.set_option(crate::core::SUNLIGHT_OPTION, &level.to_string());
+                emu.set_option(key, &level.to_string());
                 self.sunlight_sent = Some(level);
             }
         }
@@ -575,6 +578,7 @@ impl Session {
             || self.app.in_game_menu().is_some()
             || self.app.repair_prompt()
             || self.app.shutting_down()
+            || self.app.invite_card().is_some()
     }
 
     fn dozing(&self) -> bool {
@@ -605,7 +609,6 @@ impl Session {
                 Speed::Normal
             });
             emu.set_rewinding(self.actually_rewinding());
-            emu.set_turbo(self.app.turbo());
             emu.set_rewind_recording(self.app.records_rewind());
         }
     }
@@ -662,7 +665,13 @@ impl Session {
         else {
             return;
         };
-        let core = slot_store::core_for_platform(&self.root, stem, platform, self.app.gb_core());
+        let own = slot_store::core_for_platform(&self.root, stem, platform, self.app.gb_core());
+        let core = self
+            .app
+            .link_core()
+            .filter(|c| c.runs(platform))
+            .unwrap_or(own);
+        let switched = core != own;
         launch(&format!("opening {stem} on {}", core.as_str()));
         self.app.set_core(core);
         self.app.set_platform(platform);
@@ -671,7 +680,7 @@ impl Session {
         self.app.set_link_loaded(serial);
         let root = self.root.clone();
         let stem = stem.to_owned();
-        let clean = self.app.starting_clean();
+        let clean = self.app.starting_clean() || switched;
         let player = self.app.link_player();
         let chosen = self.app.core_gb_colors();
         let colour = self.app.core_colour_correction_for(platform);
@@ -692,7 +701,7 @@ impl Session {
                 // gpSP turns down the database's encrypted codes and holds 20 at most. Gambatte's
                 // cheats are not wired up yet.
                 let cheats = match core {
-                    Core::Mgba => crate::cheats::load(&root, platform, &stem, &rom),
+                    Core::Mgba | Core::Armgba => crate::cheats::load(&root, platform, &stem, &rom),
                     Core::Gpsp | Core::Gambatte => Vec::new(),
                     #[cfg(feature = "nds")]
                     Core::Dsperate => Vec::new(),
@@ -707,6 +716,7 @@ impl Session {
                     sav,
                     resume,
                     cheats,
+                    switched,
                 }
             })
             .ok();
@@ -744,15 +754,15 @@ impl Session {
         if sav_unread {
             emu.refuse_save_ram();
         }
-        if resume_unread {
+        if resume_unread || loaded.switched {
             emu.refuse_resume();
         }
-        self.app.set_resume_unread(resume_unread);
         let codes = crate::cheats::codes(&loaded.cheats);
         if !codes.is_empty() {
             emu.set_cheats(codes);
         }
         self.app.set_cheats(loaded.cheats);
+        self.app.set_resume_unread(resume_unread || loaded.switched);
         emu.set_volume(self.app.output_volume());
         emu.set_driven(self.driven);
         self.app.set_snapshot(Box::new(emu.snapshot()));
@@ -804,6 +814,7 @@ struct Loaded {
     sav: std::io::Result<Option<Vec<u8>>>,
     resume: std::io::Result<Option<Vec<u8>>>,
     cheats: Vec<crate::cheats::Cheat>,
+    switched: bool,
 }
 
 struct Opening {
@@ -828,10 +839,12 @@ fn launch(step: &str) {
 }
 
 fn governor_for(core: Core, platform: Platform, running: bool) -> slot_power::CpuGovernor {
-    if running && core == Core::Mgba && platform.hardware() == Platform::Gba {
-        slot_power::CpuGovernor::Performance
-    } else {
-        slot_power::CpuGovernor::Schedutil
+    use slot_power::CpuGovernor::{Performance, Schedutil};
+    match core {
+        Core::Mgba if running && platform.hardware() == Platform::Gba => Performance,
+        Core::Mgba | Core::Gpsp | Core::Gambatte | Core::Armgba => Schedutil,
+        #[cfg(feature = "nds")]
+        Core::Dsperate => Schedutil,
     }
 }
 
@@ -848,6 +861,10 @@ mod governor_tests {
             (Core::Mgba, Platform::Gb, Schedutil),
             (Core::Mgba, Platform::Gbc, Schedutil),
             (Core::Gpsp, Platform::Gba, Schedutil),
+            (Core::Armgba, Platform::Gba, Schedutil),
+            (Core::Armgba, Platform::Gbav, Schedutil),
+            (Core::Armgba, Platform::Gb, Schedutil),
+            (Core::Armgba, Platform::Gbc, Schedutil),
         ] {
             assert_eq!(governor_for(core, platform, true), expected);
             assert_eq!(governor_for(core, platform, false), Schedutil);

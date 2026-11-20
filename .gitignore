@@ -32,3 +32,4 @@
 # A local checkout of mute to build against, as AGENTS.md says: never committed.
 /.cargo/config.toml
 /.task/
+/target-check

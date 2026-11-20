@@ -564,6 +564,7 @@ fn art_upload_over_a_label_learned_at_boot_shows_the_new_label() {
         code: String::new(),
         shell: None,
         sealed: false,
+        tags: Vec::new(),
     };
     assert_eq!(
         &slot::label_cache::label_art(root, &cart).unwrap()[..3],
@@ -645,18 +646,18 @@ fn resume_names(platform: Platform, tag: &str, file: &str) -> serde_json::Value 
 }
 
 #[test]
-fn a_gb_game_lists_mgba_and_gambatte_only() {
+fn a_gb_game_lists_mgba_gambatte_and_armgba_only() {
     assert_eq!(
         resume_names(Platform::Gb, "GB", "Alpha.gb"),
-        serde_json::json!(["mGBA", "Gambatte"])
+        serde_json::json!(["mGBA", "Gambatte", "armGBA"])
     );
 }
 
 #[test]
-fn a_gba_game_lists_mgba_and_gpsp_only() {
+fn a_gba_game_lists_mgba_gpsp_and_armgba_only() {
     assert_eq!(
         resume_names(Platform::Gba, "GBA", "Alpha.gba"),
-        serde_json::json!(["mGBA", "gpSP"])
+        serde_json::json!(["mGBA", "gpSP", "armGBA"])
     );
 }
 
