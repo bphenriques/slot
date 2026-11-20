@@ -61,7 +61,7 @@ tasks:
       SLOT_SILENT: '1'
     cmds:
       - cargo nextest run --workspace --features slot/romm --no-fail-fast -E 'not ({{.IN_PROCESS}}{{.SKIP_CORE_TESTS}})'
-      - cargo test -p slot --no-fail-fast {{.SLOT_IN_PROCESS}}
+      - cargo test -p slot --no-fail-fast {{.SLOT_IN_PROCESS}} {{.SKIP_CARGO_CORE_TESTS}}
       - cargo test -p slot-gfx --test pipeline
       - cargo test -p slot-ui --test render_row_edges
       - cargo test -p slot-retro --test options --test netpacket --test libretro
@@ -159,6 +159,57 @@ tasks:
         sh: git rev-parse HEAD
       WT: '{{.ROOT_DIR}}/.worktrees/release-check'
       SKIP: " + (test(/two_armgba_consoles_trade_multiplayer|two_different_games_link_like_a_cable|a_session_outlives_its_peer_leaving_cleanly|normal_mode_32_bit_crosses|normal_mode_8_bit_crosses|the_cable_keeps_every_word_in_turn|a_live_armgba_session_withholds_fast_forward|a_raw_ram_cheat_writes_armgbas_memory|real_cores_expose_game_boy_color|a_game_the_link_core_cannot_load_shows_the_join_failure|a_kid_whose_own_core_will_not_reload_goes_back_to_the_shelf/))"
+      # The same in the serial batch, whose tests the real mgba, gpSP and Gambatte need; libtest
+      # --skip is a substring match, so one flag per test; empty means no flags at all.
+      SKIP_CARGO_CORE_TESTS: >-
+        -- --skip a_cable_session_leaves_the_bios_to_the_card
+        --skip a_cable_session_sets_nothing_on_gpsp
+        --skip a_cart_the_real_core_refuses_comes_back_out_of_the_slot
+        --skip a_game_that_will_not_load_again_comes_back_out_of_the_slot
+        --skip a_gpsp_cart_runs_the_dylib_planted_under_its_own_name_through_the_session
+        --skip a_link_mode_worker_resumes_a_one_gba_state
+        --skip a_link_mode_workers_state_resumes_on_a_single_core
+        --skip a_link_state_of_two_single_gba_states_restores_each_player_where_they_were
+        --skip a_link_states_travels_between_two_link_mode_cores
+        --skip a_link_state_the_core_refuses_leaves_both_gbas_where_they_were
+        --skip a_named_palette_forces_a_plain_game_boy_without_hardware_presets
+        --skip an_original_game_boy_game_runs_on_the_plain_model_with_auto
+        --skip a_pair_restored_in_multiplayer_mode_talks_from_the_first_transfer
+        --skip a_restore_does_not_depend_on_what_the_cores_ran_before_it
+        --skip a_rom_the_real_core_refuses_reports_failed
+        --skip a_single_core_refuses_a_link_state
+        --skip both_cores_are_told_about_colour_correction_in_their_own_words
+        --skip both_cores_declare_a_colour_correction_option
+        --skip both_cores_declare_a_frame_blending_option
+        --skip both_players_devices_compute_the_same_machines
+        --skip every_option_slot_sets_is_one_the_core_declares
+        --skip every_start_gives_both_gbas_the_same_buttons_on_the_same_frame
+        --skip every_start_joins_the_two_gbas_with_their_frames_ending_together
+        --skip gambatte_runs_the_cart_straight_away_without_a_bios
+        --skip gpsp_boots_through_the_bios_when_the_card_carries_one
+        --skip gpsp_is_left_on_its_own_boot_default_when_the_card_has_no_bios
+        --skip gpsp_is_put_on_auto_frameskip
+        --skip gpsp_is_told_its_serial_mode_before_load
+        --skip gpsp_is_told_the_serial_mode_it_is_handed
+        --skip gpsp_loads_and_runs_a_frame
+        --skip link_mode_off_keeps_the_single_gba_state
+        --skip link_mode_refuses_anything_but_a_whole_link_state
+        --skip link_mode_saves_both_gbas_in_one_link_state
+        --skip link_mode_shows_the_local_players_gba_holding_its_own_port
+        --skip mgba_answers_the_game_boy_player_logo_except_for_gba_video
+        --skip mgba_is_given_its_own_frameskip_and_none_of_gpsps
+        --skip mgba_runs_the_cheats_it_is_given_and_a_new_list_replaces_the_old
+        --skip open_core_reaches_a_gpsp_named_dylib_under_the_content_roots_system_directory
+        --skip skipping_the_peers_picture_and_sound_does_not_change_the_machine
+        --skip the_blending_off_slot_sets_is_one_the_core_declares
+        --skip the_cable_is_plugged_in_after_a_load_and_after_a_restore
+        --skip the_core_is_told_the_bios_folder_not_the_dylib_folder
+        --skip the_core_is_told_the_saves_folder_too
+        --skip the_cores_with_a_solar_sensor_take_every_sunlight_level_slot_can_send
+        --skip the_gpsp_cartridge_clock_keeps_time_while_the_game_is_off
+        --skip the_mgba_cartridge_clock_keeps_time_while_the_game_is_off
+        --skip the_vendored_core_is_preferred_over_the_mock
+        --skip two_identical_gbas_read_the_same_buttons_on_the_same_frame
     preconditions:
       - sh: '! git rev-parse -q --verify "refs/tags/{{.VERSION}}" >/dev/null'
         msg: '{{.VERSION}} is already tagged'
@@ -171,19 +222,22 @@ tasks:
       - ln -s "{{.ROOT_DIR}}/vendor" "{{.WT}}/vendor"
       - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" task lint lint:device lint:nds
       - >-
-        cd "{{.WT}}" && sh -c 'echo "skipping the eleven tests that need a vendored core to load:
-        the seven armbga_link cable and session tests, armbga_cheats'"'"'s raw RAM cheat,
-        achievement_memory'"'"'s real_cores, and the two link_invites tests that load a core. The
-        aarch64 vendor cores cannot load on this x86_64 host, so the mock stands in and they fail;
-        upstream tested them on its own host, on this release."'
-      - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" SKIP_CORE_TESTS="{{.SKIP}}" task test test:card
+        cd "{{.WT}}" && sh -c 'echo "skipping 59 tests that need a vendored core to load: 11 in the
+        nextest phase (the seven armbga_link cable and session tests, armbga_cheats'"'"'s raw RAM
+        cheat, achievement_memory'"'"'s real_cores, the two link_invites core-loading tests) and 48
+        in the serial batch (mgba_link, gpsp, core_options, bios, core, link_ui). The aarch64 vendor
+        cores cannot load on this x86_64 host, so the mock stands in and they fail; upstream tested
+        them on its own host, on this release."'
+      - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" SKIP_CORE_TESTS="{{.SKIP}}" SKIP_CARGO_CORE_TESTS="{{.SKIP_CARGO_CORE_TESTS}}" task test test:card
       - git worktree remove --force "{{.WT}}"
       - >-
         git tag -a "{{.VERSION}}" -m "slot {{.VERSION}}" -m "Checked: {{.SHA}}"
-        -m "The suite ran without the vendored-core tests (armgba_link, armbga_cheats,
-        achievement_memory's real_cores, link_invites' two core-loading tests): the aarch64 vendor
-        cores cannot load on this x86_64 host, and the fork is mute's hook on upstream's release,
-        tested there." {{.SHA}}
+        -m "The suite ran without the 59 tests that need a vendored core to load: 11 in the nextest
+        phase (the seven armbga_link cable and session tests, armbga_cheats' raw RAM cheat,
+        achievement_memory's real_cores, the two link_invites core-loading tests) and 48 in the
+        serial cargo-test batch (mgba_link, gpsp, core_options, bios, core, link_ui). The aarch64
+        vendor cores cannot load on this x86_64 host, so the mock stands in and they fail; upstream
+        tested them on its own host, on this release." {{.SHA}}
 
   check:
     desc: Everything a CI run would do
