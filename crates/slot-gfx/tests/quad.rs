@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use slot_gfx::{Compositor, Draw, HeadlessSurface, OUT_H, OUT_W};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 

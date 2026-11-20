@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;

@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 mod common;
 
 use std::collections::VecDeque;

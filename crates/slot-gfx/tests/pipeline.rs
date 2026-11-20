@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use slot_gfx::{
     blue_light_gain, canvas_size, contrast_boost, dim_gain, game_layout, lcd3x_factors, lcd3x_mask,
     saturation_boost, Compositor, Draw, FrameBlend, GameLayout, HeadlessSurface, Overlay, Screen,

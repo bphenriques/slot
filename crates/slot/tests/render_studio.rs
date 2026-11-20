@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 mod common;
 
 use common::{clocked, tmp_root_with_gb_carts};

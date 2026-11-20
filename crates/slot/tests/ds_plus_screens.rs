@@ -1,4 +1,4 @@
-#![cfg(feature = "nds")]
+#![cfg(all(target_os = "macos", feature = "nds"))]
 
 mod common;
 
