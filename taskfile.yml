@@ -34,6 +34,10 @@ vars:
     | (package(slot-gfx) & binary(pipeline)) | (package(slot-ui) & binary(render_row_edges))
     | (package(slot-retro) & (binary(options) | binary(netpacket) | binary(libretro)))
 
+  # This fork's release gate (task tag:music) leaves these out of the suite: they load a vendored
+  # core, which only a macOS or arm64 host can; an x86_64 host falls to the mock and they fail.
+  # The filter text arrives in SKIP_CORE_TESTS, empty everywhere else.
+
 tasks:
   default:
     desc: List available tasks
@@ -56,7 +60,7 @@ tasks:
     env:
       SLOT_SILENT: '1'
     cmds:
-      - cargo nextest run --workspace --features slot/romm --no-fail-fast -E 'not ({{.IN_PROCESS}})'
+      - cargo nextest run --workspace --features slot/romm --no-fail-fast -E 'not ({{.IN_PROCESS}}{{.SKIP_CORE_TESTS}})'
       - cargo test -p slot --no-fail-fast {{.SLOT_IN_PROCESS}}
       - cargo test -p slot-gfx --test pipeline
       - cargo test -p slot-ui --test render_row_edges
@@ -142,6 +146,44 @@ tasks:
       - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" task lint lint:device lint:nds test test:card
       - git worktree remove --force "{{.WT}}"
       - 'git tag -a "{{.VERSION}}" -m "slot {{.VERSION}}" -m "Checked: {{.SHA}}" {{.SHA}}'
+
+  tag:music:
+    desc: >-
+      task tag for this fork, on an x86_64 host: the suite minus the vendored-core tests, which
+      only a macOS or arm64 host can load (aarch64 vendor cores; the mock stands in and they
+      fail). The fork is mute's hook on upstream's release, tested there. Runs check:music too.
+    requires:
+      vars: [ VERSION ]
+    vars:
+      SHA:
+        sh: git rev-parse HEAD
+      WT: '{{.ROOT_DIR}}/.worktrees/release-check'
+      SKIP: " + (test(/two_armgba_consoles_trade_multiplayer|two_different_games_link_like_a_cable|a_session_outlives_its_peer_leaving_cleanly|normal_mode_32_bit_crosses|normal_mode_8_bit_crosses|the_cable_keeps_every_word_in_turn|a_live_armgba_session_withholds_fast_forward|a_raw_ram_cheat_writes_armgbas_memory|real_cores_expose_game_boy_color|a_game_the_link_core_cannot_load_shows_the_join_failure|a_kid_whose_own_core_will_not_reload_goes_back_to_the_shelf/))"
+    preconditions:
+      - sh: '! git rev-parse -q --verify "refs/tags/{{.VERSION}}" >/dev/null'
+        msg: '{{.VERSION}} is already tagged'
+      - sh: '! pgrep -x cargo >/dev/null && ! pgrep -x rustc >/dev/null'
+        msg: Another build is running, wait for it to finish
+    cmds:
+      - task: check:music
+      - git worktree remove --force "{{.WT}}" 2>/dev/null || true
+      - git worktree add --detach "{{.WT}}" {{.SHA}}
+      - ln -s "{{.ROOT_DIR}}/vendor" "{{.WT}}/vendor"
+      - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" task lint lint:device lint:nds
+      - >-
+        cd "{{.WT}}" && sh -c 'echo "skipping the eleven tests that need a vendored core to load:
+        the seven armbga_link cable and session tests, armbga_cheats'"'"'s raw RAM cheat,
+        achievement_memory'"'"'s real_cores, and the two link_invites tests that load a core. The
+        aarch64 vendor cores cannot load on this x86_64 host, so the mock stands in and they fail;
+        upstream tested them on its own host, on this release."'
+      - cd "{{.WT}}" && CARGO_TARGET_DIR="{{.ROOT_DIR}}/target-check" SKIP_CORE_TESTS="{{.SKIP}}" task test test:card
+      - git worktree remove --force "{{.WT}}"
+      - >-
+        git tag -a "{{.VERSION}}" -m "slot {{.VERSION}}" -m "Checked: {{.SHA}}"
+        -m "The suite ran without the vendored-core tests (armgba_link, armbga_cheats,
+        achievement_memory's real_cores, link_invites' two core-loading tests): the aarch64 vendor
+        cores cannot load on this x86_64 host, and the fork is mute's hook on upstream's release,
+        tested there." {{.SHA}}
 
   check:
     desc: Everything a CI run would do
