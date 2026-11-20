@@ -249,6 +249,7 @@ fn up_and_down_move_the_bar_and_wrap_at_the_ends() {
         QuickRow::Controls,
         QuickRow::Screen,
         QuickRow::Network,
+        QuickRow::Music,
         QuickRow::System,
         QuickRow::General,
     ] {
@@ -687,7 +688,9 @@ fn select_start_on_about_still_restarts() {
 fn tools_sits_between_screen_and_system() {
     let at = |row| QuickRow::MAIN.iter().position(|r| *r == row);
     assert_eq!(at(QuickRow::Network), at(QuickRow::Screen).map(|i| i + 1));
-    assert_eq!(at(QuickRow::System), at(QuickRow::Network).map(|i| i + 1));
+    // slot, with music: Music sits between Tools and System.
+    assert_eq!(at(QuickRow::Music), at(QuickRow::Network).map(|i| i + 1));
+    assert_eq!(at(QuickRow::System), at(QuickRow::Music).map(|i| i + 1));
     assert_eq!(QuickRow::Network.label(), "Tools");
     assert_eq!(QuickRow::General.label(), "Shelf");
     assert_eq!(QuickRow::WIFI, [QuickRow::WifiPower, QuickRow::Networks]);
