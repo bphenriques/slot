@@ -253,6 +253,12 @@ impl Ring {
         self.yielded.load(Ordering::Relaxed)
     }
 
+    /// Whether the output is let go once slot is quiet: always while the music has the codec;
+    /// else not with headphones in, which keep it open against their buzz.
+    pub fn lets_go(&self, headphones: bool) -> bool {
+        self.yielded() || !headphones
+    }
+
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }

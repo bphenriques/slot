@@ -260,7 +260,7 @@ impl Playback {
                 }
             }
             match (self.pcm, hold) {
-                (Some(_), false) if !jack.plugged() => {
+                (Some(_), false) if ring.lets_go(jack.plugged()) => {
                     self.release();
                     eprintln!("slot: audio released after silence");
                 }

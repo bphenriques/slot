@@ -486,3 +486,13 @@ fn a_usb_dac_replaces_the_onboard_codec() {
         ["plug:default", "hw:0,0"]
     );
 }
+
+#[test]
+fn the_output_goes_to_the_music_even_with_headphones_in() {
+    let r = Ring::new(8);
+    assert!(r.lets_go(false), "quiet, on the speaker");
+    assert!(!r.lets_go(true), "headphones keep it open against their buzz");
+    r.set_yielded(true);
+    assert!(r.lets_go(true), "the music has the codec");
+    assert!(r.lets_go(false));
+}

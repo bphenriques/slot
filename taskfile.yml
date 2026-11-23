@@ -273,6 +273,7 @@ tasks:
       - cargo test -p slot-input
       - cargo test -p slot --no-default-features --features slot/device --lib
       - cargo test -p slot --no-default-features --features slot/device --test evdev
+      - cargo test -p slot --no-default-features --features slot/device --test audio
       - git checkout -- crates/slot/tests/prefetch.rs
       - task: footprint
 
