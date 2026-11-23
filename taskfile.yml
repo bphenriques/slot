@@ -806,6 +806,11 @@ tasks:
     vars:
       FEATURES: '{{.FEATURES | default "slot/device"}}'
       PACKAGES: -p slot --no-default-features --features {{.FEATURES}}
+    env:
+      # The fork's own version, never pvaibhav's tag merged in with his code: the updater offers a
+      # newer -bphenriques release only to a build that calls itself one.
+      SLOT_VERSION:
+        sh: git describe --tags --abbrev=0 --match 'v*-bphenriques.*' 2>/dev/null || true
     cmds:
       - |
         set -eu

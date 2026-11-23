@@ -10,7 +10,8 @@ Run each step as its own command, never chained after an edit or build.
 1. **Guard.** Find the card (`findmnt -rn -o TARGET,OPTIONS | grep /run/media`), then require:
    mounted `rw`, `/sys/block/mmcblk0/ro` is `0`, `test -w "$C"`, and `$C/System/` exists. Any
    failure: stop and tell the owner (often the lock switch: reinsert).
-2. **Sync.** It rebuilds first, so it needs the whole toolchain; it adds and replaces, and games,
+2. **Sync.** `git fetch origin --tags` first: the build names itself after this fork's newest tag,
+   and the device's updater offers releases only to a build that does. It rebuilds first, so it needs the whole toolchain; it adds and replaces, and games,
    saves and config stay:
    ```sh
    nix-shell -p go-task rustup cmake jq zig cargo-zigbuild rsync file curl unzip bun --run \
